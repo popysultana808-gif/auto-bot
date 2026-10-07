@@ -11,27 +11,22 @@ from telegram.ext import (
     ContextTypes
 )
 
-# বটের কনফিগারেশন
+# --- কনফিগারেশন ---
 BOT_TOKEN = "8826168593:AAEobfC2UHJKtDv9XmvcMc1CmOviAVbloQQ"
-
-# আপনার সাপোর্ট ইউজারনেম
 SUPPORT_USERNAME = "@Talha_juba098"
 
-# নতুন ফার্স্ট গ্রুপ (ওয়েলকাম মেসেজের জন্য)
-WELCOME_CHAT_ID = "-1004471047712"
-
-# সেকেন্ড গ্রুপ (ট্রানজ্যাকশনের জন্য)
-TRANSACTION_CHAT_ID = "-1003991468184"
+# গ্রুপ আইডিসমূহ
+WELCOME_CHAT_ID = "-1004471047712"     # ফার্স্ট গ্রুপ: যেখানে ওয়েলকাম মেসেজ যাবে
+TRANSACTION_CHAT_ID = "-1003991468184"  # সেকেন্ড গ্রুপ: যেখানে ট্রানজ্যাকশন পোস্ট হবে
 
 ADMIN_USER_ID = None  
 
-# রিসাইকেল টাইম লিস্ট (১, ২, ৩, ৪, ৫ মিনিট)
+# রিসাইকেল টাইমার লিস্ট (১, ২, ৩, ৪, ৫ মিনিট)
 CYCLE_INTERVALS = [60, 120, 180, 240, 300]
 
-# অ্যাডমিন কন্ট্রোল ফ্ল্যাগ
 is_tx_active = True
 
-# বাংলাদেশি নামসমূহ
+# বাংলাদেশি কাস্টমার নামসমূহ
 NAMES = [
     "Arif Hasan", "Tanvir Ahmed", "Sakib Al Hasan", "Rahim Uddin", 
     "Mehedi Hasan", "Nusrat Jahan", "Sadia Islam", "Farhana Akter", 
@@ -40,24 +35,44 @@ NAMES = [
     "Mahmudul Hasan", "Naimur Rahman", "Sabiha Sultana", "Habibur Rahman"
 ]
 
-# --- Render পোর্টের জন্য ওয়েব সার্ভার ---
+# উইথড্র/পেমেন্ট মাধ্যমসমূহ
+PAYMENT_METHODS = [
+    "bKash (Personal)",
+    "Nagad",
+    "Rocket",
+    "Upay",
+    "Binance (Pay/USDT)",
+    "bKash (Merchant)"
+]
+
+# --- UptimeRobot ও Render স্লিপ প্রতিরোধক HTTP সার্ভার ---
 async def start_dummy_web_server():
     port = int(os.environ.get("PORT", 10000))
+
     async def handle_ping(reader, writer):
-        response = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nOK"
-        writer.write(response)
+        await reader.read(1024)
+        response = (
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/plain; charset=utf-8\r\n"
+            "Content-Length: 17\r\n"
+            "Connection: close\r\n\r\n"
+            "Bot is Active 24/7"
+        )
+        writer.write(response.encode("utf-8"))
         await writer.drain()
         writer.close()
+        await writer.wait_closed()
 
     server = await asyncio.start_server(handle_ping, "0.0.0.0", port)
-    print(f"Web server running on port {port}")
+    print(f"Uptime Keep-Alive Server running on port {port}")
     async with server:
         await server.serve_forever()
 
-# --- ১. স্বয়ংক্রিয় ট্রানজ্যাকশন মেসেজ (HTML ফরম্যাটে) ---
+# --- ১. স্বয়ংক্রিয় ট্রানজ্যাকশন মেসেজ তৈরি (মাধ্যম সহ) ---
 def get_transaction_data():
     tx_id = f"TX{random.randint(10000000, 99999999)}"
     
+    # ৫০ থেকে ২০০০ টাকার মধ্যে নির্দিষ্ট কিছু সাধারণ স্ল্যাব বা র‍্যান্ডম ভ্যালু
     common_amounts = [50, 100, 150, 200, 300, 450, 500, 800, 900, 1000, 1200, 1300, 1500, 1800, 2000]
     if random.random() < 0.6:
         amount = random.choice(common_amounts)
@@ -65,11 +80,13 @@ def get_transaction_data():
         amount = random.randint(50, 2000)
         
     user = random.choice(NAMES)
+    method = random.choice(PAYMENT_METHODS)
     status = "SUCCESSFUL ✅"
     
     return (
-        f"🔔 <b>New Transaction Completed!</b>\n\n"
+        f"🔔 <b>New Withdrawal Completed!</b>\n\n"
         f"👤 <b>Customer:</b> <code>{user}</code>\n"
+        f"💳 <b>Method:</b> <code>{method}</code>\n"
         f"💰 <b>Amount:</b> <code>৳ {amount:,} BDT</code>\n"
         f"🆔 <b>TrxID:</b> <code>{tx_id}</code>\n"
         f"📊 <b>Status:</b> {status}\n"
@@ -91,7 +108,7 @@ async def send_periodic_transactions(application):
                         text=msg,
                         parse_mode="HTML"
                     )
-                    print(f"Transaction sent successfully after {wait_seconds // 60} min.")
+                    print(f"Transaction sent to 2nd group after {wait_seconds // 60} min.")
                 except Exception as e:
                     print(f"Error sending transaction: {e}")
 
@@ -120,7 +137,7 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 text=welcome_text,
                 parse_mode="HTML"
             )
-            print(f"Welcome sent to {user_name}, will delete in 30s...")
+            print(f"Welcome sent to {user_name}, deleting in 30s...")
 
             await asyncio.sleep(30)
             await context.bot.delete_message(
@@ -131,7 +148,7 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except Exception as e:
             print(f"Error handling welcome message: {e}")
 
-# --- ৪. অ্যাডমিন প্যানেল ---
+# --- ৪. অ্যাডমিন কন্ট্রোল প্যানেল ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if ADMIN_USER_ID and update.effective_user.id != ADMIN_USER_ID:
         await update.message.reply_text("⛔ আপনি অ্যাডমিন নন!")
@@ -189,7 +206,7 @@ async def admin_button_callback(update: Update, context: ContextTypes.DEFAULT_TY
         except Exception as e:
             await query.message.reply_text(f"❌ ব্যর্থ হয়েছে: {e}")
 
-# --- ৫. বট রানার ---
+# --- ৫. সার্ভিস ইনিশিয়ালাইজেশন ---
 async def post_init(application):
     asyncio.create_task(send_periodic_transactions(application))
     asyncio.create_task(start_dummy_web_server())
