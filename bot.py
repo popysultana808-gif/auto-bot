@@ -5,18 +5,25 @@ import time
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ChatMemberHandler, ContextTypes
 
-# আপনার বটের টোকেন
+# বটের কনফিগারেশন
 BOT_TOKEN = "8826168593:AAEobfC2UHJKtDv9XmvcMc1CmOviAVbloQQ"
 
-# আপনার দুটি গ্রুপের চ্যাট আইডি
-TARGET_CHAT_IDS = [
-    "-1004424049305",
-    "-1003991468184",
+# যে গ্রুপে শুধুমাত্র ট্রানজ্যাকশন যাবে
+TRANSACTION_CHAT_ID = "-1004424049305"
+
+# আপনার রিসাইকেল টাইম লিস্ট (মিনিটকে সেকেন্ডে রূপান্তর: ১, ২, ৩, ৪, ৫ মিনিট)
+CYCLE_INTERVALS = [60, 120, 180, 240, 300]
+
+# সুন্দর বাংলাদেশি ছেলে ও মেয়েদের নাম
+NAMES = [
+    "Arif Hasan", "Tanvir Ahmed", "Sakib Al Hasan", "Rahim Uddin", 
+    "Mehedi Hasan", "Nusrat Jahan", "Sadia Islam", "Farhana Akter", 
+    "Jannatul Ferdous", "Ayesha Siddiqua", "Rifat Hossain", "Sumaiya Kabir", 
+    "Shakil Khan", "Fahim Shahriar", "Mim Akter", "Tasnim Sultana",
+    "Mahmudul Hasan", "Naimur Rahman", "Sabiha Sultana", "Habibur Rahman"
 ]
 
-INTERVAL_SECONDS = 300  # প্রতি ৫ মিনিট পরপর পোস্ট হবে
-
-# --- Render-এর জন্য ডামি ওয়েব সার্ভার (পোর্ট সমস্যা সমাধানের জন্য) ---
+# --- Render-এর ওয়েব সার্ভার যাতে পোর্ট এরর না দেয় ---
 async def start_dummy_web_server():
     port = int(os.environ.get("PORT", 10000))
 
@@ -27,60 +34,62 @@ async def start_dummy_web_server():
         writer.close()
 
     server = await asyncio.start_server(handle_ping, "0.0.0.0", port)
-    print(f"Web server started on port {port}")
+    print(f"Web server active on port {port}")
     async with server:
         await server.serve_forever()
 
-# --- ১. স্বয়ংক্রিয় ট্রানজ্যাকশন মেসেজ তৈরি ---
+# --- ১. স্বয়ংক্রিয় ট্রানজ্যাকশন মেসেজ জেনারেটর ---
 def get_transaction_data():
-    tx_id = f"TX{random.randint(100000, 999999)}"
-    amount = round(random.uniform(10.0, 500.0), 2)
-    user = f"user_{random.randint(100, 999)}"
-    status = "SUCCESS ✅"
+    tx_id = f"TX{random.randint(10000000, 99999999)}"
+    # টাকায় ব্যালেন্স (যেমন: ৫০০ থেকে ২৫,০০০ টাকার মধ্যে পূর্ণসংখ্যা)
+    amount = random.randint(500, 25000)
+    user = random.choice(NAMES)
+    status = "SUCCESSFUL ✅"
     
     return (
-        f"🔔 *New Transaction Detected!*\n\n"
-        f"👤 *User:* `{user}`\n"
-        f"💵 *Amount:* `${amount}`\n"
-        f"🆔 *TxID:* `{tx_id}`\n"
+        f"🔔 *New Transaction Completed!*\n\n"
+        f"👤 *Customer:* `{user}`\n"
+        f"💰 *Amount:* `৳ {amount:,} BDT`\n"
+        f"🆔 *TrxID:* `{tx_id}`\n"
         f"📊 *Status:* {status}\n"
-        f"⏰ *Time:* {time.strftime('%Y-%m-%d %H:%M:%S')}"
+        f"⏰ *Time:* {time.strftime('%I:%M:%S %p')}"
     )
 
-# --- ২. ব্যাকগ্রাউন্ডে দুটি গ্রুপেই মেসেজ পাঠানো ---
+# --- ২. রিসাইকেল টাইমিং অনুযায়ী ট্রানজ্যাকশন পাঠানোর লুপ ---
 async def send_periodic_transactions(application):
-    await asyncio.sleep(5)
+    await asyncio.sleep(5)  # বট চালুর ৫ সেকেন্ড পর ব্যাকগ্রাউন্ড প্রসেস শুরু
+    
     while True:
-        try:
-            msg = get_transaction_data()
-            for chat_id in TARGET_CHAT_IDS:
-                try:
-                    await application.bot.send_message(
-                        chat_id=chat_id,
-                        text=msg,
-                        parse_mode="Markdown"
-                    )
-                except Exception as send_err:
-                    print(f"Error sending to group {chat_id}: {send_err}")
-            print("Transactions sent successfully.")
-        except Exception as e:
-            print(f"Loop error: {e}")
-            
-        await asyncio.sleep(INTERVAL_SECONDS)
+        # প্রতি সাইকেলে ১ মিনিট, ২ মিনিট, ৩ মিনিট, ৪ মিনিট, ৫ মিনিট করে চলবে
+        for wait_seconds in CYCLE_INTERVALS:
+            try:
+                # সময় অনুযায়ী অপেক্ষা (১ম বার ১ মিনিট, ২য় বার ২ মিনিট...)
+                await asyncio.sleep(wait_seconds)
+                
+                msg = get_transaction_data()
+                await application.bot.send_message(
+                    chat_id=TRANSACTION_CHAT_ID,
+                    text=msg,
+                    parse_mode="Markdown"
+                )
+                print(f"Transaction sent after {wait_seconds // 60} min wait.")
+            except Exception as e:
+                print(f"Error sending transaction: {e}")
 
-# --- ৩. নতুন মেম্বারদের ওয়েলকাম মেসেজ দেওয়া ---
+# --- ৩. নতুন মেম্বার জয়েন করলে ওয়েলকাম মেসেজ দেওয়া ---
 async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = update.chat_member
     new_member = result.new_chat_member
 
+    # যেকোনো গ্রুপে নতুন মেম্বার ঢুকলে
     if new_member.status in ["member", "administrator"] and result.old_chat_member.status in ["left", "kicked"]:
         user = new_member.user
         user_name = user.full_name
         
         welcome_text = (
-            f"👋 স্বাগতম, [{user_name}](tg://user?id={user.id}) আমাদের গ্রুপে!\n\n"
+            f"👋 স্বাগতম, [{user_name}](tg://user?id={user.id}) ہمارے গ্রুপে!\n\n"
             f"📌 গ্রুপে নিয়মিত আপডেট ও লেনদেন সংক্রান্ত তথ্য শেয়ার করা হয়।\n"
-            f"দয়া করে গ্রুপের নিয়ম মেনে চলুন।"
+            f"দয়া করে নিয়মাবলি মেনে চলুন।"
         )
         
         await context.bot.send_message(
@@ -88,11 +97,10 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
             text=welcome_text,
             parse_mode="Markdown"
         )
-        print(f"Welcomed: {user_name}")
+        print(f"Welcomed: {user_name} in chat: {update.effective_chat.id}")
 
 # --- ৪. ব্যাকগ্রাউন্ড টাস্ক চালু করা ---
 async def post_init(application):
-    # ট্রানজ্যাকশন ও ওয়েব সার্ভার দুটিকেই ব্যাকগ্রাউন্ডে চালু করা
     asyncio.create_task(send_periodic_transactions(application))
     asyncio.create_task(start_dummy_web_server())
 
