@@ -17,13 +17,12 @@ BOT_TOKEN = "8826168593:AAEobfC2UHJKtDv9XmvcMc1CmOviAVbloQQ"
 # আপনার সাপোর্ট ইউজারনেম
 SUPPORT_USERNAME = "@Talha_juba098"
 
-# ফার্স্ট গ্রুপ (শুধুমাত্র ওয়েলকাম মেসেজ চলবে)
-WELCOME_CHAT_ID = "-1004424049305"
+# নতুন ফার্স্ট গ্রুপ (ওয়েলকাম মেসেজের জন্য)
+WELCOME_CHAT_ID = "-1004471047712"
 
-# সেকেন্ড গ্রুপ (শুধুমাত্র ট্রানজ্যাকশন চলবে)
+# সেকেন্ড গ্রুপ (ট্রানজ্যাকশনের জন্য)
 TRANSACTION_CHAT_ID = "-1003991468184"
 
-# আপনার টেলিগ্রাম আইডি (প্রয়োজন হলে বসাতে পারেন, না দিলেও সমস্যা নেই)
 ADMIN_USER_ID = None  
 
 # রিসাইকেল টাইম লিস্ট (১, ২, ৩, ৪, ৫ মিনিট)
@@ -55,11 +54,10 @@ async def start_dummy_web_server():
     async with server:
         await server.serve_forever()
 
-# --- ১. স্বয়ংক্রিয় ট্রানজ্যাকশন জেনারেটর (সাপোর্ট আইডি সহ) ---
+# --- ১. স্বয়ংক্রিয় ট্রানজ্যাকশন মেসেজ (HTML ফরম্যাটে) ---
 def get_transaction_data():
     tx_id = f"TX{random.randint(10000000, 99999999)}"
     
-    # ৫০ থেকে ২০০০ টাকার মধ্যে নির্দিষ্ট কিছু সাধারণ স্ল্যাব বা র‍্যান্ডম ভ্যালু
     common_amounts = [50, 100, 150, 200, 300, 450, 500, 800, 900, 1000, 1200, 1300, 1500, 1800, 2000]
     if random.random() < 0.6:
         amount = random.choice(common_amounts)
@@ -70,13 +68,13 @@ def get_transaction_data():
     status = "SUCCESSFUL ✅"
     
     return (
-        f"🔔 *New Transaction Completed!*\n\n"
-        f"👤 *Customer:* `{user}`\n"
-        f"💰 *Amount:* `৳ {amount:,} BDT`\n"
-        f"🆔 *TrxID:* `{tx_id}`\n"
-        f"📊 *Status:* {status}\n"
-        f"⏰ *Time:* {time.strftime('%I:%M:%S %p')}\n\n"
-        f"💬 *Support:* {SUPPORT_USERNAME}"
+        f"🔔 <b>New Transaction Completed!</b>\n\n"
+        f"👤 <b>Customer:</b> <code>{user}</code>\n"
+        f"💰 <b>Amount:</b> <code>৳ {amount:,} BDT</code>\n"
+        f"🆔 <b>TrxID:</b> <code>{tx_id}</code>\n"
+        f"📊 <b>Status:</b> {status}\n"
+        f"⏰ <b>Time:</b> {time.strftime('%I:%M:%S %p')}\n\n"
+        f"💬 <b>Support:</b> {SUPPORT_USERNAME}"
     )
 
 # --- ২. সেকেন্ড গ্রুপে রিসাইকেল টাইমে ট্রানজ্যাকশন পাঠানো ---
@@ -91,9 +89,9 @@ async def send_periodic_transactions(application):
                     await application.bot.send_message(
                         chat_id=TRANSACTION_CHAT_ID,
                         text=msg,
-                        parse_mode="Markdown"
+                        parse_mode="HTML"
                     )
-                    print(f"Transaction sent to 2nd group after {wait_seconds // 60} min.")
+                    print(f"Transaction sent successfully after {wait_seconds // 60} min.")
                 except Exception as e:
                     print(f"Error sending transaction: {e}")
 
@@ -102,7 +100,6 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
     result = update.chat_member
     chat_id = str(update.effective_chat.id)
     
-    # শুধুমাত্র ফার্স্ট গ্রুপে ওয়েলকাম মেসেজ যাবে
     if chat_id != WELCOME_CHAT_ID:
         return
 
@@ -112,7 +109,7 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
         user_name = user.full_name
         
         welcome_text = (
-            f"🌸 *আসসালামু আলাইকুম*, [{user_name}](tg://user?id={user.id})!\n\n"
+            f"🌸 <b>আসসালামু আলাইকুম</b>, <a href=\"tg://user?id={user.id}\">{user_name}</a>!\n\n"
             f"আমাদের কমিউনিটিতে আপনাকে স্বাগতম। 🎉\n"
             f"📌 গ্রুপের নিয়ম-কানুন মেনে চলুন এবং নিয়মিত আপডেট উপভোগ করুন।"
         )
@@ -121,11 +118,10 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
             sent_msg = await context.bot.send_message(
                 chat_id=chat_id,
                 text=welcome_text,
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
             print(f"Welcome sent to {user_name}, will delete in 30s...")
 
-            # ৩০ সেকেন্ড অপেক্ষা করে মেসেজটি স্বয়ংক্রিয়ভাবে মুছে ফেলা
             await asyncio.sleep(30)
             await context.bot.delete_message(
                 chat_id=chat_id,
@@ -133,9 +129,9 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             print("Welcome message deleted.")
         except Exception as e:
-            print(f"Error handling welcome/delete message: {e}")
+            print(f"Error handling welcome message: {e}")
 
-# --- ৪. অ্যাডমিন প্যানেল কমান্ড ও বাটন কন্ট্রোল ---
+# --- ৪. অ্যাডমিন প্যানেল ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if ADMIN_USER_ID and update.effective_user.id != ADMIN_USER_ID:
         await update.message.reply_text("⛔ আপনি অ্যাডমিন নন!")
@@ -151,11 +147,11 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
-        f"🛠 *বট কন্ট্রোল প্যানেল*\n\n"
-        f"📊 বর্তমান ট্রানজ্যাকশন স্ট্যাটাস: *{status_text}*\n"
+        f"🛠 <b>বট কন্ট্রোল প্যানেল</b>\n\n"
+        f"📊 বর্তমান ট্রানজ্যাকশন স্ট্যাটাস: <b>{status_text}</b>\n"
         f"📌 সাপোর্ট ইউজারনেম: {SUPPORT_USERNAME}",
         reply_markup=reply_markup,
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 async def admin_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -176,10 +172,10 @@ async def admin_button_callback(update: Update, context: ContextTypes.DEFAULT_TY
             ]
         ]
         await query.edit_message_text(
-            f"🛠 *বট কন্ট্রোল প্যানেল*\n\n"
-            f"📊 বর্তমান ট্রানজ্যাকশন স্ট্যাটাস: *{status_text}*",
+            f"🛠 <b>বট কন্ট্রোল প্যানেল</b>\n\n"
+            f"📊 বর্তমান ট্রানজ্যাকশন স্ট্যাটাস: <b>{status_text}</b>",
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
     elif query.data == "instant_tx":
         msg = get_transaction_data()
@@ -187,7 +183,7 @@ async def admin_button_callback(update: Update, context: ContextTypes.DEFAULT_TY
             await context.bot.send_message(
                 chat_id=TRANSACTION_CHAT_ID,
                 text=msg,
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
             await query.message.reply_text("✅ সেকেন্ড গ্রুপে ইনস্ট্যান্ট ট্রানজ্যাকশন পাঠানো হয়েছে!")
         except Exception as e:
@@ -202,7 +198,6 @@ def main():
     print("বট চালু হচ্ছে...")
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
 
-    # হ্যান্ডলারসমূহ যুক্ত করা
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CallbackQueryHandler(admin_button_callback))
     app.add_handler(ChatMemberHandler(welcome_new_member, ChatMemberHandler.CHAT_MEMBER))
