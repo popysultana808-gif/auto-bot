@@ -7,14 +7,13 @@ from telegram.ext import (
     ApplicationBuilder, 
     ChatMemberHandler, 
     MessageHandler,
-    CommandHandler, 
     CallbackQueryHandler, 
     filters,
     ContextTypes
 )
 
 # --- কনফিগারেশন ---
-BOT_TOKEN = "8826168593:AAEobfC2UHJKtDv9XmvcMc1CmOviAVbloQQ"
+BOT_TOKEN = "8826168593:AAEfgcSn0Ckte8Ayv3OKfzAPic43FIFdT_g"
 SUPPORT_USERNAME = "@Talha_juba098"
 
 # অ্যাডমিন প্যানেল খোলার পাসওয়ার্ড
@@ -29,6 +28,7 @@ CYCLE_INTERVALS = [60, 120, 180, 240, 300]
 
 is_tx_active = True
 
+# বাংলাদেশি কাস্টমার নামসমূহ
 NAMES = [
     "Arif Hasan", "Tanvir Ahmed", "Sakib Al Hasan", "Rahim Uddin", 
     "Mehedi Hasan", "Nusrat Jahan", "Sadia Islam", "Farhana Akter", 
@@ -37,6 +37,7 @@ NAMES = [
     "Mahmudul Hasan", "Naimur Rahman", "Sabiha Sultana", "Habibur Rahman"
 ]
 
+# শুধুমাত্র বিকাশ, নগদ এবং বাইন্যান্স মেথড
 PAYMENT_METHODS = [
     "bKash (Personal)",
     "Nagad",
@@ -107,7 +108,7 @@ async def send_periodic_transactions(application):
                 except Exception as e:
                     print(f"Error sending transaction: {e}")
 
-# --- ৩. ওয়েলকাম মেসেজ হ্যান্ডলিং (৩০ সেকেন্ড পর স্বয়ংক্রিয়ভাবে ডিলিট) ---
+# --- ৩. ওয়েলকাম মেসেজ হ্যান্ডলিং (৩০ সেকেন্ড পর স্বয়ংক্রিয়ভাবে মুছে যাবে) ---
 async def send_and_auto_delete_welcome(bot, chat_id, user):
     user_name = user.full_name or "মেম্বার"
     welcome_text = (
@@ -146,7 +147,7 @@ async def handle_chat_member_updated(update: Update, context: ContextTypes.DEFAU
         if not new_member.user.is_bot:
             asyncio.create_task(send_and_auto_delete_welcome(context.bot, chat_id, new_member.user))
 
-# --- ৪. সহজ ও নির্ভরযোগ্য অ্যাডমিন প্যানেল ---
+# --- ৪. অ্যাডমিন প্যানেল ---
 def get_admin_keyboard():
     status_label = "🔴 ট্রানজ্যাকশন বন্ধ করুন" if is_tx_active else "🟢 ট্রানজ্যাকশন চালু করুন"
     keyboard = [
@@ -155,14 +156,12 @@ def get_admin_keyboard():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-# প্রাইভেটে যেকোনো মেসেজ বা পাসওয়ার্ড আসলে হ্যান্ডেল করা
 async def handle_private_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type != "private":
         return
 
     text = update.message.text.strip() if update.message.text else ""
 
-    # যদি পাসওয়ার্ড পাঠায় অথবা /admin talha1234 লেখে
     if text == ADMIN_PASSWORD or text == f"/admin {ADMIN_PASSWORD}":
         status_text = "চালু আছে 🟢" if is_tx_active else "বন্ধ আছে 🔴"
         panel_text = (
@@ -217,7 +216,7 @@ def main():
     print("বট চালু হচ্ছে...")
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
 
-    # অ্যাডমিন বা পাসওয়ার্ড মেসেজ হ্যান্ডলার
+    # মেসেজ ও পাসওয়ার্ড হ্যান্ডলার
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT, handle_private_messages))
     app.add_handler(CallbackQueryHandler(admin_callback))
 
