@@ -17,6 +17,9 @@ from telegram.ext import (
 BOT_TOKEN = "8826168593:AAEobfC2UHJKtDv9XmvcMc1CmOviAVbloQQ"
 SUPPORT_USERNAME = "@Talha_juba098"
 
+# অ্যাডমিন প্যানেল খোলার পাসওয়ার্ড
+ADMIN_PASSWORD = "talha1234"
+
 # গ্রুপ আইডিসমূহ
 WELCOME_CHAT_ID = "-1004471047712"     # ১ম গ্রুপ: যেখানে ওয়েলকাম মেসেজ যাবে
 TRANSACTION_CHAT_ID = "-1003991468184"  # ২য় গ্রুপ: যেখানে ট্রানজ্যাকশন পোস্ট হবে
@@ -24,10 +27,8 @@ TRANSACTION_CHAT_ID = "-1003991468184"  # ২য় গ্রুপ: যেখা�
 # রিসাইকেল টাইমার লিস্ট (১, ২, ৩, ৪, ৫ মিনিট)
 CYCLE_INTERVALS = [60, 120, 180, 240, 300]
 
-# গ্লোবাল ট্রানজ্যাকশন স্ট্যাটাস
 is_tx_active = True
 
-# বাংলাদেশি কাস্টমার নামসমূহ
 NAMES = [
     "Arif Hasan", "Tanvir Ahmed", "Sakib Al Hasan", "Rahim Uddin", 
     "Mehedi Hasan", "Nusrat Jahan", "Sadia Islam", "Farhana Akter", 
@@ -36,14 +37,13 @@ NAMES = [
     "Mahmudul Hasan", "Naimur Rahman", "Sabiha Sultana", "Habibur Rahman"
 ]
 
-# শুধুমাত্র বিকাশ, নগদ এবং বাইন্যান্স
 PAYMENT_METHODS = [
     "bKash (Personal)",
     "Nagad",
     "Binance (USDT/Pay)"
 ]
 
-# --- Render সার্ভার যাতে স্লিপ না হয় ---
+# --- Render স্লিপ প্রতিরোধক সার্ভার ---
 async def start_dummy_web_server():
     port = int(os.environ.get("PORT", 10000))
     async def handle_ping(reader, writer):
@@ -68,8 +68,6 @@ async def start_dummy_web_server():
 # --- ১. ট্রানজ্যাকশন মেসেজ তৈরি ---
 def get_transaction_data():
     tx_id = f"TX{random.randint(10000000, 99999999)}"
-    
-    # ৫০ থেকে ২০০০ টাকার মধ্যে ট্রানজ্যাকশন অ্যামাউন্ট
     common_amounts = [50, 100, 150, 200, 300, 450, 500, 800, 900, 1000, 1200, 1300, 1500, 1800, 2000]
     if random.random() < 0.6:
         amount = random.choice(common_amounts)
@@ -109,7 +107,7 @@ async def send_periodic_transactions(application):
                 except Exception as e:
                     print(f"Error sending transaction: {e}")
 
-# --- ৩. নিখুঁত ওয়েলকাম মেসেজ লজিক (৩০ সেকেন্ডে ডিলিট) ---
+# --- ৩. ওয়েলকাম মেসেজ হ্যান্ডলিং (৩০ সেকেন্ড পর স্বয়ংক্রিয়ভাবে ডিলিট) ---
 async def send_and_auto_delete_welcome(bot, chat_id, user):
     user_name = user.full_name or "মেম্বার"
     welcome_text = (
@@ -123,14 +121,13 @@ async def send_and_auto_delete_welcome(bot, chat_id, user):
             text=welcome_text,
             parse_mode="HTML"
         )
-        print(f"Welcome sent to {user_name}. Deleting in 30s...")
+        print(f"Welcome message sent to {user_name}. Deleting in 30s...")
         await asyncio.sleep(30)
         await bot.delete_message(chat_id=chat_id, message_id=sent_msg.message_id)
         print("Welcome message deleted.")
     except Exception as e:
         print(f"Welcome/Delete Error: {e}")
 
-# মেম্বার জয়েন হ্যান্ডলার ১ (Message Status Update)
 async def handle_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     if chat_id != WELCOME_CHAT_ID:
@@ -139,7 +136,6 @@ async def handle_new_chat_members(update: Update, context: ContextTypes.DEFAULT_
         if not member.is_bot:
             asyncio.create_task(send_and_auto_delete_welcome(context.bot, chat_id, member))
 
-# মেম্বার জয়েন হ্যান্ডলার ২ (ChatMemberUpdated Event)
 async def handle_chat_member_updated(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     if chat_id != WELCOME_CHAT_ID:
@@ -150,7 +146,7 @@ async def handle_chat_member_updated(update: Update, context: ContextTypes.DEFAU
         if not new_member.user.is_bot:
             asyncio.create_task(send_and_auto_delete_welcome(context.bot, chat_id, new_member.user))
 
-# --- ৪. নতুন অ্যাডমিন প্যানেল (কন্ট্রোল সিস্টেম) ---
+# --- ৪. সহজ ও নির্ভরযোগ্য অ্যাডমিন প্যানেল ---
 def get_admin_keyboard():
     status_label = "🔴 ট্রানজ্যাকশন বন্ধ করুন" if is_tx_active else "🟢 ট্রানজ্যাকশন চালু করুন"
     keyboard = [
@@ -159,16 +155,29 @@ def get_admin_keyboard():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    status_text = "চালু আছে 🟢" if is_tx_active else "বন্ধ আছে 🔴"
-    text = (
-        f"🎛 <b>কন্ট্রোল অ্যাডমিন প্যানেল</b>\n\n"
-        f"⚙️ ট্রানজ্যাকশন স্ট্যাটাস: <b>{status_text}</b>\n"
-        f"💳 মেথড: বিকাশ | নগদ | বাইন্যান্স\n"
-        f"💬 সাপোর্ট: {SUPPORT_USERNAME}\n\n"
-        f"নিচের বাটন চেপে নিয়ন্ত্রণ করুন:"
-    )
-    await update.message.reply_text(text, reply_markup=get_admin_keyboard(), parse_mode="HTML")
+# প্রাইভেটে যেকোনো মেসেজ বা পাসওয়ার্ড আসলে হ্যান্ডেল করা
+async def handle_private_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type != "private":
+        return
+
+    text = update.message.text.strip() if update.message.text else ""
+
+    # যদি পাসওয়ার্ড পাঠায় অথবা /admin talha1234 লেখে
+    if text == ADMIN_PASSWORD or text == f"/admin {ADMIN_PASSWORD}":
+        status_text = "চালু আছে 🟢" if is_tx_active else "বন্ধ আছে 🔴"
+        panel_text = (
+            f"🎛 <b>কন্ট্রোল অ্যাডমিন প্যানেল (লগইন সফল)</b>\n\n"
+            f"⚙️ ট্রানজ্যাকশন স্ট্যাটাস: <b>{status_text}</b>\n"
+            f"💳 মেথড: বিকাশ | নগদ | বাইন্যান্স\n"
+            f"💬 সাপোর্ট: {SUPPORT_USERNAME}\n\n"
+            f"নিচের বাটন চেপে নিয়ন্ত্রণ করুন:"
+        )
+        await update.message.reply_text(panel_text, reply_markup=get_admin_keyboard(), parse_mode="HTML")
+    else:
+        await update.message.reply_text(
+            "🔒 অ্যাডমিন প্যানেল খুলতে পাসওয়ার্ড লিখুন:\n<code>talha1234</code>",
+            parse_mode="HTML"
+        )
 
 async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global is_tx_active
@@ -178,14 +187,14 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "toggle_tx":
         is_tx_active = not is_tx_active
         status_text = "চালু আছে 🟢" if is_tx_active else "বন্ধ আছে 🔴"
-        text = (
+        panel_text = (
             f"🎛 <b>কন্ট্রোল অ্যাডমিন প্যানেল</b>\n\n"
             f"⚙️ ট্রানজ্যাকশন স্ট্যাটাস: <b>{status_text}</b>\n"
             f"💳 মেথড: বিকাশ | নগদ | বাইন্যান্স\n"
             f"💬 সাপোর্ট: {SUPPORT_USERNAME}\n\n"
             f"নিচের বাটন চেপে নিয়ন্ত্রণ করুন:"
         )
-        await query.edit_message_text(text, reply_markup=get_admin_keyboard(), parse_mode="HTML")
+        await query.edit_message_text(panel_text, reply_markup=get_admin_keyboard(), parse_mode="HTML")
         
     elif query.data == "instant_tx":
         msg = get_transaction_data()
@@ -199,7 +208,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await query.message.reply_text(f"❌ পাঠানো সম্ভব হয়নি: {e}")
 
-# --- ৫. বট রানার ---
+# --- ৫. সার্ভিস ইনিশিয়ালাইজেশন ---
 async def post_init(application):
     asyncio.create_task(send_periodic_transactions(application))
     asyncio.create_task(start_dummy_web_server())
@@ -208,11 +217,11 @@ def main():
     print("বট চালু হচ্ছে...")
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
 
-    # কমান্ড হ্যান্ডলার (/admin অথবা /start)
-    app.add_handler(CommandHandler(["admin", "start"], admin_panel))
+    # অ্যাডমিন বা পাসওয়ার্ড মেসেজ হ্যান্ডলার
+    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT, handle_private_messages))
     app.add_handler(CallbackQueryHandler(admin_callback))
 
-    # জয়েনিং ওয়েলকাম হ্যান্ডলার (ডাবল সিকিউরিটি)
+    # মেম্বার জয়েন হ্যান্ডলারসমূহ
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_chat_members))
     app.add_handler(ChatMemberHandler(handle_chat_member_updated, ChatMemberHandler.CHAT_MEMBER))
 
