@@ -15,11 +15,10 @@ from telegram.ext import (
 # --- কনফিগারেশন ---
 BOT_TOKEN = "8826168593:AAEfgcSn0Ckte8Ayv3OKfzAPic43FIFdT_g"
 
-# আপনার জিমেইল সেল বটের লিংক ও টেক্সট
-GMAIL_BOT_USERNAME = "@NEW_FRESH_GMAILACCOUNTSELL50_bot"
+# আপনার জিমেইল সেল বটের লিংক
 GMAIL_BOT_URL = "https://t.me/NEW_FRESH_GMAILACCOUNTSELL50_bot"
 
-# অ্যাডমিন অ্যাক্সেসের সিক্রেট কি
+# অ্যাডমিন অ্যাক্সেসের সিক্রেট পাসওয়ার্ড
 SECRET_ADMIN_KEY = "talha#secret99"
 AUTHORIZED_ADMIN_ID = None
 
@@ -27,7 +26,7 @@ AUTHORIZED_ADMIN_ID = None
 WELCOME_CHAT_ID = "-1004471047712"     # ১ম গ্রুপ: ওয়েলকাম মেসেজ
 TRANSACTION_CHAT_ID = "-1003991468184"  # ২য় গ্রুপ: ট্রানজ্যাকশন
 
-# প্রতি ট্রানজ্যাকশনের ব্যবধান: ৫ মিনিট (৩০০ সেকেন্ড)
+# প্রতি ট্রানজ্যাকশন সাইকেলের বিরতি: ৫ মিনিট (৩০০ সেকেন্ড)
 TRANSACTION_INTERVAL = 300
 
 is_tx_active = True
@@ -42,6 +41,9 @@ NAMES = [
 ]
 
 PAYMENT_METHODS = ["Bkash", "Nagad", "Binance"]
+
+# ডুপ্লিকেট ওয়েলকাম মেসেজ রোধ করতে রিসেন্টলি ওয়েলকাম দেওয়া ইউজারদের সেট
+recently_welcomed_users = set()
 
 # --- Render স্লিপ প্রতিরোধক সার্ভার ---
 async def start_dummy_web_server():
@@ -72,26 +74,26 @@ def get_action_keyboard():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-# --- ৩ ধাপের ট্রানজ্যাকশন প্রসেস (কাস্টমার নাম সহ) ---
+# --- ৩০ সেকেন্ড পর পর ৩টি আলাদা ট্রানজ্যাকশন মেসেজ পাঠানোর প্রসেস ---
 async def execute_3_step_transaction(bot, chat_id):
     customer_name = random.choice(NAMES)
     amount = f"{random.uniform(50.00, 2000.00):.2f}"
     method = random.choice(PAYMENT_METHODS)
+    tx_id = f"TX{random.randint(10000000, 99999999)}"
     reply_markup = get_action_keyboard()
 
-    # ধাপ ১: পেমেন্ট উইথড্র রিকোয়েস্ট
+    # ধাপ ১: ১ম মেসেজ - পেমেন্ট উইথড্র রিকোয়েস্ট
     step_1_text = (
         f"📥 <b>পেমেন্ট উইথড্র রিকোয়েস্ট!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"👤 <b>কাস্টমার:</b> <code>{customer_name}</code>\n"
         f"💰 <b>পরিমাণ:</b> <code>৳{amount}</code>\n"
         f"🏦 <b>মাধ্যম:</b> <b>{method}</b>\n"
-        f"⏳ <b>স্ট্যাটাস:</b> পেন্ডিং (Processing...)\n\n"
-        f"🤖 <b>বট:</b> {GMAIL_BOT_USERNAME}"
+        f"⏳ <b>স্ট্যাটাস:</b> পেন্ডিং (Processing...)"
     )
 
     try:
-        sent_msg = await bot.send_message(
+        await bot.send_message(
             chat_id=chat_id,
             text=step_1_text,
             reply_markup=reply_markup,
@@ -101,24 +103,22 @@ async def execute_3_step_transaction(bot, chat_id):
         print(f"Error Step 1: {e}")
         return
 
-    # ধাপ ১ থেকে ধাপ ২ এর মাঝে বিরতি (৪ সেকেন্ড)
-    await asyncio.sleep(4)
+    # ৩০ সেকেন্ড অপেক্ষা
+    await asyncio.sleep(30)
 
-    # ধাপ ২: সিকিউরিটি ভেরিফিকেশন চেক
+    # ধাপ ২: ২য় মেসেজ - সিকিউরিটি ভেরিফিকেশন চেক
     step_2_text = (
         f"🛡️ <b>সিকিউরিটি ভেরিফিকেশন চেক</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"🔍 <b>কাস্টমার:</b> <code>{customer_name}</code>\n"
         f"🛡️ <b>সিস্টেম:</b> অ্যান্টি-হ্যাক এবং ডাবল পেমেন্ট চেক করা হচ্ছে...\n"
         f"⚖️ <b>ফলাফল:</b> Verified ✅ (Safe)\n"
-        f"📲 <b>একশন:</b> পেমেন্ট গেটওয়েতে পাঠানো হয়েছে।\n\n"
-        f"🤖 <b>বট:</b> {GMAIL_BOT_USERNAME}"
+        f"📲 <b>একশন:</b> পেমেন্ট গেটওয়েতে পাঠানো হয়েছে।"
     )
 
     try:
-        await bot.edit_message_text(
+        await bot.send_message(
             chat_id=chat_id,
-            message_id=sent_msg.message_id,
             text=step_2_text,
             reply_markup=reply_markup,
             parse_mode="HTML"
@@ -127,48 +127,54 @@ async def execute_3_step_transaction(bot, chat_id):
         print(f"Error Step 2: {e}")
         return
 
-    # ধাপ ২ থেকে ধাপ ৩ এর মাঝে বিরতি (৪ সেকেন্ড)
-    await asyncio.sleep(4)
+    # আবার ৩০ সেকেন্ড অপেক্ষা
+    await asyncio.sleep(30)
 
-    # ধাপ ৩: পেমেন্ট ডিপার্টমেন্ট (Finance)
+    # ধাপ ৩: ৩য় মেসেজ - পেমেন্ট ডিপার্টমেন্ট (Finance)
     step_3_text = (
         f"🏦 <b>পেমেন্ট ডিপার্টমেন্ট (Finance)</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"👤 <b>কাস্টমার:</b> <code>{customer_name}</code>\n"
         f"🏦 <b>ওয়ালেট:</b> <b>{method}</b>\n"
-        f"💵 <b>পরিমাণ:</b> <code>৳{amount}</code>\n"
+        f"💰 <b>পরিমাণ:</b> <code>৳{amount}</code>\n"
+        f"🆔 <b>TrxID:</b> <code>{tx_id}</code>\n"
         f"💵 <b>স্ট্যাটাস:</b> ফান্ড রিলিজ সম্পন্ন হয়েছে ✅\n"
-        f"⏰ <b>সময়:</b> {time.strftime('%I:%M:%S %p')}\n\n"
-        f"🤖 <b>বট:</b> {GMAIL_BOT_USERNAME}"
+        f"⏰ <b>সময়:</b> {time.strftime('%I:%M:%S %p')}"
     )
 
     try:
-        await bot.edit_message_text(
+        await bot.send_message(
             chat_id=chat_id,
-            message_id=sent_msg.message_id,
             text=step_3_text,
             reply_markup=reply_markup,
             parse_mode="HTML"
         )
-        print(f"Transaction completed for customer {customer_name}")
+        print(f"Transaction cycle completed for {customer_name}")
     except Exception as e:
         print(f"Error Step 3: {e}")
 
-# --- প্রতি ৫ মিনিট পর পর ট্রানজ্যাকশন পাঠানোর লুপ ---
+# --- প্রতি ৫ মিনিট পর পর ট্রানজ্যাকশন লুপ ---
 async def send_periodic_transactions(application):
     await asyncio.sleep(5)
     while True:
         if is_tx_active:
             try:
-                await execute_3_step_transaction(application.bot, TRANSACTION_CHAT_ID)
+                # ব্যাকগ্রাউন্ডে ৩টি মেসেজের প্রসেস চলবে
+                asyncio.create_task(execute_3_step_transaction(application.bot, TRANSACTION_CHAT_ID))
             except Exception as e:
                 print(f"Transaction loop error: {e}")
         
-        # প্রতি ৫ মিনিট (৩০০ সেকেন্ড) পর পর পরবর্তী ট্রানজ্যাকশন
+        # প্রতি ৫ মিনিট পর পর পরবর্তী ট্রানজ্যাকশন রিকোয়েস্ট শুরু হবে
         await asyncio.sleep(TRANSACTION_INTERVAL)
 
-# --- ওয়েলকাম মেসেজ (৩০ সেকেন্ড পর স্বয়ংক্রিয়ভাবে মুছে যাবে) ---
+# --- একক ও নিখুঁত ওয়েলকাম মেসেজ (৩০ সেকেন্ডে ডিলিট) ---
 async def send_and_auto_delete_welcome(bot, chat_id, user):
+    user_id = user.id
+    # ডুপ্লিকেট মেসেজ রোধ করার ফিল্টার
+    if user_id in recently_welcomed_users:
+        return
+    recently_welcomed_users.add(user_id)
+
     user_name = user.full_name or "মেম্বার"
     welcome_text = (
         f"🌸 <b>আসসালামু আলাইকুম</b>, <a href=\"tg://user?id={user.id}\">{user_name}</a>!\n\n"
@@ -187,6 +193,10 @@ async def send_and_auto_delete_welcome(bot, chat_id, user):
         print("Welcome message deleted.")
     except Exception as e:
         print(f"Welcome/Delete Error: {e}")
+    finally:
+        # ৬০ সেকেন্ড পর মেমোরি থেকে ইউজার আইডি ক্লিয়ার করা
+        await asyncio.sleep(60)
+        recently_welcomed_users.discard(user_id)
 
 async def handle_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
@@ -223,7 +233,6 @@ async def handle_private_messages(update: Update, context: ContextTypes.DEFAULT_
     sender_id = update.effective_user.id
     text = update.message.text.strip() if update.message.text else ""
 
-    # সিক্রেট কি দিয়ে মাস্টার অ্যাডমিন রেজিস্টার
     if text == SECRET_ADMIN_KEY:
         AUTHORIZED_ADMIN_ID = sender_id
         status_text = "চালু আছে 🟢" if is_tx_active else "বন্ধ আছে 🔴"
@@ -237,7 +246,6 @@ async def handle_private_messages(update: Update, context: ContextTypes.DEFAULT_
         await update.message.reply_text(panel_text, reply_markup=get_admin_keyboard(), parse_mode="HTML")
         return
 
-    # শুধুমাত্র অথরাইজড অ্যাডমিনের মেসেজে রেসপন্স
     if AUTHORIZED_ADMIN_ID and sender_id == AUTHORIZED_ADMIN_ID:
         status_text = "চালু আছে 🟢" if is_tx_active else "বন্ধ আছে 🔴"
         panel_text = (
@@ -270,7 +278,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(panel_text, reply_markup=get_admin_keyboard(), parse_mode="HTML")
         
     elif query.data == "instant_tx":
-        await query.message.reply_text("⚡ ২য় গ্রুপে ৩ ধাপের ট্রানজ্যাকশন প্রক্রিয়া শুরু হয়েছে...")
+        await query.message.reply_text("⚡ ২য় গ্রুপে ৩ ধাপের আলাদা ট্রানজ্যাকশন মেসেজ পাঠানো শুরু হয়েছে (৩০ সেকেন্ড অন্তর অন্তর)...")
         asyncio.create_task(execute_3_step_transaction(context.bot, TRANSACTION_CHAT_ID))
 
 # --- সার্ভিস শুরু ---
@@ -282,11 +290,11 @@ def main():
     print("বট চালু হচ্ছে...")
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
 
-    # মেসেজ ও পাসওয়ার্ড হ্যান্ডলার
+    # প্রাইভেট মেসেজ ও অ্যাডমিন হ্যান্ডলার
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT, handle_private_messages))
     app.add_handler(CallbackQueryHandler(admin_callback))
 
-    # মেম্বার জয়েন হ্যান্ডলারসমূহ
+    # জয়েনিং হ্যান্ডলারসমূহ
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_chat_members))
     app.add_handler(ChatMemberHandler(handle_chat_member_updated, ChatMemberHandler.CHAT_MEMBER))
 
