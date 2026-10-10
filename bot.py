@@ -1,5 +1,4 @@
 import asyncio
-import json
 import os
 import random
 import time
@@ -8,57 +7,33 @@ from telegram.ext import (
     ApplicationBuilder, 
     ChatMemberHandler, 
     MessageHandler,
-    CallbackQueryHandler, 
     CommandHandler,
+    CallbackQueryHandler, 
+    ConversationHandler,
     filters,
     ContextTypes
 )
 
-# --- কনফিগারেশন ফাইল ও ডিফল্ট সেটিংস ---
-CONFIG_FILE = "config.json"
+# --- কনফিগারেশন ---
+BOT_TOKEN = "8826168593:AAE6mhFPKuJGz5TUwua4I4P7h3n0D_2_SeI"
+ADMIN_USER_ID = 8919985167  # আপনার নির্দিষ্ট টেলিগ্রাম আইডি
 
-DEFAULT_SETTINGS = {
-    "is_tx_active": True,
-    "transaction_interval": 300,  # ৫ মিনিট (সেকেন্ডে)
-    "min_amount": 50.0,
-    "max_amount": 2000.0,
-    "welcome_delete_delay": 30,
-    "welcome_text": (
-        "🌸 <b>আসসালামু আলাইকুম</b>, {user_link}!\n\n"
-        "আমাদের কমিউনিটিতে আপনাকে স্বাগতম। 🎉\n"
-        "📌 গ্রুপের নিয়ম-কানুন মেনে চলুন এবং নিয়মিত আপডেট উপভোগ করুন।"
-    ),
-    "buttons": [
-        {"name": "FAST GMAIL SELL", "url": "https://t.me/NEW_FRESH_GMAILACCOUNTSELL50_bot"}
-    ]
-}
+# গ্রুপ আইডিসমূহ
+WELCOME_CHAT_ID = "-1004471047712"     # ১ম গ্রুপ: ওয়েলকাম
+TRANSACTION_CHAT_ID = "-1003991468184"  # ২য় গ্রুপ: ট্রানজ্যাকশন
 
-def load_settings():
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                return {**DEFAULT_SETTINGS, **json.load(f)}
-        except Exception:
-            return DEFAULT_SETTINGS.copy()
-    return DEFAULT_SETTINGS.copy()
+# বাটন ইউআরএল
+GMAIL_BOT_URL = "https://t.me/NEW_FRESH_GMAILACCOUNTSELL50_bot"
 
-def save_settings(data):
-    try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"Error saving settings: {e}")
+# ৩টি মেসেজ শেষ হওয়ার পর বিরতি (৫ মিনিট = ৩০০ সেকেন্ড)
+BREAK_AFTER_3_MESSAGES = 300
 
-SETTINGS = load_settings()
+is_tx_active = True
 
-# টেলিগ্রাম ও গ্রুপ তথ্য
-BOT_TOKEN = "8826168593:AAEfgcSn0Ckte8Ayv3OKfzAPic43FIFdT_g"
-WELCOME_CHAT_ID = "-1004471047712"     # ১ম গ্রুপ
-TRANSACTION_CHAT_ID = "-1003991468184"  # ২য় গ্রুপ
+# কাস্টম ট্রানজ্যাকশনের কনভারসেশন স্টেটস
+WAITING_FOR_NAME, WAITING_FOR_AMOUNT, WAITING_FOR_METHOD = range(3)
 
-SECRET_ADMIN_KEY = "talha#secret99"
-AUTHORIZED_ADMIN_ID = None
-
+# ডিফল্ট কাস্টমার নামসমূহ
 NAMES = [
     "Arif Hasan", "Tanvir Ahmed", "Sakib Al Hasan", "Rahim Uddin", 
     "Mehedi Hasan", "Nusrat Jahan", "Sadia Islam", "Farhana Akter", 
@@ -88,29 +63,23 @@ async def start_dummy_web_server():
         await writer.wait_closed()
 
     server = await asyncio.start_server(handle_ping, "0.0.0.0", port)
-    print(f"Server running on port {port}")
+    print(f"Keep-Alive Server running on port {port}")
     async with server:
         await server.serve_forever()
 
-# --- ডাইনামিক বাটন কিবোর্ড তৈরি ---
+# --- ট্রানজ্যাকশন বাটন ---
 def get_transaction_keyboard():
-    keyboard = []
-    buttons = SETTINGS.get("buttons", [])
-    for btn in buttons:
-        keyboard.append([InlineKeyboardButton(btn["name"], url=btn["url"])])
-    return InlineKeyboardMarkup(keyboard) if keyboard else None
+    keyboard = [
+        [InlineKeyboardButton("FAST GMAIL SELL", url=GMAIL_BOT_URL)]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
-# --- ৩ ধাপের ট্রানজ্যাকশন মেসেজ ---
-async def execute_3_step_transaction(bot, chat_id):
-    customer_name = random.choice(NAMES)
-    min_a = SETTINGS.get("min_amount", 50.0)
-    max_a = SETTINGS.get("max_amount", 2000.0)
-    amount = f"{random.uniform(min_a, max_a):.2f}"
-    method = random.choice(PAYMENT_METHODS)
+# --- ৩ ধাপের ট্রানজ্যাকশন এক্সিকিউশন ---
+async def execute_3_step_transaction(bot, chat_id, customer_name, amount, method):
     tx_id = f"TX{random.randint(10000000, 99999999)}"
     reply_markup = get_transaction_keyboard()
 
-    # ধাপ ১
+    # ধাপ ১: পেমেন্ট উইথড্র রিকোয়েস্ট
     step_1_text = (
         f"📥 <b>পেমেন্ট উইথড্র রিকোয়েস্ট!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -131,9 +100,10 @@ async def execute_3_step_transaction(bot, chat_id):
         print(f"Error Step 1: {e}")
         return
 
+    # ৩০ সেকেন্ড অপেক্ষা
     await asyncio.sleep(30)
 
-    # ধাপ ২
+    # ধাপ ২: সিকিউরিটি ভেরিফিকেশন চেক
     step_2_text = (
         f"🛡️ <b>সিকিউরিটি ভেরিফিকেশন চেক</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -154,9 +124,10 @@ async def execute_3_step_transaction(bot, chat_id):
         print(f"Error Step 2: {e}")
         return
 
+    # ৩০ সেকেন্ড অপেক্ষা
     await asyncio.sleep(30)
 
-    # ধাপ ৩
+    # ধাপ ৩: পেমেন্ট ডিপার্টমেন্ট সম্পন্ন
     step_3_text = (
         f"🏦 <b>পেমেন্ট ডিপার্টমেন্ট (Finance)</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -175,24 +146,27 @@ async def execute_3_step_transaction(bot, chat_id):
             reply_markup=reply_markup,
             parse_mode="HTML"
         )
-        print(f"Transaction finished for {customer_name}. Interval sleep...")
+        print(f"Transaction completed for {customer_name}")
     except Exception as e:
         print(f"Error Step 3: {e}")
 
-# --- ট্রানজ্যাকশন লুপ ---
+# --- স্বয়ংক্রিয় ট্রানজ্যাকশন লুপ ---
 async def send_periodic_transactions(application):
     await asyncio.sleep(5)
     while True:
-        if SETTINGS.get("is_tx_active", True):
+        if is_tx_active:
             try:
-                await execute_3_step_transaction(application.bot, TRANSACTION_CHAT_ID)
+                name = random.choice(NAMES)
+                amt = f"{random.uniform(50.00, 2000.00):.2f}"
+                met = random.choice(PAYMENT_METHODS)
+                await execute_3_step_transaction(application.bot, TRANSACTION_CHAT_ID, name, amt, met)
             except Exception as e:
-                print(f"Loop error: {e}")
+                print(f"Auto tx loop error: {e}")
         
-        interval = SETTINGS.get("transaction_interval", 300)
-        await asyncio.sleep(interval)
+        # ৩য় মেসেজ পাঠানোর পর ঠিক ৫ মিনিট অপেক্ষা
+        await asyncio.sleep(BREAK_AFTER_3_MESSAGES)
 
-# --- ওয়েলকাম মেসেজ ---
+# --- ওয়েলকাম মেসেজ (৩০ সেকেন্ডে ডিলিট) ---
 async def send_and_auto_delete_welcome(bot, chat_id, user):
     user_id = user.id
     if user_id in recently_welcomed_users:
@@ -200,13 +174,14 @@ async def send_and_auto_delete_welcome(bot, chat_id, user):
     recently_welcomed_users.add(user_id)
 
     user_link = f'<a href="tg://user?id={user.id}">{user.full_name or "মেম্বার"}</a>'
-    template = SETTINGS.get("welcome_text", DEFAULT_SETTINGS["welcome_text"])
-    welcome_text = template.replace("{user_link}", user_link)
-    delay = SETTINGS.get("welcome_delete_delay", 30)
-
+    welcome_text = (
+        f"🌸 <b>আসসালামু আলাইকুম</b>, {user_link}!\n\n"
+        f"আমাদের কমিউনিটিতে আপনাকে স্বাগতম। 🎉\n"
+        f"📌 গ্রুপের নিয়ম-কানুন মেনে চলুন এবং নিয়মিত আপডেট উপভোগ করুন।"
+    )
     try:
         sent_msg = await bot.send_message(chat_id=chat_id, text=welcome_text, parse_mode="HTML")
-        await asyncio.sleep(delay)
+        await asyncio.sleep(30)
         await bot.delete_message(chat_id=chat_id, message_id=sent_msg.message_id)
     except Exception as e:
         print(f"Welcome Error: {e}")
@@ -232,180 +207,142 @@ async def handle_chat_member_updated(update: Update, context: ContextTypes.DEFAU
         if not new_member.user.is_bot:
             asyncio.create_task(send_and_auto_delete_welcome(context.bot, chat_id, new_member.user))
 
-# --- মাস্টার কন্ট্রোল অ্যাডমিন প্যানেল ---
-def get_admin_dashboard_markup():
-    is_active = SETTINGS.get("is_tx_active", True)
-    status_label = "🔴 ট্রানজ্যাকশন বন্ধ করুন" if is_active else "🟢 ট্রানজ্যাকশন চালু করুন"
-    
+# --- মাস্টার অ্যাডমিন ড্যাশবোর্ড ---
+def get_dashboard_markup():
+    status_label = "🔴 অটো ট্রানজ্যাকশন বন্ধ করুন" if is_tx_active else "🟢 অটো ট্রানজ্যাকশন চালু করুন"
     keyboard = [
         [InlineKeyboardButton(status_label, callback_data="toggle_tx")],
-        [InlineKeyboardButton("⚡ টেস্ট ট্রানজ্যাকশন পাঠান", callback_data="instant_tx")],
-        [InlineKeyboardButton("🔘 বাটন তালিকা ও ভিউ", callback_data="view_buttons"),
-         InlineKeyboardButton("🗑 বাটন রিসেট", callback_data="reset_buttons")],
-        [InlineKeyboardButton("📋 সেটিংস ও কমান্ড হেল্প", callback_data="view_help")]
+        [InlineKeyboardButton("✍️ কাস্টম ট্রানজ্যাকশন তৈরি করুন", callback_data="start_custom_tx")],
+        [InlineKeyboardButton("⚡ র‍্যান্ডম টেস্ট ট্রানজ্যাকশন পাঠান", callback_data="instant_random_tx")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
-def render_dashboard_text():
-    is_active = SETTINGS.get("is_tx_active", True)
-    status_str = "চালু আছে 🟢" if is_active else "বন্ধ আছে 🔴"
-    interval_min = SETTINGS.get("transaction_interval", 300) // 60
-    min_a = SETTINGS.get("min_amount", 50.0)
-    max_a = SETTINGS.get("max_amount", 2000.0)
-    buttons_count = len(SETTINGS.get("buttons", []))
-
+def get_dashboard_text():
+    status_str = "চালু আছে 🟢" if is_tx_active else "বন্ধ আছে 🔴"
     return (
-        f"👑 <b>মাস্টার অ্যাডমিন ড্যাশবোর্ড</b>\n"
+        f"👑 <b>মাস্টার অ্যাডমিন কন্ট্রোল প্যানেল</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"⚙️ <b>ট্রানজ্যাকশন:</b> {status_str}\n"
-        f"⏱️ <b>বিরতি:</b> প্রতি {interval_min} মিনিট পর পর\n"
-        f"💰 <b>ব্যালেন্স লিমিট:</b> ৳{min_a} - ৳{max_a}\n"
-        f"🔘 <b>সক্রিয় বাটন:</b> {buttons_count} টি\n\n"
-        f"<i>নিচের মেনু বা কমান্ডের মাধ্যমে যেকোনো কিছু পরিবর্তন করুন।</i>"
+        f"👤 <b>অ্যাডমিন আইডি:</b> <code>{ADMIN_USER_ID}</code>\n"
+        f"⚙️ <b>অটো ট্রানজ্যাকশন:</b> {status_str}\n"
+        f"⏱️ <b>টাইমার:</b> প্রতি ৫ মিনিট পর পর\n\n"
+        f"নিচের বাটন চেপে যা ইচ্ছা নিয়ন্ত্রণ করুন:"
     )
 
-# প্রাইভেট মেসেজ ও কমান্ড হ্যান্ডলার
-async def handle_private_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global AUTHORIZED_ADMIN_ID
-    if update.effective_chat.type != "private":
+# /admin কমান্ড
+async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_USER_ID:
+        await update.message.reply_text("⛔ আপনি এই বটের অ্যাডমিন নন!")
         return
 
-    sender_id = update.effective_user.id
-    text = (update.message.text or "").strip()
-
-    # ১. সিক্রেট কি অথেনটিকেশন
-    if text == SECRET_ADMIN_KEY:
-        AUTHORIZED_ADMIN_ID = sender_id
-        await update.message.reply_text(
-            f"✅ <b>অথেনটিকেশন সফল!</b> আইডি: <code>{sender_id}</code> মাস্টার অ্যাডমিন হিসেবে সেভ হয়েছে।\n\n"
-            + render_dashboard_text(),
-            reply_markup=get_admin_dashboard_markup(),
-            parse_mode="HTML"
-        )
-        return
-
-    # শুধুমাত্র মাস্টার অ্যাডমিনের জন্য
-    if not AUTHORIZED_ADMIN_ID or sender_id != AUTHORIZED_ADMIN_ID:
-        await update.message.reply_text("🔒 <i>অ্যাক্সেস সংরক্ষিত।</i>", parse_mode="HTML")
-        return
-
-    # ২. ডাইনামিক বাটন অ্যাড করার কমান্ড: /addbtn Name | URL
-    if text.startswith("/addbtn"):
-        parts = text.replace("/addbtn", "").strip().split("|")
-        if len(parts) == 2:
-            name = parts[0].strip()
-            url = parts[1].strip()
-            if not url.startswith("http"):
-                await update.message.reply_text("❌ লিংকে অবশ্যই https:// থাকতে হবে!")
-                return
-            SETTINGS.setdefault("buttons", []).append({"name": name, "url": url})
-            save_settings(SETTINGS)
-            await update.message.reply_text(f"✅ নতুন বাটন যোগ করা হয়েছে:\n<b>{name}</b> -> {url}", parse_mode="HTML")
-        else:
-            await update.message.reply_text("❌ ফরম্যাট সঠিক নয়!\nব্যবহার করুন: <code>/addbtn বাটনের নাম | https://link...</code>", parse_mode="HTML")
-        return
-
-    # ৩. বিরতি সেট করার কমান্ড: /setinterval <মিনিট>
-    if text.startswith("/setinterval"):
-        parts = text.split()
-        if len(parts) == 2 and parts[1].isdigit():
-            mins = int(parts[1])
-            SETTINGS["transaction_interval"] = mins * 60
-            save_settings(SETTINGS)
-            await update.message.reply_text(f"✅ ট্রানজ্যাকশন বিরতি <b>{mins} মিনিট</b> সেট করা হয়েছে!", parse_mode="HTML")
-        else:
-            await update.message.reply_text("❌ ব্যবহার করুন: <code>/setinterval 5</code> (মিনিটে)", parse_mode="HTML")
-        return
-
-    # ৪. ব্যালেন্স রেঞ্জ সেট: /setamount <min> <max>
-    if text.startswith("/setamount"):
-        parts = text.split()
-        if len(parts) == 3:
-            try:
-                min_v = float(parts[1])
-                max_v = float(parts[2])
-                SETTINGS["min_amount"] = min_v
-                SETTINGS["max_amount"] = max_v
-                save_settings(SETTINGS)
-                await update.message.reply_text(f"✅ ব্যালেন্স রেঞ্জ <b>৳{min_v} - ৳{max_v}</b> সেট করা হয়েছে!", parse_mode="HTML")
-            except ValueError:
-                await update.message.reply_text("❌ সংখ্যা লিখুন! উদাহরণ: <code>/setamount 100 3000</code>", parse_mode="HTML")
-        else:
-            await update.message.reply_text("❌ ব্যবহার করুন: <code>/setamount 100 2000</code>", parse_mode="HTML")
-        return
-
-    # ৫. ওয়েলকাম টেক্সট সেট: /setwelcome <মেসেজ>
-    if text.startswith("/setwelcome"):
-        new_w = text.replace("/setwelcome", "").strip()
-        if new_w:
-            SETTINGS["welcome_text"] = new_w
-            save_settings(SETTINGS)
-            await update.message.reply_text("✅ নতুন ওয়েলকাম মেসেজ সেট করা হয়েছে!", parse_mode="HTML")
-        else:
-            await update.message.reply_text("❌ ব্যবহার করুন: <code>/setwelcome আপনার মেসেজ (নামের জন্য {user_link} ব্যবহার করুন)</code>", parse_mode="HTML")
-        return
-
-    # সাধারণ চ্যাট করলে ড্যাশবোর্ড ওপেন হবে
     await update.message.reply_text(
-        render_dashboard_text(),
-        reply_markup=get_admin_dashboard_markup(),
+        get_dashboard_text(),
+        reply_markup=get_dashboard_markup(),
         parse_mode="HTML"
     )
 
-# বাটন কলব্যাক হ্যান্ডলার
-async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global AUTHORIZED_ADMIN_ID
+# ড্যাশবোর্ড বাটন ক্লিক হ্যান্ডলার
+async def dashboard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global is_tx_active
     query = update.callback_query
     await query.answer()
 
-    if AUTHORIZED_ADMIN_ID and query.from_user.id != AUTHORIZED_ADMIN_ID:
-        await query.message.reply_text("⛔ আপনি অনুমোদিত অ্যাডমিন নন!")
+    if query.from_user.id != ADMIN_USER_ID:
+        await query.message.reply_text("⛔ অনুমতি নেই!")
         return
 
     data = query.data
 
     if data == "toggle_tx":
-        SETTINGS["is_tx_active"] = not SETTINGS.get("is_tx_active", True)
-        save_settings(SETTINGS)
+        is_tx_active = not is_tx_active
         await query.edit_message_text(
-            render_dashboard_text(),
-            reply_markup=get_admin_dashboard_markup(),
+            get_dashboard_text(),
+            reply_markup=get_dashboard_markup(),
             parse_mode="HTML"
         )
-    elif data == "instant_tx":
-        await query.message.reply_text("⚡ ২য় গ্রুপে ৩ ধাপের ট্রানজ্যাকশন শুরু করা হয়েছে...")
-        asyncio.create_task(execute_3_step_transaction(context.bot, TRANSACTION_CHAT_ID))
-    elif data == "view_buttons":
-        btn_list = SETTINGS.get("buttons", [])
-        if not btn_list:
-            text = "বর্তমানে কোনো বাটন সক্রিয় নেই।"
-        else:
-            text = "🔘 <b>বর্তমান সক্রিয় বাটনসমূহ:</b>\n\n"
-            for idx, b in enumerate(btn_list, 1):
-                text += f"{idx}. <b>{b['name']}</b> -> {b['url']}\n"
-        await query.message.reply_text(text, parse_mode="HTML")
-    elif data == "reset_buttons":
-        SETTINGS["buttons"] = [
-            {"name": "FAST GMAIL SELL", "url": "https://t.me/NEW_FRESH_GMAILACCOUNTSELL50_bot"}
-        ]
-        save_settings(SETTINGS)
-        await query.message.reply_text("✅ বাটন রিসেট করে শুধুমাত্র ডিফল্ট <b>FAST GMAIL SELL</b> বাটন রাখা হয়েছে।", parse_mode="HTML")
-    elif data == "view_help":
-        help_msg = (
-            "🛠 <b>অ্যাডমিন কমান্ড তালিকা:</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
-            "➕ <b>বাটন যোগ করতে:</b>\n"
-            "<code>/addbtn বাটনের নাম | https://লিংক</code>\n\n"
-            "⏱️ <b>টাইমার পরিবর্তন করতে:</b>\n"
-            "<code>/setinterval 5</code> (মিনিটে)\n\n"
-            "💰 <b>ব্যালেন্স রেঞ্জ পরিবর্তন করতে:</b>\n"
-            "<code>/setamount 100 3000</code>\n\n"
-            "🌸 <b>ওয়েলকাম মেসেজ পরিবর্তন করতে:</b>\n"
-            "<code>/setwelcome স্বাগতম {user_link} আমাদের গ্রুপে!</code>"
-        )
-        await query.message.reply_text(help_msg, parse_mode="HTML")
+    elif data == "instant_random_tx":
+        await query.message.reply_text("⚡ ২য় গ্রুপে ৩ ধাপের র‍্যান্ডম ট্রানজ্যাকশন পাঠানো শুরু হয়েছে...")
+        name = random.choice(NAMES)
+        amt = f"{random.uniform(50.00, 2000.00):.2f}"
+        met = random.choice(PAYMENT_METHODS)
+        asyncio.create_task(execute_3_step_transaction(context.bot, TRANSACTION_CHAT_ID, name, amt, met))
 
-# --- ইনিশিয়ালাইজেশন ---
+# --- কাস্টম ট্রানজ্যাকশন বাটন কনভারসেশন লজিক ---
+async def start_custom_tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.from_user.id != ADMIN_USER_ID:
+        return ConversationHandler.END
+
+    await query.message.reply_text(
+        "📝 <b>ধাপ ১: কাস্টমারের নাম লিখুন</b>\n\n"
+        "যার উইথড্র পাঠাবেন তার নাম লিখে এখানে সেন্ড করুন (যেমন: <code>Md Karim</code>):",
+        parse_mode="HTML"
+    )
+    return WAITING_FOR_NAME
+
+async def receive_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["custom_name"] = update.message.text.strip()
+    await update.message.reply_text(
+        "💰 <b>ধাপ ২: টাকার পরিমাণ লিখুন</b>\n\n"
+        "কত টাকা পাঠাতে চান লিখে সেন্ড করুন (যেমন: <code>500</code> বা <code>1250</code>):",
+        parse_mode="HTML"
+    )
+    return WAITING_FOR_AMOUNT
+
+async def receive_custom_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    amt_text = update.message.text.strip().replace("৳", "")
+    try:
+        amt_val = float(amt_text)
+        context.user_data["custom_amount"] = f"{amt_val:.2f}"
+    except ValueError:
+        context.user_data["custom_amount"] = amt_text
+
+    # মেথড বাটন
+    keyboard = [
+        [InlineKeyboardButton("Bkash", callback_data="method_Bkash"),
+         InlineKeyboardButton("Nagad", callback_data="method_Nagad")],
+        [InlineKeyboardButton("Binance", callback_data="method_Binance")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        "🏦 <b>ধাপ ৩: পেমেন্ট মাধ্যম বেছে নিন</b>\n\n"
+        "নিচের বাটন থেকে মাধ্যম সিলেক্ট করুন:",
+        reply_markup=reply_markup,
+        parse_mode="HTML"
+    )
+    return WAITING_FOR_METHOD
+
+async def receive_custom_method(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    selected_method = query.data.replace("method_", "")
+    name = context.user_data.get("custom_name", "Customer")
+    amount = context.user_data.get("custom_amount", "500.00")
+
+    await query.edit_message_text(
+        f"✅ <b>কাস্টম ট্রানজ্যাকশন সম্পন্ন ও পাঠানো হচ্ছে!</b>\n\n"
+        f"👤 কাস্টমার: <b>{name}</b>\n"
+        f"💰 পরিমাণ: <b>৳{amount}</b>\n"
+        f"🏦 মাধ্যম: <b>{selected_method}</b>\n\n"
+        f"২য় গ্রুপে ৩টি ধাপ (৩০ সেকেন্ড অন্তর) লাইভ শুরু হয়ে গেছে।",
+        parse_mode="HTML"
+    )
+
+    # ২য় গ্রুপে পাঠানো
+    asyncio.create_task(
+        execute_3_step_transaction(context.bot, TRANSACTION_CHAT_ID, name, amount, selected_method)
+    )
+
+    return ConversationHandler.END
+
+async def cancel_custom_tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❌ বাতিল করা হয়েছে।")
+    return ConversationHandler.END
+
+# --- সার্ভিস শুরু ---
 async def post_init(application):
     asyncio.create_task(send_periodic_transactions(application))
     asyncio.create_task(start_dummy_web_server())
@@ -414,11 +351,23 @@ def main():
     print("বট চালু হচ্ছে...")
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
 
-    # প্রাইভেট মেসেজ ও অ্যাডমিন হ্যান্ডলার
-    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT, handle_private_admin))
-    app.add_handler(CallbackQueryHandler(admin_callback))
+    # কাস্টম ট্রানজ্যাকশন ইন্টারঅ্যাক্টিভ হ্যান্ডলার
+    custom_tx_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_custom_tx, pattern="^start_custom_tx$")],
+        states={
+            WAITING_FOR_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_custom_name)],
+            WAITING_FOR_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_custom_amount)],
+            WAITING_FOR_METHOD: [CallbackQueryHandler(receive_custom_method, pattern="^method_")]
+        },
+        fallbacks=[CommandHandler("cancel", cancel_custom_tx)]
+    )
 
-    # জয়েনিং ওয়েলকাম হ্যান্ডলার
+    # অ্যাডমিন কমান্ড ও ড্যাশবোর্ড বাটন
+    app.add_handler(CommandHandler("admin", admin_command))
+    app.add_handler(custom_tx_conv)
+    app.add_handler(CallbackQueryHandler(dashboard_callback))
+
+    # জয়েনিং হ্যান্ডলারসমূহ
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_chat_members))
     app.add_handler(ChatMemberHandler(handle_chat_member_updated, ChatMemberHandler.CHAT_MEMBER))
 
