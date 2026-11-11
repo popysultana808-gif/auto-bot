@@ -1,6 +1,6 @@
-python-tpython-telegram-bot>=21.0
+python-telegram-bot>=21.0
 openpyxl>=3.1.2
 reportlab>=4.0.0
 psycopg2-binary>=2.9.9
 Pillow>=9.0.0
-requests>=2.31.0elegram-bot
+requests>=2.31.0
