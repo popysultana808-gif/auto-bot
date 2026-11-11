@@ -70,10 +70,10 @@ SUPER_ADMIN_ID = int(os.getenv("SUPER_ADMIN_ID", "8919985167"))
 # ------------------------------------------------------------------------------
 # GROUP & CHANNEL CONFIGURATION (Force Join & Real-Time Proofs)
 # ------------------------------------------------------------------------------
-WELCOME_GROUP_ID = os.getenv("WELCOME_GROUP_ID", "-1004471047712")
+WELCOME_GROUP_ID = os.getenv("WELCOME_GROUP_ID", "-5340748538")
 WELCOME_GROUP_LINK = os.getenv("WELCOME_GROUP_LINK", "https://t.me/+rVP6CkmqrnFlNzA1")
 
-TRANSACTION_CHANNEL_ID = os.getenv("TRANSACTION_CHANNEL_ID", "-1003991468184")
+TRANSACTION_CHANNEL_ID = os.getenv("TRANSACTION_CHANNEL_ID", "-1004285154535")
 TRANSACTION_CHANNEL_LINK = os.getenv("TRANSACTION_CHANNEL_LINK", "https://t.me/fast_payment_proof_chanel")
 
 _AUTO_SALES_ACTIVE = True
@@ -1172,6 +1172,50 @@ def get_force_join_keyboard(in_group: bool, in_channel: bool) -> InlineKeyboardM
     buttons.append([InlineKeyboardButton("✅ ভেরিফাই করুন", callback_data="btn_check_verification")])
     return InlineKeyboardMarkup(buttons)
 
+
+async def execute_smart_broadcast(bot, reply_target, sdata: dict, btn_text: Optional[str] = None, btn_url: Optional[str] = None):
+    """Broadcasts message (with optional inline button) to all users and Update Group ONLY (excludes Transaction Channel)."""
+    msg_text = sdata.get("msg_text", "")
+    photo_id = sdata.get("photo_id")
+    reply_markup = None
+    if btn_text and btn_url:
+        reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton(btn_text, url=btn_url)]])
+
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM users")
+    users = c.fetchall()
+    conn.close()
+
+    sent_cnt = 0
+    for u in users:
+        uid = u["user_id"]
+        try:
+            if photo_id:
+                await bot.send_photo(chat_id=uid, photo=photo_id, caption=msg_text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+            else:
+                await bot.send_message(chat_id=uid, text=msg_text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+            sent_cnt += 1
+        except Exception:
+            pass
+
+    grp_status = "✅ আপডেট গ্রুপে পাঠানো হয়েছে"
+    try:
+        if photo_id:
+            await bot.send_photo(chat_id=WELCOME_GROUP_ID, photo=photo_id, caption=msg_text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+        else:
+            await bot.send_message(chat_id=WELCOME_GROUP_ID, text=msg_text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+    except Exception as e:
+        grp_status = f"⚠️ আপডেট গ্রুপে পাঠানো যায়নি ({e})"
+
+    await reply_target.reply_text(
+        f"✅ <b>ব্রডকাস্ট সম্পন্ন!</b>\n"
+        f"👥 মোট ইউজার: <b>{sent_cnt}</b> জনের ইনবক্সে পৌঁছেছে।\n"
+        f"📢 {grp_status}।\n"
+        f"🛡️ <i>ট্রানজ্যাকশন চ্যানেল সম্পূর্ণ পরিষ্কার রাখা হয়েছে।</i>",
+        parse_mode=ParseMode.HTML,
+    )
+
 async def show_order_verification(update: Update, receipt_no: str):
     conn = get_db()
     c = conn.cursor()
@@ -2169,7 +2213,11 @@ async def admin_panel_menu_handler(update: Update, context: ContextTypes.DEFAULT
         ],
         [
             InlineKeyboardButton("🧾 Check / Download Receipt", callback_data="adm_check_receipt"),
+            InlineKeyboardButton("📢 Broadcast (with Button)", callback_data="adm_broadcast_start"),
+        ],
+        [
             InlineKeyboardButton(status_tx, callback_data="adm_toggle_autosales"),
+            InlineKeyboardButton("⚡ Channel TX Manager", callback_data="adm_tx_manager"),
         ],
         [
             InlineKeyboardButton("🔄 Factory Reset / Clear Data", callback_data="adm_factory_reset_warn"),
@@ -2178,6 +2226,7 @@ async def admin_panel_menu_handler(update: Update, context: ContextTypes.DEFAULT
     await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
 
 async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT_TYPE):
+    global _AUTO_SALES_ACTIVE
     user_id = query.from_user.id
 
     # Force Join Verification Check Button
@@ -2208,6 +2257,104 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
                 pass
         return
 
+    # Channel TX Manager Menu
+    if data == "adm_tx_manager":
+        st_label = "🟢 অটো ট্রানজ্যাকশন: চালু" if _AUTO_SALES_ACTIVE else "🔴 অটো ট্রানজ্যাকশন: বন্ধ"
+        tx_txt = (
+            "⚡ <b>চ্যানেল ট্রানজ্যাকশন ম্যানেজার</b>\n"
+            "─────────────────────────────\n"
+            f"📢 চ্যানেল আইডি: <code>{TRANSACTION_CHANNEL_ID}</code>\n"
+            f"⚙️ অটো লুপ স্ট্যাটাস: <b>{'চালু আছে 🟢' if _AUTO_SALES_ACTIVE else 'বন্ধ আছে 🔴'}</b>\n\n"
+            "এখান থেকে আপনি কাস্টম ট্রানজ্যাকশন তৈরি করতে বা টেস্ট মেসেজ পাঠাতে পারবেন:"
+        )
+        tx_kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton(st_label, callback_data="adm_toggle_autosales_mgr")],
+            [InlineKeyboardButton("✍️ Custom Transaction (নিজে বানান)", callback_data="adm_custom_tx_start")],
+            [InlineKeyboardButton("⚡ Instant Test Transaction (টেস্ট পাঠান)", callback_data="adm_instant_tx_push")],
+            [InlineKeyboardButton("< Back to Dashboard", callback_data="adm_root")],
+        ])
+        await query.edit_message_text(tx_txt, parse_mode=ParseMode.HTML, reply_markup=tx_kb)
+        return
+
+    if data == "adm_toggle_autosales_mgr":
+        _AUTO_SALES_ACTIVE = not _AUTO_SALES_ACTIVE
+        state_str = "চালু করা হয়েছে 🟢" if _AUTO_SALES_ACTIVE else "বন্ধ করা হয়েছে 🔴"
+        await query.answer(f"চ্যানেল অটো ট্রানজ্যাকশন {state_str}!", show_alert=True)
+        st_label = "🟢 অটো ট্রানজ্যাকশন: চালু" if _AUTO_SALES_ACTIVE else "🔴 অটো ট্রানজ্যাকশন: বন্ধ"
+        tx_txt = (
+            "⚡ <b>চ্যানেল ট্রানজ্যাকশন ম্যানেজার</b>\n"
+            "─────────────────────────────\n"
+            f"📢 চ্যানেল আইডি: <code>{TRANSACTION_CHANNEL_ID}</code>\n"
+            f"⚙️ অটো লুপ স্ট্যাটাস: <b>{'চালু আছে 🟢' if _AUTO_SALES_ACTIVE else 'বন্ধ আছে 🔴'}</b>\n\n"
+            "এখান থেকে আপনি কাস্টম ট্রানজ্যাকশন তৈরি করতে বা টেস্ট মেসেজ পাঠাতে পারবেন:"
+        )
+        tx_kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton(st_label, callback_data="adm_toggle_autosales_mgr")],
+            [InlineKeyboardButton("✍️ Custom Transaction (নিজে বানান)", callback_data="adm_custom_tx_start")],
+            [InlineKeyboardButton("⚡ Instant Test Transaction (টেস্ট পাঠান)", callback_data="adm_instant_tx_push")],
+            [InlineKeyboardButton("< Back to Dashboard", callback_data="adm_root")],
+        ])
+        await query.edit_message_text(tx_txt, parse_mode=ParseMode.HTML, reply_markup=tx_kb)
+        return
+
+    if data == "adm_instant_tx_push":
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""
+        SELECT p.name as prod_name, s.name as sub_name, p.price_bdt 
+        FROM products p 
+        JOIN subcategories s ON p.subcategory_id = s.id 
+        ORDER BY RANDOM() LIMIT 1
+        """)
+        row = c.fetchone()
+        conn.close()
+        c_name = random.choice(CUSTOMER_SAMPLE_NAMES)
+        fake_uid = random.randint(7100000000, 7999999999)
+        qty = random.choice([1, 2, 4, 5])
+        if row:
+            p_name = f"{row['sub_name']} ({row['prod_name']})"
+            total_p = row["price_bdt"] * qty
+        else:
+            p_name = "Rapid Proxy (100 MB)"
+            total_p = 12.0 * qty
+        fake_receipt = f"RCP-{secrets.token_hex(5).upper()}"
+        await post_transaction_to_channel(context.bot, fake_receipt, c_name, fake_uid, p_name, qty, total_p)
+        await query.answer("⚡ ইনস্ট্যান্ট টেস্ট ট্রানজ্যাকশন চ্যানেলে পাঠানো হয়েছে!", show_alert=True)
+        return
+
+    if data == "adm_custom_tx_start":
+        set_user_state(user_id, "ADMIN_WAITING_CUSTOM_TX_NAME", {})
+        await query.message.reply_text("✍️ <b>কাস্টম ট্রানজ্যাকশন (ধাপ ১/৪):</b>\nকাস্টমারের নাম লিখে পাঠান (যেমন: <code>7x_TALHA</code>):", parse_mode=ParseMode.HTML)
+        return
+
+    # Broadcast with Optional Inline Button
+    if data == "adm_broadcast_start":
+        set_user_state(user_id, "ADMIN_WAITING_BCAST_MSG", {})
+        await query.message.reply_text(
+            "📢 <b>স্মার্ট ব্রডকাস্ট (ধাপ ১):</b>\n"
+            "আপনার নোটিশ বা আপডেট মেসেজটি লিখে পাঠান (ছবি বা টেক্সট)।\n"
+            "<i>(এটি সকল ইউজারের ইনবক্স এবং আপডেট গ্রুপে যাবে, কিন্তু ট্রানজ্যাকশন চ্যানেলে যাবে না)</i>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    if data == "adm_bcast_skip_btn":
+        sdata = get_user_state(user_id)[1]
+        await execute_smart_broadcast(context.bot, query.message, sdata, btn_text=None, btn_url=None)
+        set_user_state(user_id, None)
+        return
+
+    if data == "adm_bcast_add_btn":
+        sdata = get_user_state(user_id)[1]
+        set_user_state(user_id, "ADMIN_WAITING_BCAST_BTN_INFO", sdata)
+        await query.message.reply_text(
+            "🔗 <b>বাটনের নাম ও লিংক দিন:</b>\n"
+            "ফরম্যাট: <code>বাটনের নাম | লিংক</code>\n\n"
+            "উদাহরণ:\n<code>🛒 এখনই কিনুন | https://t.me/fast_shop_100_bot</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
     # Admin Receipt Lookup
     if data == "adm_check_receipt":
         set_user_state(user_id, "ADMIN_WAITING_RECEIPT_CODE", {})
@@ -2216,7 +2363,6 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
 
     # Toggle Auto Channel Sales
     if data == "adm_toggle_autosales":
-        global _AUTO_SALES_ACTIVE
         _AUTO_SALES_ACTIVE = not _AUTO_SALES_ACTIVE
         state_str = "চালু করা হয়েছে 🟢" if _AUTO_SALES_ACTIVE else "বন্ধ করা হয়েছে 🔴"
         await query.answer(f"চ্যানেল অটো ট্রানজ্যাকশন {state_str}!", show_alert=True)
@@ -3377,6 +3523,68 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             await update.message.reply_text("অর্ডার পাওয়া যায়নি।")
         return
 
+    # Custom Transaction Multi-Step State Handlers
+    if state == "ADMIN_WAITING_CUSTOM_TX_NAME":
+        set_user_state(user.id, "ADMIN_WAITING_CUSTOM_TX_PROD", {"cname": text})
+        await update.message.reply_text("📦 <b>কাস্টম ট্রানজ্যাকশন (ধাপ ২/৪):</b>\nপ্রোডাক্টের নাম লিখুন (যেমন: <code>Rapid Proxy (100 MB)</code>):", parse_mode=ParseMode.HTML)
+        return
+
+    if state == "ADMIN_WAITING_CUSTOM_TX_PROD":
+        sdata["pname"] = text
+        set_user_state(user.id, "ADMIN_WAITING_CUSTOM_TX_QTY", sdata)
+        await update.message.reply_text("🔢 <b>কাস্টম ট্রানজ্যাকশন (ধাপ ৩/৪):</b>\nপরিমাণ (Quantity) লিখুন (যেমন: <code>5</code>):", parse_mode=ParseMode.HTML)
+        return
+
+    if state == "ADMIN_WAITING_CUSTOM_TX_QTY":
+        try:
+            qty = int(text.strip())
+        except ValueError:
+            await update.message.reply_text("সঠিক সংখ্যায় পরিমাণ লিখুন (যেমন: 1, 5, 10):")
+            return
+        sdata["qty"] = qty
+        set_user_state(user.id, "ADMIN_WAITING_CUSTOM_TX_PRICE", sdata)
+        await update.message.reply_text("💰 <b>কাস্টম ট্রানজ্যাকশন (ধাপ ৪/৪):</b>\nমোট মূল্য (BDT) লিখুন (যেমন: <code>60.00</code>):", parse_mode=ParseMode.HTML)
+        return
+
+    if state == "ADMIN_WAITING_CUSTOM_TX_PRICE":
+        try:
+            price = float(text.strip())
+        except ValueError:
+            await update.message.reply_text("সঠিক সংখ্যায় মূল্য লিখুন (যেমন: 60 বা 120.50):")
+            return
+        cname = sdata.get("cname", "Customer")
+        pname = sdata.get("pname", "VPN")
+        qty = sdata.get("qty", 1)
+        fake_uid = random.randint(7100000000, 7999999999)
+        fake_receipt = f"RCP-{secrets.token_hex(5).upper()}"
+        set_user_state(user.id, None)
+        await post_transaction_to_channel(context.bot, fake_receipt, cname, fake_uid, pname, qty, price)
+        await update.message.reply_text(f"✅ কাস্টম ট্রানজ্যাকশন (<code>{fake_receipt}</code>) সফলভাবে চ্যানেলে পাঠানো হয়েছে!", parse_mode=ParseMode.HTML)
+        return
+
+    # Broadcast Message & Optional Button Handler
+    if state == "ADMIN_WAITING_BCAST_MSG":
+        set_user_state(user.id, "ADMIN_WAITING_BCAST_BTN_CHOICE", {"msg_text": text, "photo_id": None})
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("➕ বাটন যুক্ত করুন (Add Button)", callback_data="adm_bcast_add_btn")],
+            [InlineKeyboardButton("🚀 বাটন ছাড়াই পাঠান (Send Now)", callback_data="adm_bcast_skip_btn")],
+        ])
+        await update.message.reply_text("👇 এই মেসেজের নিচে কি কোনো লিংক-বাটন যুক্ত করতে চান?", reply_markup=kb)
+        return
+
+    if state == "ADMIN_WAITING_BCAST_BTN_INFO":
+        if "|" not in text:
+            await update.message.reply_text("❌ সঠিক ফরম্যাটে দিন: <code>বাটনের নাম | https://...</code>", parse_mode=ParseMode.HTML)
+            return
+        parts = [p.strip() for p in text.split("|", 1)]
+        b_name, b_url = parts[0], parts[1]
+        if not b_url.startswith("http"):
+            await update.message.reply_text("❌ লিংকটি অবশ্যই <code>https://</code> দিয়ে শুরু হতে হবে। আবার দিন:", parse_mode=ParseMode.HTML)
+            return
+        await execute_smart_broadcast(context.bot, update.message, sdata, btn_text=b_name, btn_url=b_url)
+        set_user_state(user.id, None)
+        return
+
     # Admin Receipt Lookup Code Input
     if state == "ADMIN_WAITING_RECEIPT_CODE":
         set_user_state(user.id, None)
@@ -3736,7 +3944,6 @@ async def send_periodic_channel_transactions(application):
     """Periodically broadcasts simulated sales to the proof channel for social proof."""
     await asyncio.sleep(10)
     while True:
-        global _AUTO_SALES_ACTIVE
         if _AUTO_SALES_ACTIVE:
             try:
                 conn = get_db()
