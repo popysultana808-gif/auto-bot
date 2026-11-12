@@ -20,6 +20,7 @@ import sqlite3
 import datetime
 import secrets
 import random
+import html
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional, List, Dict, Any
@@ -584,21 +585,14 @@ def seed_clean_store(conn):
     # 2. VPN Brands (Level 2) & Durations (Level 3)
     vpn_id = cat_map.get("🛡️ VPN")
     vpn_catalog = {
-        "Proton VPN": [("3 Days", 15.0), ("7 Days", 20.0), ("10 Days", 25.0), ("15 Days", 35.0), ("30 Days", 60.0)],
-        "Express VPN": [("3 Days", 15.0), ("7 Days", 20.0), ("15 Days", 35.0), ("30 Days", 65.0)],
-        "Nord VPN": [("3 Days", 18.0), ("7 Days", 20.0), ("15 Days", 35.0), ("30 Days", 60.0)],
-        "Surfshark VPN": [("7 Days", 20.0), ("15 Days", 35.0), ("30 Days", 60.0)],
-        "Cyberghost VPN": [("3 Days", 15.0), ("7 Days", 20.0), ("30 Days", 60.0)],
-        "IPVanish VPN": [("3 Days", 15.0), ("7 Days", 20.0), ("30 Days", 60.0)],
-        "Bitdefender VPN": [("7 Days", 20.0), ("30 Days", 60.0)],
-        "Hotspot Shield": [("7 Days", 20.0), ("30 Days", 60.0)],
-        "HMA VPN": [("7 Days", 20.0), ("30 Days", 60.0)],
-        "Vypr VPN": [("7 Days", 20.0), ("30 Days", 60.0)],
-        "Norton VPN": [("7 Days", 20.0), ("30 Days", 60.0)],
-        "PIA VPN": [("7 Days", 20.0), ("30 Days", 60.0)],
-        "Panda VPN": [("3 Days", 15.0), ("7 Days", 20.0)],
-        "Avast VPN": [("7 Days", 20.0), ("30 Days", 60.0)],
-        "Adguard VPN": [("7 Days", 20.0), ("30 Days", 60.0)],
+        "Nord VPN 7 Day": [("7 Day", 15.0)],
+        "Express VPN 3 DAY": [("3 DAY", 10.0)],
+        "IP Vanish 7 DAY": [("7 DAY", 21.0)],
+        "Turbo VPN 7 DAY": [("7 DAY", 33.0)],
+        "Surfshark VPN 7 DAY": [("7 DAY", 21.0)],
+        "HMA VPN 7 DAY": [("7 DAY", 21.0)],
+        "Panda VPN 3 DAY": [("3 DAY", 15.0)],
+        "PROTON VPN 14 DAY": [("14 DAY", 46.0)],
     }
 
     for brand, variants in vpn_catalog.items():
@@ -1371,6 +1365,48 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     user_id = query.from_user.id
     db_user = get_or_create_user(user_id, query.from_user.full_name, query.from_user.username)
 
+    # Force Join Verification Check Button (accessible to ALL users)
+    if data == "btn_check_verification":
+        try:
+            in_group, in_channel = await check_user_membership(context.bot, user_id)
+            if in_group and in_channel:
+                try:
+                    await query.answer("🎉 ভেরিফিকেশন সফল হয়েছে!", show_alert=True)
+                except Exception:
+                    pass
+                try:
+                    await query.message.delete()
+                except Exception:
+                    pass
+                shop_name = get_setting("shop_name", "CyberNest Market")
+                safe_name = html.escape(query.from_user.full_name or "বন্ধু")
+                welcome_text = (
+                    f"🎉 <b>স্বাগতম, {safe_name}!</b> ✨\n\n"
+                    f"💎 <b>{shop_name}</b>\n"
+                    f"─────────────────────────────\n"
+                    f"🛍️ প্রিমিয়াম VPN, Proxy আর Mail সার্ভিস — সবচেয়ে দ্রুত ডেলিভারিতে, ২৪/৭।\n\n"
+                    f"📌 নিচের মেনু থেকে বেছে নিন 👇"
+                )
+                reply_kb = get_main_reply_keyboard(user_id)
+                await query.message.reply_text(welcome_text, parse_mode=ParseMode.HTML, reply_markup=reply_kb)
+            else:
+                try:
+                    await query.answer("❌ আপনি এখনো গ্রুপ বা চ্যানেলে জয়েন করেননি! দয়া করে জয়েন করে আবার চাপুন।", show_alert=True)
+                except Exception:
+                    pass
+                kb = get_force_join_keyboard(in_group, in_channel)
+                try:
+                    await query.edit_message_reply_markup(reply_markup=kb)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"Verification button error: {e}", exc_info=True)
+            try:
+                await query.answer("⚠️ সাময়িক সমস্যা হয়েছে, আবার চেষ্টা করুন।", show_alert=True)
+            except Exception:
+                pass
+        return
+
     # ---------------- USER SHOP BROWSING FLOW (4-TIER NESTED) ----------------
     # Step 1 -> Step 2: Category Selected -> Show Brands / Subcategories
     if data.startswith("usr_cat_"):
@@ -1379,11 +1415,46 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         c = conn.cursor()
         c.execute("SELECT name FROM categories WHERE id = ?", (cat_id,))
         cat_row = c.fetchone()
+        cat_name = cat_row["name"] if cat_row else "Category"
+
+        if "vpn" in cat_name.lower():
+            c.execute("""
+            SELECT p.id, s.name as brand_name, p.price_bdt
+            FROM products p
+            JOIN subcategories s ON p.subcategory_id = s.id
+            WHERE s.category_id = ?
+            ORDER BY p.id ASC
+            """, (cat_id,))
+            vpn_prods = c.fetchall()
+            conn.close()
+            text = f"🛒 <b>Category: VPN</b>\n\nSelect a product:"
+            vpn_icons = {
+                "nord": "🛡️",
+                "express": "⚡",
+                "ip": "🌐",
+                "turbo": "🚀",
+                "surfshark": "🦈",
+                "hma": "🐴",
+                "panda": "🐼",
+                "proton": "🟣",
+            }
+            kb = []
+            for vp in vpn_prods:
+                bname = vp["brand_name"]
+                icon = "🛡️"
+                for k_ico, v_ico in vpn_icons.items():
+                    if k_ico in bname.lower():
+                        icon = v_ico
+                        break
+                kb.append([InlineKeyboardButton(f"{icon} {bname}  ❯  {format_price(vp['price_bdt'])} BDT", callback_data=f"usr_prod_{vp['id']}")])
+            kb.append([InlineKeyboardButton("⬇️ Back to Categories", callback_data="usr_root_cats")])
+            await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+            return
+
         c.execute("SELECT id, name FROM subcategories WHERE category_id = ? ORDER BY id ASC", (cat_id,))
         subs = c.fetchall()
         conn.close()
 
-        cat_name = cat_row["name"] if cat_row else "Category"
         text = f"<b>{cat_name} — Select Brand / Section:</b>"
         kb = []
         row = []
@@ -1447,9 +1518,12 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         title = f"{meta['cat_name']} ➔ {meta['sub_name']}" if meta else "Select Variant"
         text = f"<b>{title}</b>\n\nনিচের প্ল্যান বা মেয়াদ নির্বাচন করুন:"
         kb = []
+        is_mail_cat = bool(meta and ("mail" in meta["cat_name"].lower() or "মেইল" in meta["cat_name"]))
         for p in prods:
-            stock_str = "⚡ Instant" if p["is_on_demand"] else f"Stock: {p['in_stock']}"
-            btn_text = f"{p['name']} | {format_price(p['price_bdt'])} BDT | {stock_str}"
+            if is_mail_cat:
+                btn_text = f"{p['name']} | {format_price(p['price_bdt'])} BDT | Stock: {p['in_stock']}"
+            else:
+                btn_text = f"{p['name']} | {format_price(p['price_bdt'])} BDT"
             kb.append([InlineKeyboardButton(btn_text, callback_data=f"usr_prod_{p['id']}")])
         back_cat_id = meta["category_id"] if meta else 1
         kb.append([InlineKeyboardButton("< Back", callback_data=f"usr_cat_{back_cat_id}")])
@@ -1879,7 +1953,7 @@ async def render_purchase_summary(query_or_message, prod_id: int, quantity: int 
             InlineKeyboardButton("✏️ Enter quantity", callback_data=f"calc_custom_{p['id']}")
         ],
         [
-            InlineKeyboardButton("Back", callback_data=f"usr_sub_{p['subcategory_id']}"),
+            InlineKeyboardButton("Back", callback_data=f"usr_cat_{p['category_id']}" if "vpn" in p["cat_name"].lower() else f"usr_sub_{p['subcategory_id']}"),
             InlineKeyboardButton("Cancel", callback_data="usr_root_cats"),
         ],
         [
@@ -1924,14 +1998,15 @@ async def show_product_card(query, prod_id: int):
         await query.message.reply_text("প্রোডাক্টটি পাওয়া যায়নি।")
         return
 
-    stock_badge = "⚡ Instant Request Delivery (২৪/৭ ডেলিভারি)" if p["is_on_demand"] else f"{avail_stock} টি স্টকে আছে"
+    is_mail_cat = ("mail" in p["cat_name"].lower() or "মেইল" in p["cat_name"])
+    stock_line = f"📊 <b>Stock:</b> {avail_stock} টি স্টকে আছে\n" if is_mail_cat else ""
     desc_part = f"\n📝 <i>{p['description']}</i>\n" if p['description'] else ""
 
     caption = (
         f"<b>{p['sub_name']} — {p['name']}</b>\n"
         f"─────────────────────────────{desc_part}\n"
         f"💰 <b>Price:</b> {format_price(p['price_bdt'])} BDT / {p['price_usdt']:.4f} USDT per unit\n"
-        f"📊 <b>Stock:</b> {stock_badge}\n\n"
+        f"{stock_line}\n"
         f"Select quantity:"
     )
 
@@ -2265,34 +2340,6 @@ async def admin_panel_menu_handler(update: Update, context: ContextTypes.DEFAULT
 async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT_TYPE):
     global _AUTO_SALES_ACTIVE
     user_id = query.from_user.id
-
-    # Force Join Verification Check Button
-    if data == "btn_check_verification":
-        in_group, in_channel = await check_user_membership(context.bot, user_id)
-        if in_group and in_channel:
-            await query.answer("🎉 ভেরিফিকেশন সফল হয়েছে!", show_alert=True)
-            try:
-                await query.message.delete()
-            except Exception:
-                pass
-            shop_name = get_setting("shop_name", "CyberNest Market")
-            welcome_text = (
-                f"🎉 <b>স্বাগতম, {query.from_user.full_name}!</b> ✨\n\n"
-                f"💎 <b>{shop_name}</b>\n"
-                f"─────────────────────────────\n"
-                f"🛍️ প্রিমিয়াম VPN, Proxy আর Mail সার্ভিস — সবচেয়ে দ্রুত ডেলিভারিতে, ২৪/৭।\n\n"
-                f"📌 নিচের মেনু থেকে বেছে নিন 👇"
-            )
-            reply_kb = get_main_reply_keyboard(user_id)
-            await query.message.reply_text(welcome_text, parse_mode=ParseMode.HTML, reply_markup=reply_kb)
-        else:
-            await query.answer("❌ আপনি এখনো গ্রুপ বা চ্যানেলে জয়েন করেননি! দয়া করে জয়েন করে আবার চাপুন।", show_alert=True)
-            kb = get_force_join_keyboard(in_group, in_channel)
-            try:
-                await query.edit_message_reply_markup(reply_markup=kb)
-            except Exception:
-                pass
-        return
 
     # Channel TX Manager Menu
     if data == "adm_tx_manager":
@@ -4128,7 +4175,7 @@ async def send_auto_delete_welcome_group(bot, chat_id, user):
         await asyncio.sleep(30)
         await bot.delete_message(chat_id=chat_id, message_id=sent_msg.message_id)
     except Exception as e:
-        logger.debug(f"Welcome group delete error: {e}")
+        logger.error(f"Welcome group send/delete error (chat_id={chat_id}): {e}")
     finally:
         await asyncio.sleep(60)
         _RECENTLY_WELCOMED.discard(user_id)
@@ -4204,7 +4251,7 @@ def main():
     app.add_handler(MessageHandler(filters.Document.ALL, document_message_handler))
 
     print("Bot is polling for updates...")
-    app.run_polling()
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
