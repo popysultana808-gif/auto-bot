@@ -71,10 +71,10 @@ SUPER_ADMIN_ID = int(os.getenv("SUPER_ADMIN_ID", "8919985167"))
 # GROUP & CHANNEL CONFIGURATION (Force Join & Real-Time Proofs)
 # ------------------------------------------------------------------------------
 WELCOME_GROUP_ID = os.getenv("WELCOME_GROUP_ID", "-5340748538")
-WELCOME_GROUP_LINK = os.getenv("WELCOME_GROUP_LINK", "https://t.me/+rVP6CkmqrnFlNzA1")
+WELCOME_GROUP_LINK = os.getenv("WELCOME_GROUP_LINK", "https://t.me/+jzGqcGVgiYRmYjJl")
 
-TRANSACTION_CHANNEL_ID = os.getenv("TRANSACTION_CHANNEL_ID", "-1004285154535")
-TRANSACTION_CHANNEL_LINK = os.getenv("TRANSACTION_CHANNEL_LINK", "https://t.me/fast_payment_proof_chanel")
+TRANSACTION_CHANNEL_ID = os.getenv("TRANSACTION_CHANNEL_ID", "@Yourcybernestmart")
+TRANSACTION_CHANNEL_LINK = os.getenv("TRANSACTION_CHANNEL_LINK", "https://t.me/Yourcybernestmart")
 
 _AUTO_SALES_ACTIVE = True
 _RECENTLY_WELCOMED = set()
