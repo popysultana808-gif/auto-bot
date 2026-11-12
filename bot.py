@@ -390,6 +390,7 @@ def init_db():
         image_file_id TEXT DEFAULT NULL,
         is_on_demand INTEGER DEFAULT 0,
         description TEXT,
+        is_active INTEGER DEFAULT 1,
         FOREIGN KEY (subcategory_id) REFERENCES subcategories (id) ON DELETE CASCADE
     )
     """)
@@ -585,14 +586,14 @@ def seed_clean_store(conn):
     # 2. VPN Brands (Level 2) & Durations (Level 3)
     vpn_id = cat_map.get("🛡️ VPN")
     vpn_catalog = {
-        "Nord VPN 7 Day": [("7 Day", 15.0)],
-        "Express VPN 3 DAY": [("3 DAY", 10.0)],
-        "IP Vanish 7 DAY": [("7 DAY", 21.0)],
-        "Turbo VPN 7 DAY": [("7 DAY", 33.0)],
-        "Surfshark VPN 7 DAY": [("7 DAY", 21.0)],
-        "HMA VPN 7 DAY": [("7 DAY", 21.0)],
-        "Panda VPN 3 DAY": [("3 DAY", 15.0)],
-        "PROTON VPN 14 DAY": [("14 DAY", 46.0)],
+        "Nord VPN": [("7 Days", 20.0), ("3 Days", 15.0), ("15 Days", 35.0), ("30 Days", 60.0)],
+        "Express VPN": [("3 Days", 15.0), ("7 Days", 20.0), ("15 Days", 35.0), ("30 Days", 65.0)],
+        "IP Vanish": [("7 Days", 26.0), ("3 Days", 18.0), ("30 Days", 60.0)],
+        "Turbo VPN": [("7 Days", 38.0), ("30 Days", 75.0)],
+        "Surfshark VPN": [("7 Days", 26.0), ("15 Days", 38.0), ("30 Days", 65.0)],
+        "HMA VPN": [("7 Days", 26.0), ("30 Days", 65.0)],
+        "Panda VPN": [("3 Days", 20.0), ("7 Days", 28.0)],
+        "PROTON VPN": [("14 Days", 51.0), ("7 Days", 30.0), ("30 Days", 80.0)],
     }
 
     for brand, variants in vpn_catalog.items():
@@ -742,12 +743,30 @@ def is_admin(user_id: int) -> bool:
 # ------------------------------------------------------------------------------
 # 4. KEYBOARD LAYOUTS
 # ------------------------------------------------------------------------------
+DEFAULT_MENU_LAYOUT = [
+    ["🛍️ Buy Products"],
+    ["👤 My Profile", "💳 Deposit"],
+    ["🔐 Get Code", "💬 Support"],
+]
+
+def get_menu_layout() -> List[List[str]]:
+    raw = get_setting("main_menu_layout", "")
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list) and parsed:
+                return parsed
+        except Exception:
+            pass
+    return [list(r) for r in DEFAULT_MENU_LAYOUT]
+
+def save_menu_layout(layout: List[List[str]]):
+    clean = [r for r in layout if r]
+    set_setting("main_menu_layout", json.dumps(clean, ensure_ascii=False))
+
 def get_main_reply_keyboard(user_id: int) -> ReplyKeyboardMarkup:
-    buttons = [
-        [KeyboardButton("🛍️ Buy Products")],
-        [KeyboardButton("👤 My Profile"), KeyboardButton("💳 Deposit")],
-        [KeyboardButton("🔐 Get Code"), KeyboardButton("💬 Support")],
-    ]
+    layout = get_menu_layout()
+    buttons = [[KeyboardButton(label) for label in row] for row in layout]
     if is_admin(user_id):
         buttons.append([KeyboardButton("👑 Admin Panel")])
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
@@ -1417,40 +1436,6 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         cat_row = c.fetchone()
         cat_name = cat_row["name"] if cat_row else "Category"
 
-        if "vpn" in cat_name.lower():
-            c.execute("""
-            SELECT p.id, s.name as brand_name, p.price_bdt
-            FROM products p
-            JOIN subcategories s ON p.subcategory_id = s.id
-            WHERE s.category_id = ?
-            ORDER BY p.id ASC
-            """, (cat_id,))
-            vpn_prods = c.fetchall()
-            conn.close()
-            text = f"🛒 <b>Category: VPN</b>\n\nSelect a product:"
-            vpn_icons = {
-                "nord": "🛡️",
-                "express": "⚡",
-                "ip": "🌐",
-                "turbo": "🚀",
-                "surfshark": "🦈",
-                "hma": "🐴",
-                "panda": "🐼",
-                "proton": "🟣",
-            }
-            kb = []
-            for vp in vpn_prods:
-                bname = vp["brand_name"]
-                icon = "🛡️"
-                for k_ico, v_ico in vpn_icons.items():
-                    if k_ico in bname.lower():
-                        icon = v_ico
-                        break
-                kb.append([InlineKeyboardButton(f"{icon} {bname}  ❯  {format_price(vp['price_bdt'])} BDT", callback_data=f"usr_prod_{vp['id']}")])
-            kb.append([InlineKeyboardButton("⬇️ Back to Categories", callback_data="usr_root_cats")])
-            await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
-            return
-
         c.execute("SELECT id, name FROM subcategories WHERE category_id = ? ORDER BY id ASC", (cat_id,))
         subs = c.fetchall()
         conn.close()
@@ -1505,11 +1490,11 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         meta = c.fetchone()
         
         c.execute("""
-        SELECT p.id, p.name, p.price_bdt, p.price_usdt, p.is_on_demand, COUNT(st.id) as in_stock
+        SELECT p.id, p.name, p.price_bdt, p.price_usdt, p.is_on_demand, COALESCE(p.is_active, 1) as is_active, COUNT(st.id) as in_stock
         FROM products p
         LEFT JOIN stock st ON p.id = st.product_id AND st.is_sold = 0
         WHERE p.subcategory_id = ?
-        GROUP BY p.id, p.name, p.price_bdt, p.price_usdt, p.is_on_demand
+        GROUP BY p.id, p.name, p.price_bdt, p.price_usdt, p.is_on_demand, p.is_active
         ORDER BY p.id ASC
         """, (sub_id,))
         prods = c.fetchall()
@@ -1520,10 +1505,11 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         kb = []
         is_mail_cat = bool(meta and ("mail" in meta["cat_name"].lower() or "মেইল" in meta["cat_name"]))
         for p in prods:
+            status_tag = "" if p.get("is_active", 1) else " 🔴 (Unavailable)"
             if is_mail_cat:
-                btn_text = f"{p['name']} | {format_price(p['price_bdt'])} BDT | Stock: {p['in_stock']}"
+                btn_text = f"{p['name']} | {format_price(p['price_bdt'])} BDT | Stock: {p['in_stock']}{status_tag}"
             else:
-                btn_text = f"{p['name']} | {format_price(p['price_bdt'])} BDT"
+                btn_text = f"{p['name']} | {format_price(p['price_bdt'])} BDT{status_tag}"
             kb.append([InlineKeyboardButton(btn_text, callback_data=f"usr_prod_{p['id']}")])
         back_cat_id = meta["category_id"] if meta else 1
         kb.append([InlineKeyboardButton("< Back", callback_data=f"usr_cat_{back_cat_id}")])
@@ -1533,6 +1519,18 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     # Step 3 -> Step 4: Variant Selected -> Show Product Card & Quantity Selector
     if data.startswith("usr_prod_"):
         prod_id = int(data.split("_")[2])
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT name, COALESCE(is_active, 1) as is_active FROM products WHERE id = ?", (prod_id,))
+        prow = c.fetchone()
+        conn.close()
+        if prow and not prow["is_active"]:
+            await query.message.reply_text(
+                f"❌ <b>দুঃখিত!</b> <b>{prow['name']}</b> প্ল্যানটি বর্তমানে এভেলেবেল নেই (স্টকে নেই)।\n"
+                f"অনুগ্রহ করে অন্য একটি প্ল্যান নির্বাচন করুন।",
+                parse_mode=ParseMode.HTML,
+            )
+            return
         await render_purchase_summary(query, prod_id, quantity=1, edit=True)
         return
 
@@ -1953,7 +1951,7 @@ async def render_purchase_summary(query_or_message, prod_id: int, quantity: int 
             InlineKeyboardButton("✏️ Enter quantity", callback_data=f"calc_custom_{p['id']}")
         ],
         [
-            InlineKeyboardButton("Back", callback_data=f"usr_cat_{p['category_id']}" if "vpn" in p["cat_name"].lower() else f"usr_sub_{p['subcategory_id']}"),
+            InlineKeyboardButton("Back", callback_data=f"usr_sub_{p['subcategory_id']}"),
             InlineKeyboardButton("Cancel", callback_data="usr_root_cats"),
         ],
         [
@@ -2332,6 +2330,7 @@ async def admin_panel_menu_handler(update: Update, context: ContextTypes.DEFAULT
             InlineKeyboardButton("⚡ Channel TX Manager", callback_data="adm_tx_manager"),
         ],
         [
+            InlineKeyboardButton("🎛️ Menu Layout Manager", callback_data="adm_menu_layout"),
             InlineKeyboardButton("🔄 Factory Reset / Clear Data", callback_data="adm_factory_reset_warn"),
         ]
     ])
@@ -2591,7 +2590,8 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
                 InlineKeyboardButton(status_tx, callback_data="adm_toggle_autosales"),
             ],
             [
-                InlineKeyboardButton("🔄 Factory Reset / Clear Data", callback_data="adm_factory_reset_warn"),
+                InlineKeyboardButton("🎛️ Menu Layout Manager", callback_data="adm_menu_layout"),
+            InlineKeyboardButton("🔄 Factory Reset / Clear Data", callback_data="adm_factory_reset_warn"),
             ]
         ])
         await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
@@ -2782,18 +2782,22 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         p = c.fetchone()
         conn.close()
 
+        is_act = bool(p.get("is_active", 1) if isinstance(p, dict) else p["is_active"])
+        act_label = "🟢 Status: Active (Available)" if is_act else "🔴 Status: Inactive (Out of Stock)"
         photo_status = "🖼️ নিজস্ব ছবি সেট করা আছে" if p["image_file_id"] else "⚪ কোনো ছবি নেই (ক্লিন টেক্সট শো করবে)"
         desc_txt = p["description"] if p["description"] else "কোনো কাস্টম বিবরণ দেওয়া নেই"
 
         txt = (
             f"📦 <b>{p['sub_name']} — {p['name']}</b>\n"
             f"─────────────────────────────\n"
+            f"⚡ <b>অবস্থা:</b> <b>{'Active (এভেলেবেল) 🟢' if is_act else 'Inactive (স্টকে নেই) 🔴'}</b>\n"
             f"💰 <b>বর্তমান দাম:</b> <b>{p['price_bdt']:.2f} BDT</b> ({p['price_usdt']:.4f} USDT)\n"
             f"📸 <b>ফটো স্ট্যাটাস:</b> {photo_status}\n"
             f"📝 <b>কাস্টম বিবরণ:</b>\n<i>{desc_txt}</i>\n\n"
             f"কী পরিবর্তন করতে চান? নিচের বাটনে চাপ দিন:"
         )
         kb = [
+            [InlineKeyboardButton(act_label, callback_data=f"adm_toggact_{p['id']}")],
             [InlineKeyboardButton("💰 Change Price (BDT)", callback_data=f"adm_chgprice_{p['id']}")],
             [InlineKeyboardButton("✏️ Rename Variant Name", callback_data=f"adm_rename_{p['id']}")],
             [InlineKeyboardButton("📝 Edit Custom Description", callback_data=f"adm_editdesc_{p['id']}")],
@@ -2802,6 +2806,107 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             [InlineKeyboardButton("< Back", callback_data=f"adm_btn_step3_prod_{p['subcategory_id']}")],
         ]
         await query.edit_message_text(txt, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+        return
+
+    if data.startswith("adm_toggact_"):
+        prod_id = int(data.split("_")[2])
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT COALESCE(is_active, 1) as is_active, subcategory_id FROM products WHERE id = ?", (prod_id,))
+        pr = c.fetchone()
+        if pr:
+            new_st = 0 if pr["is_active"] else 1
+            c.execute("UPDATE products SET is_active = ? WHERE id = ?", (new_st, prod_id))
+            conn.commit()
+        conn.close()
+        # Re-render Step 4 card
+        await handle_admin_callbacks(query, f"adm_btn_step4_edit_{prod_id}", context)
+        return
+
+    if data == "adm_menu_layout":
+        layout = get_menu_layout()
+        txt = (
+            "🎛️ <b>মেইন মেনু বাটন লেআউট ম্যানেজার</b>\n"
+            "─────────────────────────────\n"
+            "যেকোনো বাটনে চাপ দিয়ে সেটিকে <b>উপরে (⬆️), নিচে (⬇️), বামে (⬅️), ডানে (➡️)</b> অথবা <b>আলাদা সারিতে (Full Width)</b> মুভ করুন:\n\n"
+        )
+        kb = []
+        for r_idx, row in enumerate(layout):
+            txt += f"<b>Layer {r_idx+1}:</b> " + " | ".join(row) + "\n"
+            kb_row = []
+            for c_idx, lbl in enumerate(row):
+                kb_row.append(InlineKeyboardButton(f"✏️ {lbl}", callback_data=f"adm_ml_sel_{r_idx}_{c_idx}"))
+            kb.append(kb_row)
+        kb.append([InlineKeyboardButton("🔄 Reset Default Layout", callback_data="adm_ml_reset")])
+        kb.append([InlineKeyboardButton("< Back to Dashboard", callback_data="adm_root")])
+        await query.edit_message_text(txt, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+        return
+
+    if data == "adm_ml_reset":
+        save_menu_layout([list(r) for r in DEFAULT_MENU_LAYOUT])
+        await query.message.reply_text("✅ ডিফল্ট লেআউট রিসেট করা হয়েছে!", reply_markup=get_main_reply_keyboard(user_id))
+        await handle_admin_callbacks(query, "adm_menu_layout", context)
+        return
+
+    if data.startswith("adm_ml_sel_"):
+        parts = data.split("_")
+        r_idx, c_idx = int(parts[3]), int(parts[4])
+        layout = get_menu_layout()
+        if r_idx >= len(layout) or c_idx >= len(layout[r_idx]):
+            await handle_admin_callbacks(query, "adm_menu_layout", context)
+            return
+        lbl = layout[r_idx][c_idx]
+        txt = (
+            f"🎛️ <b>বাটন পজিশন এডিটর:</b> <code>{lbl}</code>\n"
+            f"📍 বর্তমান অবস্থান: <b>Layer {r_idx+1}, Position {c_idx+1}</b>\n\n"
+            f"কোন দিকে মুভ করতে চান?"
+        )
+        kb = [
+            [
+                InlineKeyboardButton("⬆️ Move Up (উপরে)", callback_data=f"adm_ml_mv_{r_idx}_{c_idx}_up"),
+                InlineKeyboardButton("⬇️ Move Down (নিচে)", callback_data=f"adm_ml_mv_{r_idx}_{c_idx}_down"),
+            ],
+            [
+                InlineKeyboardButton("⬅️ Move Left (বামে)", callback_data=f"adm_ml_mv_{r_idx}_{c_idx}_left"),
+                InlineKeyboardButton("➡️ Move Right (ডানে)", callback_data=f"adm_ml_mv_{r_idx}_{c_idx}_right"),
+            ],
+            [
+                InlineKeyboardButton("↔️ Separate Row (এক সারিতে একা)", callback_data=f"adm_ml_mv_{r_idx}_{c_idx}_solo"),
+            ],
+            [InlineKeyboardButton("< Back to Layout", callback_data="adm_menu_layout")],
+        ]
+        await query.edit_message_text(txt, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+        return
+
+    if data.startswith("adm_ml_mv_"):
+        parts = data.split("_")
+        r_idx, c_idx, direction = int(parts[3]), int(parts[4]), parts[5]
+        layout = get_menu_layout()
+        if r_idx < len(layout) and c_idx < len(layout[r_idx]):
+            lbl = layout[r_idx][c_idx]
+            if direction == "left" and c_idx > 0:
+                layout[r_idx][c_idx], layout[r_idx][c_idx - 1] = layout[r_idx][c_idx - 1], layout[r_idx][c_idx]
+            elif direction == "right" and c_idx < len(layout[r_idx]) - 1:
+                layout[r_idx][c_idx], layout[r_idx][c_idx + 1] = layout[r_idx][c_idx + 1], layout[r_idx][c_idx]
+            elif direction == "up":
+                layout[r_idx].pop(c_idx)
+                if r_idx > 0:
+                    layout[r_idx - 1].append(lbl)
+                else:
+                    layout.insert(0, [lbl])
+            elif direction == "down":
+                layout[r_idx].pop(c_idx)
+                if r_idx + 1 < len(layout):
+                    layout[r_idx + 1].append(lbl)
+                else:
+                    layout.append([lbl])
+            elif direction == "solo":
+                if len(layout[r_idx]) > 1:
+                    layout[r_idx].pop(c_idx)
+                    layout.insert(r_idx + 1, [lbl])
+            save_menu_layout(layout)
+            await query.message.reply_text(f"✅ <b>{lbl}</b> আপডেট করা হয়েছে!", parse_mode=ParseMode.HTML, reply_markup=get_main_reply_keyboard(user_id))
+        await handle_admin_callbacks(query, "adm_menu_layout", context)
         return
 
     # Up / Down Reordering Handlers for Categories
