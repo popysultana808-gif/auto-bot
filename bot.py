@@ -340,6 +340,49 @@ class DBWrapper:
 def get_db():
     return DBWrapper()
 
+
+def sync_vpn_catalog_v3(conn, cursor):
+    try:
+        cursor.execute("SELECT value FROM settings WHERE key = ?", ("vpn_catalog_v3_synced",))
+        if cursor.fetchone():
+            return
+        cursor.execute("SELECT id FROM categories WHERE name LIKE ?", ("%VPN%",))
+        cat_row = cursor.fetchone()
+        if cat_row:
+            vpn_cat_id = cat_row["id"] if isinstance(cat_row, dict) else cat_row[0]
+            cursor.execute("SELECT id FROM subcategories WHERE category_id = ?", (vpn_cat_id,))
+            old_subs = [r["id"] if isinstance(r, dict) else r[0] for r in cursor.fetchall()]
+            for sid in old_subs:
+                cursor.execute("DELETE FROM stock WHERE product_id IN (SELECT id FROM products WHERE subcategory_id = ?)", (sid,))
+                cursor.execute("DELETE FROM products WHERE subcategory_id = ?", (sid,))
+            cursor.execute("DELETE FROM subcategories WHERE category_id = ?", (vpn_cat_id,))
+            vpn_catalog = {
+                "Nord VPN": [("7 Days", 20.0), ("3 Days", 15.0), ("15 Days", 35.0), ("30 Days", 60.0)],
+                "Express VPN": [("3 Days", 15.0), ("7 Days", 20.0), ("15 Days", 35.0), ("30 Days", 65.0)],
+                "IP Vanish": [("7 Days", 26.0), ("3 Days", 18.0), ("30 Days", 60.0)],
+                "Turbo VPN": [("7 Days", 38.0), ("30 Days", 75.0)],
+                "Surfshark VPN": [("7 Days", 26.0), ("15 Days", 38.0), ("30 Days", 65.0)],
+                "HMA VPN": [("7 Days", 26.0), ("30 Days", 65.0)],
+                "Panda VPN": [("3 Days", 20.0), ("7 Days", 28.0)],
+                "PROTON VPN": [("14 Days", 51.0), ("7 Days", 30.0), ("30 Days", 80.0)],
+            }
+            for pos_idx, (brand, variants) in enumerate(vpn_catalog.items(), start=1):
+                cursor.execute("INSERT INTO subcategories (category_id, name, position) VALUES (?, ?, ?)", (vpn_cat_id, brand, pos_idx))
+                sub_id = cursor.lastrowid
+                for dur, bdt in variants:
+                    cursor.execute(
+                        "INSERT INTO products (subcategory_id, name, price_bdt, price_usdt, is_on_demand, is_active) VALUES (?, ?, ?, ?, 1, 1)",
+                        (sub_id, dur, bdt, bdt / 125.0),
+                    )
+        if conn.is_pg:
+            cursor.execute("INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING", ("vpn_catalog_v3_synced", "1"))
+        else:
+            cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", ("vpn_catalog_v3_synced", "1"))
+        conn.commit()
+        logger.info("Synced 8 VPN brands (+5 BDT) successfully.")
+    except Exception as e:
+        logger.error(f"sync_vpn_catalog_v3 error: {e}", exc_info=True)
+
 def init_db():
     conn = get_db()
     cursor = conn.cursor()
@@ -458,6 +501,7 @@ def init_db():
             cursor.execute("ALTER TABLE categories ADD COLUMN IF NOT EXISTS position INTEGER DEFAULT 0")
             cursor.execute("ALTER TABLE subcategories ADD COLUMN IF NOT EXISTS position INTEGER DEFAULT 0")
             cursor.execute("ALTER TABLE stock ADD COLUMN IF NOT EXISTS stock_type TEXT DEFAULT 'account'")
+            cursor.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS is_active INTEGER DEFAULT 1")
         except Exception as e:
             logger.warning(f"Postgres column check notice: {e}")
     else:
@@ -468,6 +512,10 @@ def init_db():
                 pass
         try:
             cursor.execute("ALTER TABLE stock ADD COLUMN stock_type TEXT DEFAULT 'account'")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE products ADD COLUMN is_active INTEGER DEFAULT 1")
         except Exception:
             pass
 
@@ -564,6 +612,7 @@ def init_db():
             pass
         seed_clean_store(conn)
 
+    sync_vpn_catalog_v3(conn, cursor)
     conn.close()
 
 def seed_clean_store(conn):
