@@ -19,6 +19,7 @@ import logging
 import sqlite3
 import datetime
 import secrets
+import random
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional, List, Dict, Any
@@ -229,6 +230,16 @@ def get_raw_connection():
     if IS_POSTGRES:
         import psycopg2
         import psycopg2.extras
+        if _GLOBAL_CONN is not None and not _GLOBAL_CONN.closed:
+            try:
+                with _GLOBAL_CONN.cursor() as ping_cur:
+                    ping_cur.execute("SELECT 1")
+            except Exception:
+                try:
+                    _GLOBAL_CONN.close()
+                except Exception:
+                    pass
+                _GLOBAL_CONN = None
         if _GLOBAL_CONN is None or _GLOBAL_CONN.closed:
             url = DATABASE_URL
             if url.startswith("postgres://"):
@@ -2328,38 +2339,50 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         return
 
     if data == "adm_instant_tx_push":
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("""
-        SELECT p.name as prod_name, s.name as sub_name, p.price_bdt 
-        FROM products p 
-        JOIN subcategories s ON p.subcategory_id = s.id 
-        ORDER BY RANDOM() LIMIT 1
-        """)
-        row = c.fetchone()
-        conn.close()
-        c_name = random.choice(CUSTOMER_SAMPLE_NAMES)
-        fake_uid = random.randint(7100000000, 7999999999)
-        qty = random.choice([1, 2, 4, 5])
-        if row:
-            p_name = f"{row['sub_name']} ({row['prod_name']})"
-            total_p = row["price_bdt"] * qty
-        else:
-            p_name = "Rapid Proxy (100 MB)"
-            total_p = 12.0 * qty
-        fake_receipt = f"RCP-{secrets.token_hex(5).upper()}"
-        ok, err = await post_transaction_to_channel(context.bot, fake_receipt, c_name, fake_uid, p_name, qty, total_p)
-        if ok:
-            await query.answer("⚡ ইনস্ট্যান্ট টেস্ট ট্রানজ্যাকশন চ্যানেলে পাঠানো হয়েছে!", show_alert=True)
-        else:
-            await query.answer("❌ চ্যানেলে পাঠানো যায়নি! চ্যাটে বিস্তারিত দেখুন।", show_alert=True)
-            await query.message.reply_text(
-                f"❌ <b>চ্যানেলে টেস্ট ট্রানজ্যাকশন পাঠানো যায়নি!</b>\n\n"
-                f"📌 <b>ব্যবহৃত চ্যানেল আইডি:</b> <code>{get_transaction_channel_id()}</code>\n"
-                f"⚠️ <b>আসল কারণ:</b> <code>{err}</code>\n\n"
-                f"💡 <b>সমাধান:</b> আপনার চ্যানেলে গিয়ে <code>/id</code> লিখে সঠিক আইডিটি কপি করুন এবং বটকে চ্যানেলে <b>Post Messages</b> পারমিশনসহ Admin বানান।",
-                parse_mode=ParseMode.HTML,
-            )
+        try:
+            await query.answer("⏳ চ্যানেলে পাঠানো হচ্ছে...")
+        except Exception:
+            pass
+        try:
+            conn = get_db()
+            c = conn.cursor()
+            c.execute("""
+            SELECT p.name as prod_name, s.name as sub_name, p.price_bdt 
+            FROM products p 
+            JOIN subcategories s ON p.subcategory_id = s.id 
+            ORDER BY RANDOM() LIMIT 1
+            """)
+            row = c.fetchone()
+            conn.close()
+            c_name = random.choice(CUSTOMER_SAMPLE_NAMES)
+            fake_uid = random.randint(7100000000, 7999999999)
+            qty = random.choice([1, 2, 4, 5])
+            if row:
+                p_name = f"{row['sub_name']} ({row['prod_name']})"
+                total_p = row["price_bdt"] * qty
+            else:
+                p_name = "Rapid Proxy (100 MB)"
+                total_p = 12.0 * qty
+            fake_receipt = f"RCP-{secrets.token_hex(5).upper()}"
+            ok, err = await post_transaction_to_channel(context.bot, fake_receipt, c_name, fake_uid, p_name, qty, total_p)
+            if ok:
+                await query.message.reply_text(
+                    f"✅ <b>টেস্ট ট্রানজ্যাকশন সফলভাবে চ্যানেলে পাঠানো হয়েছে!</b>\n"
+                    f"📢 চ্যানেল: <code>{get_transaction_channel_id()}</code>\n"
+                    f"🧾 Receipt: <code>{fake_receipt}</code>",
+                    parse_mode=ParseMode.HTML,
+                )
+            else:
+                await query.message.reply_text(
+                    f"❌ <b>চ্যানেলে টেস্ট ট্রানজ্যাকশন পাঠানো যায়নি!</b>\n\n"
+                    f"📌 <b>ব্যবহৃত চ্যানেল আইডি:</b> <code>{get_transaction_channel_id()}</code>\n"
+                    f"⚠️ <b>আসল কারণ:</b> <code>{err}</code>\n\n"
+                    f"💡 <b>সমাধান:</b> আপনার চ্যানেলে গিয়ে <code>/id</code> লিখে সঠিক আইডিটি কপি করুন এবং বটকে চ্যানেলে <b>Post Messages</b> পারমিশনসহ Admin বানান।",
+                    parse_mode=ParseMode.HTML,
+                )
+        except Exception as e:
+            logger.error(f"adm_instant_tx_push error: {e}", exc_info=True)
+            await query.message.reply_text(f"❌ <b>এরর হয়েছে:</b> <code>{e}</code>", parse_mode=ParseMode.HTML)
         return
 
     if data == "adm_gc_settings":
