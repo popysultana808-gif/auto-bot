@@ -66,6 +66,7 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger("CyberNestBot")
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "9198296559:AAFwotwWzDzNjIuqrl6iG0JY6NykvQOPl8Y")
 SUPER_ADMIN_ID = int(os.getenv("SUPER_ADMIN_ID", "8919985167"))
@@ -1393,25 +1394,16 @@ async def deposit_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     user = update.effective_user
     db_user = get_or_create_user(user.id, user.full_name, user.username)
     min_man = float(get_setting("min_deposit_manual", "20.0"))
-    min_ins = float(get_setting("min_deposit_instant", "100.0"))
+    set_user_state(user.id, "WAITING_DEP_AMOUNT_MANUAL", {})
 
     text = (
-        f"💳 <b>ডিপোজিট মেথড নির্বাচন করুন:</b>\n"
+        f"💳 <b>ডিপোজিট ব্যালেন্স (Send Money / Binance)</b>\n"
         f"─────────────────────────────\n"
-        f"💰 বর্তমান ব্যালেন্স: <b>{db_user['balance_bdt']:.2f} BDT</b>\n\n"
-        f"⚡ <b>১. Instant Auto Payment:</b>\n"
-        f"• বিকাশ, নগদ ও কার্ড দিয়ে ১ সেকেন্ডে অটোমেটিক ব্যালেন্স যোগ হবে। কোনো TrxID লাগবে না।\n"
-        f"• সর্বনিম্ন ডিপোজিট: <b>{min_ins:.0f} BDT</b>\n\n"
-        f"📱 <b>২. Manual Send Money:</b>\n"
-        f"• পার্সোনাল নাম্বারে সেন্ড মানি করে TrxID পাঠাবেন, এডমিন চেক করে ব্যালেন্স যোগ করবে।\n"
-        f"• সর্বনিম্ন ডিপোজিট: <b>{min_man:.0f} BDT</b>\n\n"
-        f"নিচের বাটন থেকে আপনার পছন্দের মাধ্যমটি বেছে নিন 👇"
+        f"💰 বর্তমান ব্যালেন্স: <b>{db_user['balance_bdt']:.2f} BDT</b>\n"
+        f"📌 সর্বনিম্ন ডিপোজিট: <b>{min_man:.0f} BDT</b>\n\n"
+        f"আপনি কত টাকা ডিপোজিট করতে চান? টাকার পরিমাণ লিখে পাঠান (যেমন: 50, 100, 500):"
     )
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"⚡ Instant Auto Payment (Min {min_ins:.0f} Tk)", callback_data="dep_opt_instant")],
-        [InlineKeyboardButton(f"📱 Manual Send Money (Min {min_man:.0f} Tk)", callback_data="dep_opt_manual")],
-    ])
-    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 # ------------------------------------------------------------------------------
 # 7. INLINE CALLBACK QUERY DISPATCHER (Users & Admin Nested Flow)
@@ -2414,7 +2406,6 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         tx_kb = InlineKeyboardMarkup([
             [InlineKeyboardButton(st_label, callback_data="adm_toggle_autosales_mgr")],
             [InlineKeyboardButton("✍️ Custom Transaction (নিজে বানান)", callback_data="adm_custom_tx_start")],
-            [InlineKeyboardButton("⚡ Instant Test Transaction (টেস্ট পাঠান)", callback_data="adm_instant_tx_push")],
             [InlineKeyboardButton("⚙️ Group & Channel ID/Link Settings", callback_data="adm_gc_settings")],
             [InlineKeyboardButton("< Back to Dashboard", callback_data="adm_root")],
         ])
@@ -2437,7 +2428,6 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         tx_kb = InlineKeyboardMarkup([
             [InlineKeyboardButton(st_label, callback_data="adm_toggle_autosales_mgr")],
             [InlineKeyboardButton("✍️ Custom Transaction (নিজে বানান)", callback_data="adm_custom_tx_start")],
-            [InlineKeyboardButton("⚡ Instant Test Transaction (টেস্ট পাঠান)", callback_data="adm_instant_tx_push")],
             [InlineKeyboardButton("⚙️ Group & Channel ID/Link Settings", callback_data="adm_gc_settings")],
             [InlineKeyboardButton("< Back to Dashboard", callback_data="adm_root")],
         ])
@@ -4280,20 +4270,31 @@ async def document_message_handler(update: Update, context: ContextTypes.DEFAULT
 # ------------------------------------------------------------------------------
 # 11. APPLICATION INITIALIZATION & RUNNER
 # ------------------------------------------------------------------------------
+_PERIODIC_TX_TASK = None
+
 async def post_init(application):
-    global _GLOBAL_BOT_APP, _GLOBAL_EVENT_LOOP
+    global _GLOBAL_BOT_APP, _GLOBAL_EVENT_LOOP, _PERIODIC_TX_TASK
     _GLOBAL_BOT_APP = application
-    try:
-        _GLOBAL_EVENT_LOOP = asyncio.get_running_loop()
-    except Exception:
-        _GLOBAL_EVENT_LOOP = asyncio.get_event_loop_policy().get_event_loop()
+    _GLOBAL_EVENT_LOOP = asyncio.get_running_loop()
     logger.info("CyberNest Bot post_init completed successfully.")
-    asyncio.create_task(send_periodic_channel_transactions(application))
+    _PERIODIC_TX_TASK = asyncio.create_task(send_periodic_channel_transactions(application))
+
+async def post_stop(application):
+    global _PERIODIC_TX_TASK
+    if _PERIODIC_TX_TASK and not _PERIODIC_TX_TASK.done():
+        _PERIODIC_TX_TASK.cancel()
+        try:
+            await _PERIODIC_TX_TASK
+        except asyncio.CancelledError:
+            pass
 
 
 async def send_periodic_channel_transactions(application):
     """Periodically broadcasts simulated sales to the proof channel for social proof."""
-    await asyncio.sleep(10)
+    try:
+        await asyncio.sleep(10)
+    except asyncio.CancelledError:
+        return
     while True:
         if _AUTO_SALES_ACTIVE:
             try:
@@ -4320,7 +4321,10 @@ async def send_periodic_channel_transactions(application):
                 logger.error(f"Auto periodic sales loop error: {e}")
 
         # Sleep between 5 to 7 minutes before sending next transaction
-        await asyncio.sleep(random.randint(300, 420))
+        try:
+            await asyncio.sleep(random.randint(300, 420))
+        except asyncio.CancelledError:
+            break
 
 async def send_auto_delete_welcome_group(bot, chat_id, user):
     """Sends greeting in welcome group and automatically deletes after 30 seconds."""
@@ -4392,14 +4396,15 @@ def main():
     print("=" * 60)
 
     global _GLOBAL_BOT_APP, _GLOBAL_EVENT_LOOP
-    try:
-        loop = asyncio.get_event_loop_policy().get_event_loop()
-    except Exception:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     _GLOBAL_EVENT_LOOP = loop
 
-    app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
+    async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        logger.error(f"Update exception caught: {context.error}", exc_info=context.error)
+
+    app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).post_stop(post_stop).build()
+    app.add_error_handler(global_error_handler)
     _GLOBAL_BOT_APP = app
 
     # Group Welcome Event Handlers
