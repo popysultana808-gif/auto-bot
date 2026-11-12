@@ -87,6 +87,19 @@ CUSTOMER_SAMPLE_NAMES = [
     "Mahmudul Hasan", "Naimur Rahman", "Sabiha Sultana", "Habibur Rahman"
 ]
 
+def get_welcome_group_id() -> str:
+    return str(get_setting("welcome_group_id", WELCOME_GROUP_ID)).strip()
+
+def get_welcome_group_link() -> str:
+    return str(get_setting("welcome_group_link", WELCOME_GROUP_LINK)).strip()
+
+def get_transaction_channel_id() -> str:
+    return str(get_setting("transaction_channel_id", TRANSACTION_CHANNEL_ID)).strip()
+
+def get_transaction_channel_link() -> str:
+    return str(get_setting("transaction_channel_link", TRANSACTION_CHANNEL_LINK)).strip()
+
+
 DB_FILE = "store_database.db"
 
 
@@ -1145,7 +1158,7 @@ async def check_user_membership(bot, user_id: int) -> Tuple[bool, bool]:
     in_channel = True
 
     try:
-        m_group = await bot.get_chat_member(chat_id=WELCOME_GROUP_ID, user_id=user_id)
+        m_group = await bot.get_chat_member(chat_id=get_welcome_group_id(), user_id=user_id)
         if m_group.status in ("left", "kicked"):
             in_group = False
     except Exception as e:
@@ -1153,7 +1166,7 @@ async def check_user_membership(bot, user_id: int) -> Tuple[bool, bool]:
         in_group = False
 
     try:
-        m_chan = await bot.get_chat_member(chat_id=TRANSACTION_CHANNEL_ID, user_id=user_id)
+        m_chan = await bot.get_chat_member(chat_id=get_transaction_channel_id(), user_id=user_id)
         if m_chan.status in ("left", "kicked"):
             in_channel = False
     except Exception as e:
@@ -1166,9 +1179,9 @@ def get_force_join_keyboard(in_group: bool, in_channel: bool) -> InlineKeyboardM
     """Builds clean inline buttons with embedded URLs (no visible raw text links)."""
     buttons = []
     if not in_group:
-        buttons.append([InlineKeyboardButton("📢 Join Update Group", url=WELCOME_GROUP_LINK)])
+        buttons.append([InlineKeyboardButton("📢 Join Update Group", url=get_welcome_group_link())])
     if not in_channel:
-        buttons.append([InlineKeyboardButton("💳 Join Proof Channel", url=TRANSACTION_CHANNEL_LINK)])
+        buttons.append([InlineKeyboardButton("💳 Join Proof Channel", url=get_transaction_channel_link())])
     buttons.append([InlineKeyboardButton("✅ ভেরিফাই করুন", callback_data="btn_check_verification")])
     return InlineKeyboardMarkup(buttons)
 
@@ -1202,9 +1215,9 @@ async def execute_smart_broadcast(bot, reply_target, sdata: dict, btn_text: Opti
     grp_status = "✅ আপডেট গ্রুপে পাঠানো হয়েছে"
     try:
         if photo_id:
-            await bot.send_photo(chat_id=WELCOME_GROUP_ID, photo=photo_id, caption=msg_text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+            await bot.send_photo(chat_id=get_welcome_group_id(), photo=photo_id, caption=msg_text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
         else:
-            await bot.send_message(chat_id=WELCOME_GROUP_ID, text=msg_text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+            await bot.send_message(chat_id=get_welcome_group_id(), text=msg_text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
     except Exception as e:
         grp_status = f"⚠️ আপডেট গ্রুপে পাঠানো যায়নি ({e})"
 
@@ -1332,7 +1345,17 @@ async def deposit_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 # ------------------------------------------------------------------------------
 async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    _alert_callbacks = (
+        "btn_check_verification",
+        "adm_toggle_autosales",
+        "adm_toggle_autosales_mgr",
+        "adm_instant_tx_push",
+    )
+    if query.data not in _alert_callbacks:
+        try:
+            await query.answer()
+        except Exception:
+            pass
     data = query.data
     user_id = query.from_user.id
     db_user = get_or_create_user(user_id, query.from_user.full_name, query.from_user.username)
@@ -1790,15 +1813,18 @@ async def post_transaction_to_channel(bot, receipt_no: str, customer_name: str, 
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("🛒 Buy Products", url=f"https://t.me/{bot_info.username}")]
     ])
+    ch_id = get_transaction_channel_id()
     try:
         await bot.send_message(
-            chat_id=TRANSACTION_CHANNEL_ID,
+            chat_id=ch_id,
             text=text,
             parse_mode=ParseMode.HTML,
             reply_markup=kb,
         )
+        return True, None
     except Exception as e:
-        logger.debug(f"Channel transaction post error: {e}")
+        logger.error(f"Channel transaction post error (chat_id={ch_id}): {e}")
+        return False, str(e)
 
 async def render_purchase_summary(query_or_message, prod_id: int, quantity: int = 1, edit: bool = True):
     """Renders the interactive Purchase Summary card with live calculator buttons matching image_2e14ee.png."""
@@ -2263,14 +2289,16 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         tx_txt = (
             "⚡ <b>চ্যানেল ট্রানজ্যাকশন ম্যানেজার</b>\n"
             "─────────────────────────────\n"
-            f"📢 চ্যানেল আইডি: <code>{TRANSACTION_CHANNEL_ID}</code>\n"
+            f"📢 চ্যানেল আইডি: <code>{get_transaction_channel_id()}</code>\n"
+            f"👥 গ্রুপ আইডি: <code>{get_welcome_group_id()}</code>\n"
             f"⚙️ অটো লুপ স্ট্যাটাস: <b>{'চালু আছে 🟢' if _AUTO_SALES_ACTIVE else 'বন্ধ আছে 🔴'}</b>\n\n"
-            "এখান থেকে আপনি কাস্টম ট্রানজ্যাকশন তৈরি করতে বা টেস্ট মেসেজ পাঠাতে পারবেন:"
+            "এখান থেকে আপনি কাস্টম ট্রানজ্যাকশন তৈরি করতে, টেস্ট মেসেজ পাঠাতে বা আইডি/লিংক সেট করতে পারবেন:"
         )
         tx_kb = InlineKeyboardMarkup([
             [InlineKeyboardButton(st_label, callback_data="adm_toggle_autosales_mgr")],
             [InlineKeyboardButton("✍️ Custom Transaction (নিজে বানান)", callback_data="adm_custom_tx_start")],
             [InlineKeyboardButton("⚡ Instant Test Transaction (টেস্ট পাঠান)", callback_data="adm_instant_tx_push")],
+            [InlineKeyboardButton("⚙️ Group & Channel ID/Link Settings", callback_data="adm_gc_settings")],
             [InlineKeyboardButton("< Back to Dashboard", callback_data="adm_root")],
         ])
         await query.edit_message_text(tx_txt, parse_mode=ParseMode.HTML, reply_markup=tx_kb)
@@ -2284,14 +2312,16 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         tx_txt = (
             "⚡ <b>চ্যানেল ট্রানজ্যাকশন ম্যানেজার</b>\n"
             "─────────────────────────────\n"
-            f"📢 চ্যানেল আইডি: <code>{TRANSACTION_CHANNEL_ID}</code>\n"
+            f"📢 চ্যানেল আইডি: <code>{get_transaction_channel_id()}</code>\n"
+            f"👥 গ্রুপ আইডি: <code>{get_welcome_group_id()}</code>\n"
             f"⚙️ অটো লুপ স্ট্যাটাস: <b>{'চালু আছে 🟢' if _AUTO_SALES_ACTIVE else 'বন্ধ আছে 🔴'}</b>\n\n"
-            "এখান থেকে আপনি কাস্টম ট্রানজ্যাকশন তৈরি করতে বা টেস্ট মেসেজ পাঠাতে পারবেন:"
+            "এখান থেকে আপনি কাস্টম ট্রানজ্যাকশন তৈরি করতে, টেস্ট মেসেজ পাঠাতে বা আইডি/লিংক সেট করতে পারবেন:"
         )
         tx_kb = InlineKeyboardMarkup([
             [InlineKeyboardButton(st_label, callback_data="adm_toggle_autosales_mgr")],
             [InlineKeyboardButton("✍️ Custom Transaction (নিজে বানান)", callback_data="adm_custom_tx_start")],
             [InlineKeyboardButton("⚡ Instant Test Transaction (টেস্ট পাঠান)", callback_data="adm_instant_tx_push")],
+            [InlineKeyboardButton("⚙️ Group & Channel ID/Link Settings", callback_data="adm_gc_settings")],
             [InlineKeyboardButton("< Back to Dashboard", callback_data="adm_root")],
         ])
         await query.edit_message_text(tx_txt, parse_mode=ParseMode.HTML, reply_markup=tx_kb)
@@ -2318,8 +2348,62 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             p_name = "Rapid Proxy (100 MB)"
             total_p = 12.0 * qty
         fake_receipt = f"RCP-{secrets.token_hex(5).upper()}"
-        await post_transaction_to_channel(context.bot, fake_receipt, c_name, fake_uid, p_name, qty, total_p)
-        await query.answer("⚡ ইনস্ট্যান্ট টেস্ট ট্রানজ্যাকশন চ্যানেলে পাঠানো হয়েছে!", show_alert=True)
+        ok, err = await post_transaction_to_channel(context.bot, fake_receipt, c_name, fake_uid, p_name, qty, total_p)
+        if ok:
+            await query.answer("⚡ ইনস্ট্যান্ট টেস্ট ট্রানজ্যাকশন চ্যানেলে পাঠানো হয়েছে!", show_alert=True)
+        else:
+            await query.answer("❌ চ্যানেলে পাঠানো যায়নি! চ্যাটে বিস্তারিত দেখুন।", show_alert=True)
+            await query.message.reply_text(
+                f"❌ <b>চ্যানেলে টেস্ট ট্রানজ্যাকশন পাঠানো যায়নি!</b>\n\n"
+                f"📌 <b>ব্যবহৃত চ্যানেল আইডি:</b> <code>{get_transaction_channel_id()}</code>\n"
+                f"⚠️ <b>আসল কারণ:</b> <code>{err}</code>\n\n"
+                f"💡 <b>সমাধান:</b> আপনার চ্যানেলে গিয়ে <code>/id</code> লিখে সঠিক আইডিটি কপি করুন এবং বটকে চ্যানেলে <b>Post Messages</b> পারমিশনসহ Admin বানান।",
+                parse_mode=ParseMode.HTML,
+            )
+        return
+
+    if data == "adm_gc_settings":
+        gc_txt = (
+            "⚙️ <b>গ্রুপ ও চ্যানেল আইডি/লিংক সেটিংস</b>\n"
+            "─────────────────────────────\n"
+            f"👥 <b>Update Group ID:</b> <code>{get_welcome_group_id()}</code>\n"
+            f"🔗 <b>Update Group Link:</b> {get_welcome_group_link()}\n\n"
+            f"📢 <b>TX Channel ID:</b> <code>{get_transaction_channel_id()}</code>\n"
+            f"🔗 <b>TX Channel Link:</b> {get_transaction_channel_link()}\n\n"
+            "💡 <i>গ্রুপ বা চ্যানেলে গিয়ে <code>/id</code> লিখলেই সঠিক আইডি পেয়ে যাবেন।</i>"
+        )
+        gc_kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✏️ Edit Group ID", callback_data="adm_set_wgrp_id"),
+                InlineKeyboardButton("🔗 Edit Group Link", callback_data="adm_set_wgrp_link"),
+            ],
+            [
+                InlineKeyboardButton("✏️ Edit Channel ID", callback_data="adm_set_txch_id"),
+                InlineKeyboardButton("🔗 Edit Channel Link", callback_data="adm_set_txch_link"),
+            ],
+            [InlineKeyboardButton("< Back to TX Manager", callback_data="adm_tx_manager")],
+        ])
+        await query.edit_message_text(gc_txt, parse_mode=ParseMode.HTML, reply_markup=gc_kb, disable_web_page_preview=True)
+        return
+
+    if data == "adm_set_wgrp_id":
+        set_user_state(user_id, "ADMIN_WAITING_WGRP_ID", {})
+        await query.message.reply_text("👥 আপনার <b>Update Group ID</b> লিখে পাঠান (যেমন: <code>-1001234567890</code> বা <code>-5340748538</code>):", parse_mode=ParseMode.HTML)
+        return
+
+    if data == "adm_set_wgrp_link":
+        set_user_state(user_id, "ADMIN_WAITING_WGRP_LINK", {})
+        await query.message.reply_text("🔗 আপনার <b>Update Group ইনভাইট লিংক</b> লিখে পাঠান (যেমন: <code>https://t.me/...</code>):", parse_mode=ParseMode.HTML)
+        return
+
+    if data == "adm_set_txch_id":
+        set_user_state(user_id, "ADMIN_WAITING_TXCH_ID", {})
+        await query.message.reply_text("📢 আপনার <b>Transaction Channel ID</b> লিখে পাঠান (যেমন: <code>-1004285154535</code>):", parse_mode=ParseMode.HTML)
+        return
+
+    if data == "adm_set_txch_link":
+        set_user_state(user_id, "ADMIN_WAITING_TXCH_LINK", {})
+        await query.message.reply_text("🔗 আপনার <b>Transaction Channel লিংক</b> লিখে পাঠান (যেমন: <code>https://t.me/...</code>):", parse_mode=ParseMode.HTML)
         return
 
     if data == "adm_custom_tx_start":
@@ -3523,6 +3607,30 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             await update.message.reply_text("অর্ডার পাওয়া যায়নি।")
         return
 
+    if state == "ADMIN_WAITING_WGRP_ID":
+        set_setting("welcome_group_id", text.strip())
+        set_user_state(user.id, None)
+        await update.message.reply_text(f"✅ Update Group ID সেভ হয়েছে: <code>{text.strip()}</code>", parse_mode=ParseMode.HTML)
+        return
+
+    if state == "ADMIN_WAITING_WGRP_LINK":
+        set_setting("welcome_group_link", text.strip())
+        set_user_state(user.id, None)
+        await update.message.reply_text(f"✅ Update Group Link সেভ হয়েছে: {text.strip()}")
+        return
+
+    if state == "ADMIN_WAITING_TXCH_ID":
+        set_setting("transaction_channel_id", text.strip())
+        set_user_state(user.id, None)
+        await update.message.reply_text(f"✅ Transaction Channel ID সেভ হয়েছে: <code>{text.strip()}</code>", parse_mode=ParseMode.HTML)
+        return
+
+    if state == "ADMIN_WAITING_TXCH_LINK":
+        set_setting("transaction_channel_link", text.strip())
+        set_user_state(user.id, None)
+        await update.message.reply_text(f"✅ Transaction Channel Link সেভ হয়েছে: {text.strip()}")
+        return
+
     # Custom Transaction Multi-Step State Handlers
     if state == "ADMIN_WAITING_CUSTOM_TX_NAME":
         set_user_state(user.id, "ADMIN_WAITING_CUSTOM_TX_PROD", {"cname": text})
@@ -3558,8 +3666,16 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         fake_uid = random.randint(7100000000, 7999999999)
         fake_receipt = f"RCP-{secrets.token_hex(5).upper()}"
         set_user_state(user.id, None)
-        await post_transaction_to_channel(context.bot, fake_receipt, cname, fake_uid, pname, qty, price)
-        await update.message.reply_text(f"✅ কাস্টম ট্রানজ্যাকশন (<code>{fake_receipt}</code>) সফলভাবে চ্যানেলে পাঠানো হয়েছে!", parse_mode=ParseMode.HTML)
+        ok, err = await post_transaction_to_channel(context.bot, fake_receipt, cname, fake_uid, pname, qty, price)
+        if ok:
+            await update.message.reply_text(f"✅ কাস্টম ট্রানজ্যাকশন (<code>{fake_receipt}</code>) সফলভাবে চ্যানেলে পাঠানো হয়েছে!", parse_mode=ParseMode.HTML)
+        else:
+            await update.message.reply_text(
+                f"❌ <b>চ্যানেলে কাস্টম ট্রানজ্যাকশন পাঠানো যায়নি!</b>\n"
+                f"📌 <b>চ্যানেল আইডি:</b> <code>{get_transaction_channel_id()}</code>\n"
+                f"⚠️ <b>কারণ:</b> <code>{err}</code>",
+                parse_mode=ParseMode.HTML,
+            )
         return
 
     # Broadcast Message & Optional Button Handler
@@ -3966,7 +4082,7 @@ async def send_periodic_channel_transactions(application):
                     fake_receipt = f"RCP-{secrets.token_hex(5).upper()}"
                     await post_transaction_to_channel(application.bot, fake_receipt, c_name, fake_uid, p_name, qty, total_p)
             except Exception as e:
-                logger.debug(f"Auto periodic sales loop error: {e}")
+                logger.error(f"Auto periodic sales loop error: {e}")
 
         # Sleep between 5 to 7 minutes before sending next transaction
         await asyncio.sleep(random.randint(300, 420))
@@ -3996,7 +4112,7 @@ async def send_auto_delete_welcome_group(bot, chat_id, user):
 
 async def handle_new_group_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
-    if chat_id != WELCOME_GROUP_ID:
+    if chat_id != get_welcome_group_id():
         return
     if update.message and update.message.new_chat_members:
         for member in update.message.new_chat_members:
@@ -4005,7 +4121,7 @@ async def handle_new_group_members(update: Update, context: ContextTypes.DEFAULT
 
 async def handle_group_member_updated(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
-    if chat_id != WELCOME_GROUP_ID:
+    if chat_id != get_welcome_group_id():
         return
     result = update.chat_member
     if result:
@@ -4013,6 +4129,21 @@ async def handle_group_member_updated(update: Update, context: ContextTypes.DEFA
         if new_m.status in ["member", "administrator"] and result.old_chat_member.status in ["left", "kicked"]:
             if not new_m.user.is_bot:
                 asyncio.create_task(send_auto_delete_welcome_group(context.bot, chat_id, new_m.user))
+
+
+async def id_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    msg = update.effective_message
+    if not chat or not msg:
+        return
+    title = chat.title or chat.full_name or "Chat"
+    await msg.reply_text(
+        f"🆔 <b>Chat Info:</b>\n"
+        f"📌 <b>Name:</b> {title}\n"
+        f"🔹 <b>Chat ID:</b> <code>{chat.id}</code>\n"
+        f"📂 <b>Type:</b> {chat.type}",
+        parse_mode=ParseMode.HTML,
+    )
 
 def main():
     print("=" * 60)
@@ -4042,6 +4173,8 @@ def main():
 
     # Handlers Registration
     app.add_handler(CommandHandler("start", start_handler))
+    app.add_handler(CommandHandler("id", id_command_handler))
+    app.add_handler(MessageHandler(filters.ChatType.CHANNEL & filters.Regex(r"^/id"), id_command_handler))
     app.add_handler(CallbackQueryHandler(callback_query_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message_handler))
     app.add_handler(MessageHandler(filters.PHOTO, photo_message_handler))
