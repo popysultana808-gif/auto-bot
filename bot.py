@@ -1500,12 +1500,16 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         prods = c.fetchall()
         conn.close()
 
-        title = f"{meta['cat_name']} ➔ {meta['sub_name']}" if meta else "Select Variant"
+        if not meta:
+            await query.message.reply_text("⚠️ মেনুটি আপডেট করা হয়েছে! অনুগ্রহ করে নিচের 🛍️ Buy Products বাটনে আবার চাপুন।")
+            return
+        title = f"{meta['cat_name']} ➔ {meta['sub_name']}"
         text = f"<b>{title}</b>\n\nনিচের প্ল্যান বা মেয়াদ নির্বাচন করুন:"
         kb = []
         is_mail_cat = bool(meta and ("mail" in meta["cat_name"].lower() or "মেইল" in meta["cat_name"]))
         for p in prods:
-            status_tag = "" if p.get("is_active", 1) else " 🔴 (Unavailable)"
+            is_act_val = p["is_active"] if "is_active" in p.keys() else 1
+            status_tag = "" if is_act_val else " 🔴 (Unavailable)"
             if is_mail_cat:
                 btn_text = f"{p['name']} | {format_price(p['price_bdt'])} BDT | Stock: {p['in_stock']}{status_tag}"
             else:
@@ -1875,7 +1879,14 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     if data.startswith("adm_"):
         if not is_admin(user_id):
             return
-        await handle_admin_callbacks(query, data, context)
+        try:
+            await handle_admin_callbacks(query, data, context)
+        except Exception as e:
+            logger.error(f"Admin callback error ({data}): {e}", exc_info=True)
+            try:
+                await query.message.reply_text(f"❌ এডমিন প্যানেল এরর: <code>{e}</code>", parse_mode=ParseMode.HTML)
+            except Exception:
+                pass
         return
 
 # ------------------------------------------------------------------------------
