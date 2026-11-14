@@ -22,7 +22,12 @@ import secrets
 import random
 import html
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+import hmac
+import hashlib
+import urllib.parse
+import imaplib
+import email as email_lib
 from typing import Optional, List, Dict, Any
 
 import openpyxl
@@ -152,22 +157,444 @@ async def _notify_payment_success(user_id: int, amount: float, invoice_id: str):
         except Exception:
             pass
 
+
+def add_notification(user_id: int, title: str, message: str):
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %I:%M %p")
+        c.execute(
+            "INSERT INTO notifications (user_id, title, message, is_read, created_at) VALUES (?, ?, ?, 0, ?)",
+            (user_id, title, message, now_str),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"add_notification error: {e}")
+
+def verify_tg_init_data(init_data: str) -> Optional[dict]:
+    if not init_data:
+        return None
+    try:
+        parsed = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
+        hash_val = parsed.pop("hash", None)
+        if not hash_val:
+            return None
+        data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed.items()))
+        secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode("utf-8"), hashlib.sha256).digest()
+        calc_hash = hmac.new(secret_key, data_check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(calc_hash, hash_val):
+            return None
+        if "user" in parsed:
+            return json.loads(parsed["user"])
+    except Exception as e:
+        logger.warning(f"initData verify failed: {e}")
+    return None
+
+def fetch_outlook_otp(account_str: str) -> dict:
+    parts = [p.strip() for p in account_str.split("|") if p.strip()]
+    if len(parts) < 4:
+        return {"ok": False, "error": "Format must be: email|password|refresh_token|client_id"}
+    mail_addr, _, refresh_token, client_id = parts[0], parts[1], parts[2], parts[3]
+    try:
+        token_url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+        resp = requests.post(token_url, data={
+            "client_id": client_id,
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token",
+            "scope": "https://outlook.office.com/IMAP.AccessAsUser.All offline_access"
+        }, timeout=15)
+        tdata = resp.json()
+        access_token = tdata.get("access_token")
+        if not access_token:
+            return {"ok": False, "error": tdata.get("error_description", "Token refresh failed")}
+        auth_string = f"user={mail_addr}\x01auth=Bearer {access_token}\x01\x01"
+        imap = imaplib.IMAP4_SSL("outlook.office365.com", 993)
+        imap.authenticate("XOAUTH2", lambda x: auth_string.encode("utf-8"))
+        imap.select("INBOX")
+        typ, data = imap.search(None, "ALL")
+        ids = data[0].split()
+        if not ids:
+            imap.logout()
+            return {"ok": False, "error": "Inbox is empty (no emails found yet)."}
+        latest_id = ids[-1]
+        typ, msg_data = imap.fetch(latest_id, "(RFC822)")
+        raw_email = msg_data[0][1]
+        msg = email_lib.message_from_bytes(raw_email)
+        subject = str(msg.get("Subject", "Inbox Message"))
+        body = ""
+        if msg.is_multipart():
+            for part in msg.walk():
+                ctype = part.get_content_type()
+                if ctype in ("text/plain", "text/html"):
+                    try:
+                        body += part.get_payload(decode=True).decode(errors="ignore")
+                    except Exception:
+                        pass
+        else:
+            body = msg.get_payload(decode=True).decode(errors="ignore")
+        imap.logout()
+        import re as _re
+        clean_txt = _re.sub(r"<[^>]+>", " ", body)
+        m = _re.search(r"\b(\d{4,8})\b", clean_txt)
+        code_found = m.group(1) if m else clean_txt.strip()[:80]
+        return {"ok": True, "subject": subject, "code": code_found}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
 # ------------------------------------------------------------------------------
 # 2. RENDER WEB SERVICE HEALTH CHECK SERVER (Keeps Render Free Instance Live)
 # ------------------------------------------------------------------------------
 class HealthCheckHandler(BaseHTTPRequestHandler):
+    def _send_json(self, obj, code_num=200):
+        body = json.dumps(obj, ensure_ascii=False, default=str).encode("utf-8")
+        self.send_response(code_num)
+        self.send_header("Content-type", "application/json; charset=utf-8")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _get_auth_user(self):
+        init_data = self.headers.get("X-Telegram-Init-Data", "")
+        u = verify_tg_init_data(init_data)
+        if u and "id" in u:
+            return int(u["id"]), u
+        return None, None
+
     def do_HEAD(self):
         self.send_response(200)
         self.send_header("Content-type", "text/plain; charset=utf-8")
         self.end_headers()
 
     def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+
+        if path == "/app" or path == "/app/":
+            html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "webapp.html")
+            if os.path.exists(html_path):
+                with open(html_path, "rb") as hf:
+                    content = hf.read()
+                self.send_response(200)
+                self.send_header("Content-type", "text/html; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(content)
+            else:
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(b"webapp.html not found")
+            return
+
+        if path == "/api/tg_photo":
+            qs = urllib.parse.parse_qs(parsed.query)
+            fid = qs.get("file_id", [""])[0]
+            if not fid:
+                self.send_response(404); self.end_headers(); return
+            try:
+                r1 = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={fid}", timeout=8).json()
+                fpath = r1["result"]["file_path"]
+                r2 = requests.get(f"https://api.telegram.org/file/bot{BOT_TOKEN}/{fpath}", timeout=10)
+                self.send_response(200)
+                self.send_header("Content-type", r2.headers.get("Content-Type", "image/jpeg"))
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.end_headers()
+                self.wfile.write(r2.content)
+            except Exception:
+                self.send_response(404); self.end_headers()
+            return
+
+        if path == "/api/init":
+            uid, tg_u = self._get_auth_user()
+            if not uid:
+                return self._send_json({"error": "Unauthorized"}, 401)
+            db_u = get_or_create_user(uid, tg_u.get("first_name", "Customer"), tg_u.get("username", ""))
+            conn = get_db()
+            c = conn.cursor()
+            c.execute("SELECT id, name FROM categories ORDER BY position ASC, id ASC")
+            cats = [dict(r) for r in c.fetchall()]
+            c.execute("""
+                SELECT p.id, p.name, p.price_bdt, p.price_usdt, p.image_file_id, p.description,
+                       COALESCE(p.is_active, 1) as is_active, s.id as sub_id, s.name as sub_name,
+                       s.category_id, cat.name as cat_name,
+                       (SELECT COUNT(*) FROM stock st WHERE st.product_id = p.id AND st.is_sold = 0) as in_stock,
+                       (SELECT COALESCE(SUM(o.quantity), 0) FROM orders o WHERE o.product_id = p.id AND o.status != 'refunded') as sold_count
+                FROM products p
+                JOIN subcategories s ON p.subcategory_id = s.id
+                JOIN categories cat ON s.category_id = cat.id
+                ORDER BY cat.position ASC, s.position ASC, p.id ASC
+            """)
+            prods = [dict(r) for r in c.fetchall()]
+            c.execute("SELECT COUNT(*) as cnt, COALESCE(SUM(total_bdt), 0) as spent FROM orders WHERE user_id = ? AND status != 'refunded'", (uid,))
+            ostat = dict(c.fetchone())
+            c.execute("SELECT COUNT(*) as cnt FROM users WHERE referred_by = ?", (uid,))
+            rcnt = c.fetchone()["cnt"]
+            c.execute("SELECT COUNT(*) as cnt FROM notifications WHERE user_id = ? AND is_read = 0", (uid,))
+            unread_n = c.fetchone()["cnt"]
+            c.execute("SELECT key, value FROM settings")
+            sdict = {r["key"]: r["value"] for r in c.fetchall()}
+            conn.close()
+            bot_uname = ""
+            try:
+                if _GLOBAL_BOT_APP and _GLOBAL_BOT_APP.bot:
+                    bot_uname = _GLOBAL_BOT_APP.bot.username or ""
+            except Exception:
+                pass
+            sdict["bot_username"] = bot_uname
+            return self._send_json({
+                "user": {
+                    "user_id": uid,
+                    "full_name": db_u["full_name"],
+                    "username": db_u["username"],
+                    "balance_bdt": db_u["balance_bdt"],
+                    "is_admin": is_admin(uid),
+                    "total_orders": ostat["cnt"],
+                    "total_spent": ostat["spent"],
+                    "referrals": rcnt,
+                },
+                "categories": cats,
+                "products": prods,
+                "settings": sdict,
+                "unread_notifs": unread_n,
+            })
+
+        if path == "/api/orders/history":
+            uid, _ = self._get_auth_user()
+            if not uid: return self._send_json({"error": "Unauthorized"}, 401)
+            conn = get_db(); c = conn.cursor()
+            c.execute("SELECT id, receipt_no, product_name, quantity, total_bdt, status, delivered_data, order_date as created_at FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 30", (uid,))
+            rows = [dict(r) for r in c.fetchall()]
+            conn.close()
+            return self._send_json({"orders": rows})
+
+        if path == "/api/notifications":
+            uid, _ = self._get_auth_user()
+            if not uid: return self._send_json({"error": "Unauthorized"}, 401)
+            conn = get_db(); c = conn.cursor()
+            c.execute("SELECT id, title, message, created_at FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 25", (uid,))
+            items = [dict(r) for r in c.fetchall()]
+            c.execute("UPDATE notifications SET is_read = 1 WHERE user_id = ?", (uid,))
+            conn.commit(); conn.close()
+            return self._send_json({"items": items})
+
+        if path == "/api/admin/overview":
+            uid, _ = self._get_auth_user()
+            if not uid or not is_admin(uid): return self._send_json({"error": "Forbidden"}, 403)
+            conn = get_db(); c = conn.cursor()
+            c.execute("SELECT COUNT(*) as cnt FROM users"); u_cnt = c.fetchone()["cnt"]
+            c.execute("SELECT * FROM deposits WHERE status = 'pending' ORDER BY id DESC"); p_deps = [dict(r) for r in c.fetchall()]
+            c.execute("SELECT * FROM orders WHERE status = 'pending_delivery' ORDER BY id DESC"); p_ords = [dict(r) for r in c.fetchall()]
+            conn.close()
+            return self._send_json({
+                "ok": True,
+                "stats": {"users": u_cnt, "pending_deposits": len(p_deps), "pending_orders": len(p_ords)},
+                "pending_deposits": p_deps,
+                "pending_orders": p_ords,
+            })
+
         self.send_response(200)
         self.send_header("Content-type", "text/plain; charset=utf-8")
         self.end_headers()
         self.wfile.write(b"CyberNest Bot is running and healthy!")
 
     def do_POST(self):
+        path = urllib.parse.urlparse(self.path).path
+        if path.startswith("/api/"):
+            content_length = int(self.headers.get("Content-Length", 0))
+            raw_body = self.rfile.read(content_length) if content_length > 0 else b"{}"
+            try:
+                body = json.loads(raw_body.decode("utf-8"))
+            except Exception:
+                body = {}
+            uid, tg_u = self._get_auth_user()
+            if not uid:
+                return self._send_json({"ok": False, "error": "Unauthorized"}, 401)
+
+            if path == "/api/coupon/check":
+                code_str = str(body.get("code", "")).strip().upper()
+                conn = get_db(); c = conn.cursor()
+                c.execute("SELECT discount_pct FROM coupons WHERE code = ? AND is_active = 1", (code_str,))
+                row = c.fetchone(); conn.close()
+                if row:
+                    return self._send_json({"ok": True, "discount_pct": row["discount_pct"]})
+                return self._send_json({"ok": False, "error": "Invalid or expired coupon"})
+
+            if path == "/api/tools/2fa":
+                sec = str(body.get("secret", "")).replace(" ", "").upper()
+                try:
+                    totp = pyotp.TOTP(sec)
+                    rem = 30 - (int(datetime.datetime.now().timestamp()) % 30)
+                    return self._send_json({"ok": True, "code": totp.now(), "remaining": rem})
+                except Exception as e:
+                    return self._send_json({"ok": False, "error": "Invalid 2FA Secret Key"})
+
+            if path == "/api/tools/outlook":
+                res = fetch_outlook_otp(str(body.get("account", "")))
+                return self._send_json(res)
+
+            if path == "/api/deposit":
+                method = str(body.get("method", "bKash"))
+                amount = float(body.get("amount", 0))
+                trx_id = str(body.get("trx_id", "")).strip()
+                if amount <= 0 or not trx_id:
+                    return self._send_json({"ok": False, "error": "Invalid amount or TrxID"})
+                conn = get_db(); c = conn.cursor()
+                now_str = datetime.datetime.now().strftime("%Y-%m-%d %I:%M %p")
+                c.execute("INSERT INTO deposits (user_id, method, amount, trx_id, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)", (uid, method, amount, trx_id, now_str))
+                dep_id = c.lastrowid
+                conn.commit(); conn.close()
+                add_notification(uid, "💳 Deposit Submitted", f"{method} {amount:.2f} BDT (TrxID: {trx_id}) is pending approval.")
+                if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
+                    kb = InlineKeyboardMarkup([[InlineKeyboardButton(f"✅ Approve #{dep_id}", callback_data=f"adm_dep_app_{dep_id}"), InlineKeyboardButton(f"❌ Reject", callback_data=f"adm_dep_rej_{dep_id}")]])
+                    asyncio.run_coroutine_threadsafe(
+                        _GLOBAL_BOT_APP.bot.send_message(chat_id=SUPER_ADMIN_ID, text=f"🔔 <b>Mini App Deposit Request #{dep_id}</b>\n👤 User: <code>{uid}</code>\n💳 Method: {method}\n💰 Amount: <b>{amount:.2f} BDT</b>\n🔑 TrxID: <code>{trx_id}</code>", parse_mode=ParseMode.HTML, reply_markup=kb),
+                        _GLOBAL_EVENT_LOOP
+                    )
+                return self._send_json({"ok": True})
+
+            if path == "/api/order":
+                pid = int(body.get("product_id", 0))
+                qty = max(1, int(body.get("quantity", 1)))
+                coupon = str(body.get("coupon", "")).strip().upper()
+                conn = get_db(); c = conn.cursor()
+                c.execute("SELECT p.*, s.name as sub_name, c.name as cat_name FROM products p JOIN subcategories s ON p.subcategory_id = s.id JOIN categories c ON s.category_id = c.id WHERE p.id = ?", (pid,))
+                prod = c.fetchone()
+                if not prod or not (prod["is_active"] if "is_active" in prod.keys() else 1):
+                    conn.close()
+                    return self._send_json({"ok": False, "error": "Product unavailable"})
+                disc = 0.0
+                if coupon:
+                    c.execute("SELECT discount_pct FROM coupons WHERE code = ? AND is_active = 1", (coupon,))
+                    crow = c.fetchone()
+                    if crow: disc = float(crow["discount_pct"])
+                total_bdt = prod["price_bdt"] * qty * (1 - disc / 100.0)
+                c.execute("SELECT balance_bdt FROM users WHERE user_id = ?", (uid,))
+                bal = c.fetchone()["balance_bdt"]
+                if bal < total_bdt:
+                    conn.close()
+                    return self._send_json({"ok": False, "error": f"Insufficient balance! Need {total_bdt:.2f} BDT"})
+
+                c.execute("SELECT id, content FROM stock WHERE product_id = ? AND is_sold = 0 LIMIT ?", (pid, qty))
+                srows = c.fetchall()
+                is_vpn = "vpn" in prod["cat_name"].lower()
+                is_proxy = "proxy" in prod["cat_name"].lower()
+                if len(srows) < qty and not (is_vpn or is_proxy):
+                    conn.close()
+                    return self._send_json({"ok": False, "error": "Out of stock! Please check back later."})
+
+                now_str = datetime.datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
+                day_name = datetime.datetime.now().strftime("%A")
+                receipt_no = f"RCP-{secrets.token_hex(5).upper()}"
+                full_name = f"{prod['sub_name']} ({prod['name']})"
+                c.execute("UPDATE users SET balance_bdt = balance_bdt - ? WHERE user_id = ?", (total_bdt, uid))
+
+                if len(srows) >= qty:
+                    sids = [r["id"] for r in srows]
+                    items = [r["content"] for r in srows]
+                    c.execute(f"UPDATE stock SET is_sold = 1, sold_to = ?, sold_at = ? WHERE id IN ({','.join(['?']*len(sids))})", [uid, now_str] + sids)
+                    c.execute("INSERT INTO orders (receipt_no, user_id, product_id, product_name, category_name, quantity, unit_price, total_bdt, total_usdt, status, delivered_data, order_date, day_of_week) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?)",
+                              (receipt_no, uid, pid, full_name, prod["cat_name"], qty, prod["price_bdt"], total_bdt, total_bdt/125.0, "\n".join(items), now_str, day_name))
+                    conn.commit(); conn.close()
+                    add_notification(uid, "✅ Order Delivered!", f"{full_name} (x{qty}) delivered to your Telegram inbox.")
+                    if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
+                        msg_card = format_credentials_card(items, full_name, prod["cat_name"])
+                        asyncio.run_coroutine_threadsafe(_GLOBAL_BOT_APP.bot.send_message(chat_id=uid, text=msg_card, parse_mode=ParseMode.HTML), _GLOBAL_EVENT_LOOP)
+                    return self._send_json({"ok": True, "message": "✅ Order Completed! Credentials sent to your Telegram inbox & Profile History."})
+                else:
+                    c.execute("INSERT INTO orders (receipt_no, user_id, product_id, product_name, category_name, quantity, unit_price, total_bdt, total_usdt, status, order_date, day_of_week) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_delivery', ?, ?)",
+                              (receipt_no, uid, pid, full_name, prod["cat_name"], qty, prod["price_bdt"], total_bdt, total_bdt/125.0, now_str, day_name))
+                    oid = c.lastrowid
+                    conn.commit(); conn.close()
+                    add_notification(uid, "⏳ Manual Order Pending", f"Order #{oid} ({full_name}) is waiting for admin delivery.")
+                    if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
+                        adm_kb = InlineKeyboardMarkup([[InlineKeyboardButton(f"🚀 Deliver Order #{oid}", callback_data=f"adm_fulfill_{oid}")], [InlineKeyboardButton(f"❌ Cancel & Refund", callback_data=f"adm_refund_{oid}")]])
+                        asyncio.run_coroutine_threadsafe(_GLOBAL_BOT_APP.bot.send_message(chat_id=SUPER_ADMIN_ID, text=f"🔔 <b>Mini App Manual Order #{oid}</b>\n🛡️ {full_name} (x{qty})\n💰 Paid: {total_bdt:.2f} BDT\n👤 User: <code>{uid}</code>", parse_mode=ParseMode.HTML, reply_markup=adm_kb), _GLOBAL_EVENT_LOOP)
+                    return self._send_json({"ok": True, "message": f"🎉 Order #{oid} placed! Admin will deliver it in 15-30 mins."})
+
+            # Admin API Endpoints
+            if path.startswith("/api/admin/"):
+                if not is_admin(uid):
+                    return self._send_json({"ok": False, "error": "Forbidden"}, 403)
+                conn = get_db(); c = conn.cursor()
+
+                if path == "/api/admin/deliver_order":
+                    oid = int(body.get("order_id", 0))
+                    ddata = str(body.get("data", "")).strip()
+                    c.execute("SELECT * FROM orders WHERE id = ?", (oid,))
+                    o = c.fetchone()
+                    if not o:
+                        conn.close(); return self._send_json({"ok": False, "error": "Order not found"})
+                    c.execute("UPDATE orders SET status = 'completed', delivered_data = ? WHERE id = ?", (ddata, oid))
+                    conn.commit(); conn.close()
+                    add_notification(o["user_id"], "✅ Order Delivered!", f"Order #{oid} ({o['product_name']}) has been delivered!")
+                    if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
+                        card = format_credentials_card([ddata], o["product_name"], o["category_name"])
+                        asyncio.run_coroutine_threadsafe(_GLOBAL_BOT_APP.bot.send_message(chat_id=o["user_id"], text=card, parse_mode=ParseMode.HTML), _GLOBAL_EVENT_LOOP)
+                    return self._send_json({"ok": True})
+
+                if path == "/api/admin/refund_order":
+                    oid = int(body.get("order_id", 0))
+                    c.execute("SELECT * FROM orders WHERE id = ?", (oid,))
+                    o = c.fetchone()
+                    if o and o["status"] == "pending_delivery":
+                        c.execute("UPDATE orders SET status = 'refunded' WHERE id = ?", (oid,))
+                        c.execute("UPDATE users SET balance_bdt = balance_bdt + ? WHERE user_id = ?", (o["total_bdt"], o["user_id"]))
+                        conn.commit()
+                        add_notification(o["user_id"], "❌ Order Refunded", f"Order #{oid} refunded: +{o['total_bdt']:.2f} BDT")
+                    conn.close(); return self._send_json({"ok": True})
+
+                if path == "/api/admin/deposit_action":
+                    did = int(body.get("deposit_id", 0))
+                    act = body.get("action")
+                    c.execute("SELECT * FROM deposits WHERE id = ?", (did,))
+                    d = c.fetchone()
+                    if d and d["status"] == "pending":
+                        if act == "approve":
+                            c.execute("UPDATE deposits SET status = 'approved' WHERE id = ?", (did,))
+                            c.execute("UPDATE users SET balance_bdt = balance_bdt + ? WHERE user_id = ?", (d["amount"], d["user_id"]))
+                            add_notification(d["user_id"], "✅ Deposit Approved", f"+{d['amount']:.2f} BDT added to your wallet!")
+                        else:
+                            c.execute("UPDATE deposits SET status = 'rejected' WHERE id = ?", (did,))
+                            add_notification(d["user_id"], "❌ Deposit Rejected", f"Deposit #{did} ({d['amount']:.2f} BDT) was rejected.")
+                        conn.commit()
+                    conn.close(); return self._send_json({"ok": True})
+
+                if path == "/api/admin/product_update":
+                    pid = int(body.get("product_id", 0))
+                    if body.get("toggle_active"):
+                        c.execute("UPDATE products SET is_active = CASE WHEN COALESCE(is_active,1)=1 THEN 0 ELSE 1 END WHERE id = ?", (pid,))
+                    if "price_bdt" in body:
+                        pr = float(body["price_bdt"])
+                        c.execute("UPDATE products SET price_bdt = ?, price_usdt = ? WHERE id = ?", (pr, pr/125.0, pid))
+                    if "image_file_id" in body:
+                        c.execute("UPDATE products SET image_file_id = ? WHERE id = ?", (str(body["image_file_id"]).strip() or None, pid))
+                    conn.commit(); conn.close(); return self._send_json({"ok": True})
+
+                if path == "/api/admin/add_stock":
+                    pid = int(body.get("product_id", 0))
+                    lines = [ln.strip() for ln in str(body.get("lines", "")).splitlines() if ln.strip()]
+                    for ln in lines:
+                        c.execute("INSERT INTO stock (product_id, content, is_sold) VALUES (?, ?, 0)", (pid, ln))
+                    conn.commit(); conn.close()
+                    return self._send_json({"ok": True, "added": len(lines)})
+
+                if path == "/api/admin/popup":
+                    set_setting("popup_enabled", str(body.get("enabled", "0")))
+                    set_setting("popup_title", str(body.get("title", "")))
+                    set_setting("popup_text", str(body.get("text", "")))
+                    set_setting("popup_image", str(body.get("image", "")))
+                    conn.close(); return self._send_json({"ok": True})
+
+                if path == "/api/admin/coupon":
+                    code_s = str(body.get("code", "")).strip().upper()
+                    pct = float(body.get("discount_pct", 0))
+                    if conn.is_pg:
+                        c.execute("INSERT INTO coupons (code, discount_pct, is_active) VALUES (%s, %s, 1) ON CONFLICT (code) DO UPDATE SET discount_pct = EXCLUDED.discount_pct, is_active = 1", (code_s, pct))
+                    else:
+                        c.execute("INSERT OR REPLACE INTO coupons (code, discount_pct, is_active) VALUES (?, ?, 1)", (code_s, pct))
+                    conn.commit(); conn.close(); return self._send_json({"ok": True})
+
+            return self._send_json({"ok": False, "error": "Unknown route"}, 404)
+
         if "/webhook" in self.path or "/payment" in self.path:
             content_length = int(self.headers.get("Content-Length", 0))
             post_data = self.rfile.read(content_length)
@@ -216,7 +643,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 
 def start_health_server():
     port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", port), HealthCheckHandler)
     server.serve_forever()
 
 # ------------------------------------------------------------------------------
@@ -1260,12 +1687,14 @@ def get_force_join_keyboard(in_group: bool, in_channel: bool) -> InlineKeyboardM
     return InlineKeyboardMarkup(buttons)
 
 
-async def execute_smart_broadcast(bot, reply_target, sdata: dict, btn_text: Optional[str] = None, btn_url: Optional[str] = None):
-    """Broadcasts message (with optional inline button) to all users and Update Group ONLY (excludes Transaction Channel)."""
+async def execute_smart_broadcast(bot, reply_target, sdata: dict, btn_text: Optional[str] = None, btn_url: Optional[str] = None, buttons_list: Optional[list] = None):
+    """Broadcasts message (with optional single/multiple inline buttons) to all users and Update Group ONLY."""
     msg_text = sdata.get("msg_text", "")
     photo_id = sdata.get("photo_id")
     reply_markup = None
-    if btn_text and btn_url:
+    if buttons_list:
+        reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton(b["text"], url=b["url"])] for b in buttons_list])
+    elif btn_text and btn_url:
         reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton(btn_text, url=btn_url)]])
 
     conn = get_db()
@@ -1982,11 +2411,21 @@ async def render_purchase_summary(query_or_message, prod_id: int, quantity: int 
     total = rate * quantity
     full_name = f"{p['sub_name']} — {p['name']}"
 
+    cat_low = p["cat_name"].lower()
+    default_desc = (
+        "⚡ হাই-স্পিড প্রিমিয়াম VPN অ্যাকাউন্ট — ১৫–৩০ মিনিটের মধ্যে ইনবক্সে Email ও Password পাবেন।" if "vpn" in cat_low
+        else "🚀 আল্ট্রা-ফাস্ট ও ক্লিন রেসিডেনশিয়াল Proxy — হাই অ্যানোনিমিটি ও ১০০% ওয়ার্কিং গ্যারান্টি।" if "proxy" in cat_low
+        else "🔐 রিকভারি অ্যাডেড হাই-সিকিউরিটি মেইল — সম্পূর্ণ নিরাপদ ও ইনস্ট্যান্ট ডেলিভারি।" if "recovery" in cat_low
+        else "📧 ফ্রেশ ও ভেরিফাইড মেইল অ্যাকাউন্ট — ১০০% চেক করা স্টক ও ইনস্ট্যান্ট ডেলিভারি।"
+    )
+    desc_show = p["description"].strip() if p["description"] and str(p["description"]).strip() else default_desc
+
     text = (
         f"🧾 <b>PURCHASE SUMMARY</b>\n"
         f"─────────────────────────────\n"
         f"📁 <b>Category:</b> {p['cat_name']}\n"
         f"✉️ <b>Package:</b> {full_name}\n"
+        f"📝 <b>Description:</b> <i>{desc_show}</i>\n"
         f"─────────────────────────────\n"
         f"✅ <b>Quantity:</b> {quantity}\n"
         f"💲 <b>Rate:</b> {format_price(rate)} BDT\n"
@@ -2149,6 +2588,16 @@ async def process_order(query, prod_id: int, quantity: int):
         # Check available stock
         c.execute("SELECT id, content FROM stock WHERE product_id = ? AND is_sold = 0 LIMIT ?", (prod_id, quantity))
         stock_rows = c.fetchall()
+
+        is_vpn_or_proxy = ("vpn" in prod["cat_name"].lower()) or ("proxy" in prod["cat_name"].lower())
+        if len(stock_rows) < quantity and not is_vpn_or_proxy:
+            conn.close()
+            await query.message.reply_text(
+                f"❌ <b>দুঃখিত! পর্যাপ্ত স্টক নেই।</b>\n"
+                f"বর্তমানে স্টকে আছে: <b>{len(stock_rows)}</b> টি। অনুগ্রহ করে পরিমাণ কমিয়ে দিন বা পরে চেষ্টা করুন।",
+                parse_mode=ParseMode.HTML,
+            )
+            return
 
         # If stock is available -> Instant Auto-Delivery
         if len(stock_rows) >= quantity:
@@ -2637,11 +3086,15 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             ],
             [
                 InlineKeyboardButton("🧾 Check / Download Receipt", callback_data="adm_check_receipt"),
+                InlineKeyboardButton("📢 Broadcast (with Button)", callback_data="adm_broadcast_start"),
+            ],
+            [
                 InlineKeyboardButton(status_tx, callback_data="adm_toggle_autosales"),
+                InlineKeyboardButton("⚡ Channel TX Manager", callback_data="adm_tx_manager"),
             ],
             [
                 InlineKeyboardButton("🎛️ Menu Layout Manager", callback_data="adm_menu_layout"),
-            InlineKeyboardButton("🔄 Factory Reset / Clear Data", callback_data="adm_factory_reset_warn"),
+                InlineKeyboardButton("🔄 Factory Reset / Clear Data", callback_data="adm_factory_reset_warn"),
             ]
         ])
         await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
@@ -3466,12 +3919,26 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
 
     if data.startswith("adm_fulfill_"):
         order_id = int(data.split("_")[2])
-        set_user_state(user_id, "ADMIN_WAITING_MANUAL_DELIVERY", {"order_id": order_id})
-        await query.message.reply_text(
-            f"🚀 <b>Order #{order_id} ম্যানুয়াল ডেলিভারি:</b>\n"
-            f"কাস্টমারকে পাঠানোর জন্য ভিপিএন/প্রক্সি/অ্যাকাউন্টের ডিটেইলস লিখে পাঠান:",
-            parse_mode=ParseMode.HTML,
-        )
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT category_name, product_name FROM orders WHERE id = ?", (order_id,))
+        o_row = c.fetchone()
+        conn.close()
+        cat_n = (o_row["category_name"] if o_row else "").lower()
+        if "vpn" in cat_n:
+            set_user_state(user_id, "ADMIN_WAITING_VPN_EMAIL", {"order_id": order_id})
+            await query.message.reply_text(
+                f"🚀 <b>VPN Order #{order_id} ডেলিভারি (ধাপ ১/২):</b>\n"
+                f"📧 কাস্টমারকে পাঠানোর জন্য VPN-এর <b>Email / Username</b> লিখে পাঠান:",
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            set_user_state(user_id, "ADMIN_WAITING_MANUAL_DELIVERY", {"order_id": order_id})
+            await query.message.reply_text(
+                f"🚀 <b>Order #{order_id} ডেলিভারি:</b>\n"
+                f"🌐 কাস্টমারকে পাঠানোর জন্য <b>Proxy String</b> (যেমন: <code>host:port:user:pass</code>) পেস্ট করে পাঠান:",
+                parse_mode=ParseMode.HTML,
+            )
         return
 
     if data.startswith("adm_refund_"):
@@ -3805,6 +4272,45 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             )
         return
 
+    if state == "ADMIN_WAITING_VPN_EMAIL":
+        order_id = sdata.get("order_id")
+        set_user_state(user.id, "ADMIN_WAITING_VPN_PASS", {"order_id": order_id, "email": text.strip()})
+        await update.message.reply_text(
+            f"✅ Email গ্রহণ করা হয়েছে: <code>{text.strip()}</code>\n\n"
+            f"🔐 <b>(ধাপ ২/২):</b> এবার VPN-এর <b>Password</b> লিখে পাঠান:",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    if state == "ADMIN_WAITING_VPN_PASS":
+        order_id = sdata.get("order_id")
+        v_email = sdata.get("email", "")
+        v_pass = text.strip()
+        combined_cred = f"{v_email}:{v_pass}"
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT o.*, p.image_file_id FROM orders o JOIN products p ON o.product_id = p.id WHERE o.id = ?", (order_id,))
+        order = c.fetchone()
+        if order:
+            c.execute("UPDATE orders SET status = 'completed', delivered_data = ? WHERE id = ?", (combined_cred, order_id))
+            conn.commit()
+            conn.close()
+            set_user_state(user.id, None)
+            add_notification(order["user_id"], "✅ VPN Order Delivered!", f"Order #{order_id} ({order['product_name']}) has been delivered.")
+            await update.message.reply_text(f"✅ VPN Order #{order_id} সফলভাবে কাস্টমারের ইনবক্সে পাঠানো হয়েছে!")
+            user_msg = format_credentials_card([combined_cred], order["product_name"], order["category_name"])
+            if order["image_file_id"]:
+                try:
+                    await context.bot.send_photo(chat_id=order["user_id"], photo=order["image_file_id"], caption=user_msg, parse_mode=ParseMode.HTML)
+                    return
+                except Exception:
+                    pass
+            await context.bot.send_message(chat_id=order["user_id"], text=user_msg, parse_mode=ParseMode.HTML)
+        else:
+            conn.close()
+            await update.message.reply_text("অর্ডার পাওয়া যায়নি।")
+        return
+
     # Manual Order Fulfillment
     if state == "ADMIN_WAITING_MANUAL_DELIVERY":
         order_id = sdata.get("order_id")
@@ -3913,16 +4419,51 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("👇 এই মেসেজের নিচে কি কোনো লিংক-বাটন যুক্ত করতে চান?", reply_markup=kb)
         return
 
-    if state == "ADMIN_WAITING_BCAST_BTN_INFO":
-        if "|" not in text:
-            await update.message.reply_text("❌ সঠিক ফরম্যাটে দিন: <code>বাটনের নাম | https://...</code>", parse_mode=ParseMode.HTML)
+    if state == "ADMIN_WAITING_BCAST_BTN_COUNT":
+        try:
+            cnt = int(text.strip())
+            if cnt < 1 or cnt > 10:
+                raise ValueError()
+        except Exception:
+            await update.message.reply_text("❌ দয়া করে ১ থেকে ১০-এর মধ্যে একটি সংখ্যা লিখুন:")
             return
-        parts = [p.strip() for p in text.split("|", 1)]
-        b_name, b_url = parts[0], parts[1]
-        if not b_url.startswith("http"):
+        sdata["btn_count"] = cnt
+        sdata["buttons"] = []
+        set_user_state(user.id, "ADMIN_WAITING_BCAST_BTN_NAME", sdata)
+        await update.message.reply_text(f"✏️ <b>[বাটন ১/{cnt}]</b> প্রথম বাটনের <b>নাম</b> লিখে পাঠান:", parse_mode=ParseMode.HTML)
+        return
+
+    if state == "ADMIN_WAITING_BCAST_BTN_NAME":
+        idx = len(sdata.get("buttons", [])) + 1
+        cnt = sdata.get("btn_count", 1)
+        sdata["cur_btn_name"] = text.strip()
+        set_user_state(user.id, "ADMIN_WAITING_BCAST_BTN_URL", sdata)
+        await update.message.reply_text(
+            f"✅ <b>[{idx}/{cnt}] বাটনের নাম গ্রহণ করা হয়েছে!</b>\n"
+            f"🔗 এবার এই বাটনের <b>লিংক (https://...)</b> দিন:",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    if state == "ADMIN_WAITING_BCAST_BTN_URL":
+        b_url = text.strip()
+        if not (b_url.startswith("http://") or b_url.startswith("https://") or b_url.startswith("tg://")):
             await update.message.reply_text("❌ লিংকটি অবশ্যই <code>https://</code> দিয়ে শুরু হতে হবে। আবার দিন:", parse_mode=ParseMode.HTML)
             return
-        await execute_smart_broadcast(context.bot, update.message, sdata, btn_text=b_name, btn_url=b_url)
+        btns = sdata.get("buttons", [])
+        btns.append({"text": sdata.get("cur_btn_name", "Open"), "url": b_url})
+        sdata["buttons"] = btns
+        cnt = sdata.get("btn_count", 1)
+        if len(btns) < cnt:
+            nxt = len(btns) + 1
+            set_user_state(user.id, "ADMIN_WAITING_BCAST_BTN_NAME", sdata)
+            await update.message.reply_text(
+                f"✅ <b>[{len(btns)}/{cnt}]</b> বাটন সম্পন্ন হয়েছে!\n"
+                f"✏️ এবার <b>[বাটন {nxt}/{cnt}]</b>-এর <b>নাম</b> লিখে পাঠান:",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        await execute_smart_broadcast(context.bot, update.message, sdata, buttons_list=btns)
         set_user_state(user.id, None)
         return
 
