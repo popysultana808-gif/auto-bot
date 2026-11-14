@@ -1,17 +1,15 @@
 # ==============================================================================
-# CyberNest Digital Mart — Full-Featured 4-Tier Telegram Auto-Shop Bot
-# Architecture: Python (python-telegram-bot v21+), SQLite / Neon PostgreSQL, OpenPyXL, ReportLab, PyOTP
-#
-# Configured:
-# - Super Admin ID: 8919985167
-# - Token: Read from BOT_TOKEN env var (fallback to configured token)
-# - Embedded Render Web Service Health Check Server included
+# CyberNest Digital Mart — Full-Featured Telegram Auto-Shop Bot + Mini App
+# Single-File Architecture: Python (python-telegram-bot v21+), SQLite / PostgreSQL,
+# OpenPyXL, ReportLab, PyOTP, and Embedded Telegram WebApp (Mini App)
 # ==============================================================================
 
 import os
 import sys
 import io
+import base64
 import urllib.request
+import urllib.parse
 import asyncio
 import time
 import json
@@ -25,10 +23,9 @@ import threading
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import hmac
 import hashlib
-import urllib.parse
 import imaplib
 import email as email_lib
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -38,8 +35,6 @@ import pyotp
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
-CYBERNEST_LOGO_BASE64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCACMAIwDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD5DAzSgUop6ivRORsFWpFWlValCnuKpGbGhaeFzUsURJB25Gfzra0XRNQ1SdbSytJZ5GO4RxpuP6c4ptpbkmIsRPQVKts5HCmvdvA/7PfirWo1nuY0soDyWb5iPxyFH/fVegWXwQ+Hmjxb/EHi+1LJ99VuV+X6hFOPzriq4+jSdpSSNadGdT4It+i/pHyYLKQj7ppGtJB/Ca+2bP4T/CJrdJIzqVyjgFZI7a5ZWB7ggYIrK1H4X/Bma5NpD4j+w3Y48ueSSJge3Dqaw/tah1a/r5G7wNf/AJ9y/r5nxs8DL1FRMmOor6p139m5byJ5/C+vW2ooBnCOkv8A6AQf/Ha8Z8a/DLxN4blkF/psmyP70kYLKPr3X8QK7KOKp1vgdzlnHkdpaPz0POStMZa07i0Kx9EUr1+Y5bPt7VTaI966rCTKjLUbLjmrTJ1ycY9ahYc1LRSZARSGpGGDTCKg0Q9BzU8a1HGKuW0TMRhSfwoFa4sUJPar8dk5IyCW4wCO3vXQ+DvDtxrFwLSGzlkmkKiNgDheecjHOf0r6H8KfBG28Og+IPGjLbWVtGshQgMenAA/icnoO3U9hXFiMwo4e/O7W/r/AIY6Y4SpON0tzzH4T/B3U/Ew/tDUMWGlxDfLNK2wKvXJY8KPzJ7DHNfQfh/S/DXhLR4joVrpdlauwjXWdaBiglkJwPJhJ3zHJHzN+Brj/FWuDxl8LtY1CyF1pOm6fqdvZ2NlC20FWZczOeruc4yeBz1PNJdeL38R+HdO11LXR4/F2mL9gub7UIzItsE5MyJnbvIKkE46nniuGVDH4+Kmk4wu4tLdaJ+8+zT6aLsz1MBl9F1lSl707X8kvLvbv+h1Hh+412b4pap4b8e6rZ6232aQ6enzrbRyoAwzGCBgq3I56Vzmu66NctToLeJrHUlE6+fpei+H2ishtOW3zEZ4x7c1zy+IvFfjK+sE8IW8/iO70ZZHu9UkVYYnYrtKmThRnJJx6Co5JNVeYQeIfiNpOktn5rTRbdr2ZfUZHGa9ChhMHhK0G2udJXjFc2q3ezav/TPQnQgqNWjVqO+qTSWia6PbS9tOx3uveJ9Lh8P+C9GbxzrnhWR7c28X9nKPLlPy43lvugZGPrVjVL3TPEvxW0qPU9OZo9HS3RNQusF7vZl2lyvBGQBz3JrlbPwn4M1SK4+3S/EXWICCISdMiVYlPXaD07flWdPpuhWI8uD4ieLdHud21W1jRt8ax4wVynI+vtXbHDUKUnU5Z6qX2Xpe+vw39L7HnOthq6VJu1nF6NXdrOXpr66Hb3lnovxG8SaF4w8OXs+nK1+1jqUNo/l8xSN8xxgjco6j1FXPDet+J/EHinX7CG20/W/Cuns620mp3GJvlbZtE2MqWIbBORivOtJ0PxP4UkuLnwFNp3i/T7xVZ10m7zJDIowHaJvmGRjI56U/wn4siXwg3hrSrKx1N9+NY03UC0EsvHzAd1YNggnjjtXnyyvD1qclh5KUo2StpJa3u9U20tEnY7KOGliVHl63coy1tbSy9d9O3mavjz4OaH4oluJPDsE+k65EN82l3KBJh7qB8sq/7S8/U8V4H4l8B6zpN3NFdwmNiSN8h2iTnsTx1/LvXt2l+J/EmseJtP8AB3hPVdRsoElR7dtaRTc2cwBJgWX7zRbec854xmvU9dmv/E+hR6RrFxpEupb3jstQtQktreSqMNGwYHy5uOh64rpo145eoQx0782vml3l3/PfVrU8PF5fec/quvLuul+y9O3/AAT4Mu7F4ZHjeJkK8Nx0Pv6VnzeZ5axFjsQkqvoT1P6V734lstP/ALWfSPEEGnRXgJXMYfTpQc8gE7oWIPZgOe4615/4/wDBF9ocRv4JZbrTy4jZ3j2SwMRlUlXJAyASrAlGAO0nBA9mthLLmi7o4FCaSlJaff8A0/I86ZcVERzVqZSDzVZhzXmyVmVsSx9BV6xdRKvmFtg5O04PTscVShKhhv3Fe+3rWxpEE739ulssMkqyAKFAfceOTngjJx+dCjcly5T2X9m3w9dap4njvJpTFbWf7x5CfkXbyWPbCjB9yVHevXvjb418aWN9pWs6adPgthIY9Ps70ebNKNpPnsn8O4DgnkZ+tc7oN9pfw98O+E9Euyqt4hvI5b5zxstFOefQO3zH/Z47Vh+KtDvJvixqfirWtRingE5ktpDJkRxAcLj+ED8sdK8bBYP+1MycpJeyhffaTWkn9+ifZX63X0mCoVvq96abnKy2vy32b7K2rv6Fa5+LMmsWl7ovjLRrTTFlVXWXT42HnSIcqMD+PONvY9Krah4b0PTo7bUPFcd5cajfqstt4bt5NrTf3XuSPujnp745PA6XwxpX2m41DxXNZ2k+oyt5miW91KkcagqAJnGeOmVXHv1IxyHxA0Hxr4U02fxLewSXT3sm2XU4ZVl2uexZT8g7DpgcCvolgakpPC0r0qGjb+1J22j1t3lv0VrHj4nOMNTkrzjUrR5orl0Vr7ytp8vP7tLXdcsbKySLxlqflQRAeV4a0VhDBEOwlboD7Hc3sKxrb4t6lbkW/g3w5pmjQjhXhtleT8ZJAT+QFYvwy8BQeMIbnUdR1W4R4rmOCOGK2815HcFsKNwHb3617v4D+HnhzQZ0uG04yzryk2pOrlT6rEnAP+9+dd9ChSw8OShBKP5/5/iz5nMMx5m3iZtvtsvkjzl/ip8VrEbb3Vr2FnQMqyMV4PIIGBwfWs0/GP4jxuftN6L+HvHcIkykfR1NeyeONW8O3+o3Oj+LrU7YWxbzXMRiYrgfNHIMcfp9axNF+GngO+WeX+2ryIeU7xxuiSA4Xdwynnj2zXW+blTlFJf4U/yR5sMXS35Xf5r9Tzmy8feE9WvEk1bRZPDmrZ+TUtGZoXU+piJwR/usPpWl4hNnfrBc+KbhdQtWOLTxZpQ23EJ9JlABbHcEA+x607wB8M/D/jXVtQe71C5/su2GwSRxBWaVvuhck5wOfyrlPGuly/DPxXNoUWtvqFlcQo52wkB0bO0MCeSMdRnH6Vx4rL6GJlaorTW0luvn+m3kezl+dVKFRRpSbX8r/Tqjp7dNS0e5bSJ9ZikvZrhNT0PW0UFLgqBgZHPYgpnoxxnFa3xD8UT6HbSSabb2UcvieANqtuZ2WK0u4yuLuIgZUknGcdRn1rk/Dj6YdMi03xErS+FtUlKJKuN2nT5H7xf7nJBK++RxmnWXhDRfDet6vpvirWFFraqpuJHc5nhbOx0JzwRxgZOcjFeUsPCpX9hjvjirpracfTuna66PbRn6A8bUrYWCw1O8n1btbq3K/ls/z0v6J8TvC134v8Js2p/Z/wDhK9Ls47iee35jvrdlG24Q98fdb6ey1w/wVK67p+q+EPEDMLeOIQoz8mJJJBGVP+ysjRyD0Kkjqc9Vo3xf8Gz2Ki0tm0JfDRjXS1uCS1/bP8ssJHJ+bqAc4IBNReJNIsfCmp6hrtg6ix1iS1WzI6eSGFw7H6LGF/KufhypXpVJYKvFxtdxv20uuu101q7JtfZOTE4aneVaDvBp3+Sdn87fefNHirS7rRtavNLvY/LubSZ4ZV9GU4P6isNhz1r0L44yeb8Qb+Vx+9eO3ef/AK6GCMvn33Zrz5uvSu3ExtM+ehLmimyWBAzqGPGMnDDP057+1eg/BPRX1vxtYWLRqAkuGOORuODn6DcfwrzuIjdyMivd/wBl2BItUvtVKj/RbaWTOO4UD/2c1w4qu8NhataO8Ytr1tp+Nh06fta0Kb6tL5dfwNjxYG8b/F/UbW2AMEbppFmv8KAYDH6AfoTXNWHhm48TePo/Dlpqt8dANyVETTsVW3j5ZsE/3V+mWrd+EUjJb654jY/vbbTbu8Df9NZW8pD/AOPj8qufD+KTS/A/jPxKoImisEsLdvR52+Yj8AK9mphllmSwo0l70YxS/wActL/e0zLL61XF5tJ8zUW3f/Ctl+BxuteMtW0yLVbvQ7mSHRra+MFkrlWyh3YUZBPAXPsMV6D8NvFt34x+Ht7Z3cgf7VFJbzxkDa/GVyOmcjqK8h+KluumaDoGiRDbutvtco9WlORn6Isf61d+BGsnTp721YnYrLIAO3PX8wfzr3cvqzlWhg6r5vdtr3Wt/wADg4oy7DQg6mHgoyjZu2m+r+69vkdr+z1eR2l9LZStgR6xHnPUAwyAfj8pr2XwK99qs88+nSQ7xG/kM7AbZCGCMM8ZBGfTivMD4P8A+EbsLvx9pF5NcxyayI5bPygBDImJoCrA8iRGZeQOWAq94c8VxeGdXnD6lbxpcSRXdq9xKI0kt23kbTjGRkAjrnPpUUqKlGcIvVNrX1PncxVRtVaau2k0df4z8JeMf+EW8Sx61q8OqwC5S70gyXvny22wN5yg84yByucZHrXnPw+uLyLTZriWV3me9MWShXOLeQk+/GK108V+H9E0G80fTNc0qa2lnvbpxbzAPvn3FUCZYnGVXPtmucm1K50PRbW2T5tQjBk2qMn7RcYCJwBlliVmPoWFOlTlGPvNXfb+vn8xxdSbceXS+l92kt38ztvDE0Hhbw1a6TC8lyFcyXcki5jWVlXdH8oyNoBOeSPTmmvrkc8lmZ9GsLy9gfFjNPbiYJnnCOD1GQcHOPY1gt4hjTwzLp2kgy393ujuIxGUeGNTvk3Kehd1yR2SJB3NUrDU08LeCdT8VTXkiSSwPa2io+GMrjAKk9GXrntxT5YpOTRz+xbf95v8y58RNe8PS+L4/BwtLWC5vrcDUpohtRLk/wCrOOmRnDH0Y1j32mL4q+Hrm/iJ1rwhN5Exfl5LRjgZ9ShH/jp9a8Q+3Xc2qLqdzPJNctLvlkZss5PUk19NfDyBr34gWszws9j4n0R47wKuQXKlWP8A32jH/gVeFjk8RSVemvfpSUl5r7S+cbn6dkdFfU/qsnfS1/XX8Ht6nOeHvCVh4m8IxSQWsEV5YXD215IflBgkUssrH/ZKsCf92vQbDT9I8QfDNrwrMtjocz2szTNiSW3jxvYA/wATsoQAdPMI7VR8DaZazyav4Qs4ZJIXs5UuL3aFeW5T5ljQNjA+RgAeuSx4FSeH9Ys7yx8XeELNY2WLTVuXmjOVd0+6kf8A0zTGAerMWY9Rj0M4xEcPRVZu3JJf+Ay0d/v28jzaDVJTwFN3lJO7846pL06vqfLfjLUbjV9dv9XvQVnu7hpmXbjG/wCYY9sHA9sVzr43HHI7ZrY8RRGPVbm2WMfupXC7RyRk4z9BWKeteHiL87TJpO8E0SwYzzzX0N+znCv/AAiXiV1kQN/Z83f2P+Ar55tVZ32ou4+mO3c19A/suq19PqOjQgu13byRIDxuyBj6ferix1N1MFVilfRfhKL/ACOjDPlxVNt9X+TN74TaQLr4YeJVjngEj2dnGxL/AHV8xSSfbgV6FD4Ss7b4C3kbXlvEl1qUMhkkfG5QoA+meSB6VyvhIW/h7wH4h06K3ju4raxV3dm2G4mhdGPHUoARxx8pBPLEDO0HxJea98HPFMNxcGS4t76C9bnkrjBwOwG08dq+zx1pQTeylB/hFfmceRYKoqrk3aUk7Lyu3f8Ay/q/A/tH6VDZ+No4kureRI7SFE2v0AiQD+VcH8O547bxhDDLIFiuo3hJzwDjK/qK6T45zyXeoaRrGSUu9PgJP+0Iwjf+PRtXm0Vw1teQ3KnDRSK4/A1xVK3sMVCp1jb9LnRmFCU5zhJ73/HY+y/2eb/TfEVrr3g/WMy2Wo2K4AbDBoH271PZgrxMD2KCvPPiH4aOheKZfBviCYXzSKbqyuogBM0bE/vIlP3gSDvhzkNkrkGud+GHiLVNF8VW13okMVzfNMEt4JDhJfO/d7SdwwDuXnI6CvTPiv8ADz4n/E19Mk17wZLp8+m+YsUthPBuZXIJVt8x6EZGPU16WZU5YfHSqRceWavZtL82eFRpRlh1CSd49Un69DzKy0rT/DV/Pqq3iO7Oqx3EsbxW8XAxlWw00ncRqMA/eOKW9ttbuvE1hcy6ZdahpVjJ5kCm/RZLnLbmdXPV2PPAOOABxXR3n7OPjfVZUk1SHxNdyIgRWnurWQqo7DMhwKe/7NXi7bAptfErrAcxA3Np8nfj5+K43iI6q8f/AAKP+Yex6u7e3ws5f+29R1nUbtkuPO1S/l8pvPQrcRksCQwA2lSeCewUA9a9j8HeA9P1XwLdeONavZbTTNKt5V0qFbeGRLgICHnZZUYHe+VU4zge4rCu/g542Or32qR+F9V+1XkAhZvtNr8uQFdgd4ILAEE9txqz8XvFXxA0bwXb+HfE3hax8P6POFhtxbuCfLgAbYMSthQAuTjn8acuarKNKlUjq9fejt6X7Co0IRvOUHotFZ7nj2u+GYNX8W31/iy0bSUaNbq4WPZAJtgLrEi/eYn+Be/oK+lPhto6JB4IbT70Q6cLhuJHXzZwrZAOPdidudoPcmvkRNauri4hn1eZroA7Ybd3O1ATkAgdBz0HJ719D+C9YupvGHgLSxKzJBCbuVQAoVSzsoAHAXCoQPesq1Sk6NWcFZa/dZn1WWqaSo0OiSbe71X/AATvbhLK0+Ma6NYXFqqSz3KzAHBw6sWRR2yT8zdWwBwABXlnwltIoviJrkAuYWX+xpVYhuCA5H9ag8K+I21D4xajrjPmO2j1C9LdgojkIP6rWT8HLplv/E+sOeINJ2Z/2mLN/Ja5eJOWGTVYbtxgvnzM8PLKM45te+icn+B4r42jx4hugvzZftzn5Qa56tjxRN5ut3TBukhGfpx/SsU1wYtp1p+rOrDJ+zivJElqN8yLvVAWHzN0X3PtX0b+zKzaebnX5Tvvb25+y2g5GenmkY6ZLxJ6AM3pXzpp0vlXCSbEfH8LrkH8K+hvh/ONP8GeHdRicottp2q3RZeokjYqD+HmofwFdWXUlUbi9mrHTSpe1xFOHmvuWr/It+I9cjs/jKmjXJFvpRD2D85Vo7pDumJ7ku+7PsPSqXwUtLiHxPr3hu9GN9rNbXMR6lkbH6c/nWZ8TIU1zwppniu1AD2iixv8dQCSYn+gbcmfTb611/gzwV4l8UzW3jiyvBompGz5hlG2W8uY1I3Ivo6LuOe+eOc10PMqLwvNipKFvdd+jX9X/E9OFOrTzX2tNXW/lZ7fK2h574u0m4u/DN3oky5vdDnbZnq0LkEEewbB/wC2leQyq3IYEEcEV9U6xf8AhzXrRPE+p6fe6fqVsDa6nDYqrKxAw4aNscEHPB6Hpxx5t4g8PfDtA2oW954i1ASL5jQW9vCjJz/ESxIPrx7966K9D6xBST95bnoZtly5lNO3r22X/wAi/Na7nKeFbtzFY3CyeWyjyzJydjKeG454IB/Cvriw+NWl+REtz/aC3OxTMIDFLHvxztbzORnpwPcCvkO18u61lNJ8M6R5SSks4v7sOFAHLswChAPYegrq9W8H3FtpTXmmax4a1aaOMyS2trcTCVQOuA2M4wenPtXqqnhsxoQVa94aXS0/I+Dxs/qldxjNe9/XkfU1t8XbCYZjGqt/2xh/+OU+f4uWMIzKuqL/ANsYf/jlfCyeJ0XhtJQkel04qSDxDNeXMVra6SpllcIi/aZGyTXmLCZO5WU5fc/8in9eW9vw/wAz7Wn+NehopMj6tgdcRR/0kr54/aa+IkPi2/t/sUsv2aO28m3SQjeSzZkcgE44AHU9B9BnnwdLFYLJL4g8LRap1Fi1xMzK3ozgFAfxI968murO/wD7ZuLS5iKXiysJlb+A55yfSqxmEoYGzoRk5SurvZX0001dgwld4ltSmml2/rY2vAOlyax4htoC22FGy7nog6lj7AAt+Fe2eG9W+yW3iXxwqGONYP7P0pD1GQEQD3ChfyNefeCrFntv+Ef0qOQX92xS5mZcCOEYLY+pxn2AXua9Y8I22iah4misbi9t7bwz4Pia81FnkH7yRRycdTjp9SfauDFOnhsK1U2Wsv0Xm3sfoOU4aNPDe2vvs/Ozt/4Cm2/Npbo878M3T6V4I8Taw2VlvgmkW2euXYPL+SIAf9+trw240P4PajqUp2PrF0Qh7mJBtz9CBJ+Va3xm0PU/F2swav4Z1LTNV0a+uS8JtMR+U0hVdzL/ALKhQT1+XJFcj8btWs7W3s/C+mzgWFjAtvG2M5AX72B3PX/trXnYzFrMI4aEVo2qkvLl6O6W8rLY+bjgKuA9rUqpq6tHz5tLr5XZ5DfSiWZ5cMd3LZ/vHk/rmqhPNT3mPMB3xsdik7OgOOnQc+v8zVU8msJyu7nNBWQ+FsMK94+Cmpadf+DrvSNQl2fYZZZXPf7JcxCGcj/dYRP/AD4yR4Ep5rotC8Qy6JqNlf6MXtbq3GWkYht55BBBGCpBIKnIIJB6114HEKlPU1jKVOSnDdO6PVtBl1fwjqt14d1OMkOB5eeY7hMgo6noVbC4PqF75roobK91Hx7oHia38VG0tNLmjmeGZyPI2nJK44+YcHd6nqKwvD/jnQtVsUs7g2VgoJP9n6jG8tkrHqbeZcy2+f7p3KPXtXVyeEtF8U2kU/8AYE90sMgcSWd3Hext6gmM7iueSp/qcejXw9OrGTjb3t/utfz03R9LgcywsqTw8nZNppNtfK6TTS6fcVNYk1W51nxT8U9MS2g8IyXYiSO4kEX25c4LxA+hztOOfcZrmNV0K0uo08SeGz9v06Q/v7VXKuueoHXa3tz6jcK6+5LGDVdd8d6LLeWfh1VTT/D8wMKj5R+9ZcAOTkAEZUAHAo8T32iQ+HJNatNETwJ4pgEW3SXkDwapE/3RGMYc54K4yp9K87C4qrg3GjXi7aKMlqraJX1u/N2sr9NzumqFenKjV96m7tNbp7XXa9tnv1s9TzG38NQk3l/4bna7gljAntgAl1AA2SGj7j/aXK8DO3pXoXxb+IGn+JPD+gQabpNtph0ePLTRRlAg2BfLX5VwuRnbySce5OZ4p0uAaobfxJp9z4W12EK7TpuaIFhlTvXlc/7X51c0rS/ElyI3uLbw94utU4jkuEVpAPaVCG/Nq+koVYNQqJX5buLT01/P8D5TG8N4uN/q7VWL7aSt5xevzPAktTMzSYxkk4x61Y0kPY6xa3K7gY5M7gpO3tn8K+qdD0/RlQi++FUQfH/LDUzt/wDH2Y/rVDWtLModdG+Gei257SXlw9xj3279v5qa544WMJKabunfp/8AJfoeesDmU5On9Xl9z/ysc/pnjfT4/gjfeC5tCge9lkZvtIj3FmLhxJuC/fGMBtwAGPcHitJtYb6cnSYf7R1q4VFnumXEFoAAo293fA+8eB/CCeRpeKNL2yp/wmXiext4Yh+7sLJF+UeixRgBfxA+tTX39vL8MLjxL4Q0oWPh6CcW0txvzcSknBPH3FzgHHPzda0r4mlSTu1HmlfV7yemnqetg8ghTXPmErcq+GLTlZdHbRLvfXyNLw7bWFlrVp4I0XVLWLWdRk8u41CWQL5Pqqk/8tOuB/D7t07/AF3wf4TWw8Q+Ek8Dx2MWnWghg1+4Pl3F5dsMgp3MY45Oc+lZXijwh8NtX8MaLFbaFdabMdIjvV1m0lARXPLRyhjyQeQfTuMVymv313d+Hk0bxrc2+vW1oUlsr5Lgq0ijoZAOQwHGRkMGHU4r46vXq5lKM6blCEXtqm2no7p63s1Z6K92j62VNyjerBRpxTUVsrdnu1621e/YwvDWiTeBLHUL/UdRBumwkVpb3BMRGMlm6fMTwOOAGPavLtd1STU9TnuJJMiTOSfrnOPc9voO1a/jjxE1/MbaD5IFJG0DAHtjt0Ax2AA9c8jJK5RUJyqkkDHTPX+VdtRez5r/ABS38u0V6dfM+LxleFaShS/hx2v+f+XkNkYseSSfc1GaUmmE1ytnOkIDT1OKjFOBpJlNFmKd1IwTWvput3Wnyi4hnkjnDZAX5eOucg8HNYKtinxvtYNhW9mHFdNLETpu8WZyimrM9i8O/Em/uwiahdPeqE8tkuH3EIc8AnIA5PH3Tk9M4rq9N1NbzWdIvLmOGLw3oQa9SNpVYtOv3QVPKqg+bB6n1HT53jmkEiushRs53ZxgnvxXQaN4puLOZGLOuw/K6Hkfhx+mPxru9tTxMeWpp+X37r5aHs4LOalCKpVVzRX397Puj3T4KfEvU9c8ceI77Xmgm8PXRkvr2C5to5BkLtiVXI3LhF6cj5T61X8P3vhv4keLbTU7TQ4fBuiaVBLd65cWl3nzVAyiocAqSAePY1xNj4vs9QiuLeSC0VL2Pyrs2aJbzSjBGfu43YJGQvfvWno2sW2iaSul+HZV0/ErSNLfwGUyg9mCY5xgZ9BwOTWEco9lzVaF4NxS927iraaJaN22bWll2O3DYnD1VGMqt93Lu3f3Uk7W/pHaava6np3xl0jw9p/iTWH8K6t9nkhu1uGYpFKuOWz1DD9a4r4hWXjJfFWsaZBqN9NptreSQwz3V6qK6KcAkswFal5q8eqHRLu+1GzTUdLvFn8yFJFiaMfeVQRkEgLweMjrzTdaufBepG7kvLGB727Uh74xs0isRjeATjI4OPavRwlPEwcXVm5JRs1Z3b77b20a7l43DqpTkqdZLVNX7cuq+/5Gj8Ih4NvfAniLwv4usLHUbq3cXKXdmwedIiD91x1ZWBPGcg456Vr6frmk+H/B2l/DuyvU1HSdVivC12MDerYZWz0HBxnpuFec2jeHPC0zXmhXerXNw0Zjea8WKGFlJB+4N3cAjLVzmoeLLW1tns9Nihghf78VqgVW/wB5u/47hXBVyuM6rq1L8rkpWk9E0rXS1fy0McLmmHw9CKqJSmlZ9dLrTTTVaa7bnX6pqFnF4W03QtTlkuRYKQ6Rz/ubkKSE345ZQMErkc8EivO/EniR7tzDakJH22ABR6BQOPy4Hb1ORqGo3N9HI7zIqKR+738t6cdTj9KzS3Az19fWnUrQpu9Ld9f8u35s8vG5jVxjs9I6K3VpKyu/0HyOCi4JJ5zxURNBNNJrzpSucKQE0wmlppxmoLQClpKXNK42KDTgabRVCsSA0A0wU6mmTYfvO0LgcHPTmrVvqN7AMQ3U8Y9FkOPyqlRWsK04O8XYlwUtGbCeINVUf8fsn4qp/pUcmuam/W+mH+623+VZeaM10PHYhq3O/vZHsKf8qJ5riWZt0sjO3qzEn9aYkro25XIOCMj0IwajormlUk9WzTlSFzSE0lNNZ3KsKTSHmikNTcYZpDzQetFSykf/2Q=="
-
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.graphics.shapes import Drawing
 from reportlab.graphics.barcode import qr
@@ -63,6 +58,8 @@ from telegram.ext import (
     filters,
 )
 
+CYBERNEST_LOGO_BASE64 = "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"
+
 # ------------------------------------------------------------------------------
 # 1. LOGGING & CORE CONFIGURATION
 # ------------------------------------------------------------------------------
@@ -75,9 +72,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "9198296559:AAFwotwWzDzNjIuqrl6iG0JY6NykvQOPl8Y")
 SUPER_ADMIN_ID = int(os.getenv("SUPER_ADMIN_ID", "8919985167"))
-# ------------------------------------------------------------------------------
-# GROUP & CHANNEL CONFIGURATION (Force Join & Real-Time Proofs)
-# ------------------------------------------------------------------------------
+
 WELCOME_GROUP_ID = os.getenv("WELCOME_GROUP_ID", "-5340748538")
 WELCOME_GROUP_LINK = os.getenv("WELCOME_GROUP_LINK", "https://t.me/+jzGqcGVgiYRmYjJl")
 
@@ -88,9 +83,9 @@ _AUTO_SALES_ACTIVE = True
 _RECENTLY_WELCOMED = set()
 
 CUSTOMER_SAMPLE_NAMES = [
-    "7x_TALHA", "Arif Hasan", "Tanvir Ahmed", "Sakib Al Hasan", "Rahim Uddin", 
-    "Mehedi Hasan", "Nusrat Jahan", "Sadia Islam", "Farhana Akter", 
-    "Jannatul Ferdous", "Ayesha Siddiqua", "Rifat Hossain", "Sumaiya Kabir", 
+    "7x_TALHA", "Arif Hasan", "Tanvir Ahmed", "Sakib Al Hasan", "Rahim Uddin",
+    "Mehedi Hasan", "Nusrat Jahan", "Sadia Islam", "Farhana Akter",
+    "Jannatul Ferdous", "Ayesha Siddiqua", "Rifat Hossain", "Sumaiya Kabir",
     "Shakil Khan", "Fahim Shahriar", "Mim Akter", "Tasnim Sultana",
     "Mahmudul Hasan", "Naimur Rahman", "Sabiha Sultana", "Habibur Rahman"
 ]
@@ -107,16 +102,12 @@ def get_transaction_channel_id() -> str:
 def get_transaction_channel_link() -> str:
     return str(get_setting("transaction_channel_link", TRANSACTION_CHANNEL_LINK)).strip()
 
-
 DB_FILE = "store_database.db"
-
-
 _GLOBAL_BOT_APP = None
 _GLOBAL_EVENT_LOOP = None
 
-
 def get_bot(query=None):
-    """Safely retrieves the active Bot instance avoiding 'CallbackQuery object has no attribute bot'."""
+    """Safely retrieves the active Bot instance."""
     if query is not None and hasattr(query, "get_bot"):
         try:
             b = query.get_bot()
@@ -128,35 +119,16 @@ def get_bot(query=None):
         return _GLOBAL_BOT_APP.bot
     return None
 
-async def _notify_payment_success(user_id: int, amount: float, invoice_id: str):
-    if _GLOBAL_BOT_APP:
-        try:
-            await _GLOBAL_BOT_APP.bot.send_message(
-                chat_id=user_id,
-                text=(
-                    f"🎉 <b>পেমেন্ট সফলভাবে সম্পন্ন হয়েছে!</b>\n\n"
-                    f"💰 যুক্ত হয়েছে: <b>{amount:.2f} BDT</b>\n"
-                    f"🧾 ইনভয়েস: <code>{invoice_id}</code>\n\n"
-                    f"আপনার ব্যালেন্স স্বয়ংক্রিয়ভাবে আপডেট করা হয়েছে। শপ থেকে কেনাকাটা শুরু করুন!"
-                ),
-                parse_mode=ParseMode.HTML,
-            )
-        except Exception:
-            pass
-        try:
-            await _GLOBAL_BOT_APP.bot.send_message(
-                chat_id=SUPER_ADMIN_ID,
-                text=(
-                    f"🔔 <b>অটোমেটিক পেমেন্ট সম্পন্ন! (Paymently Gateway)</b>\n\n"
-                    f"👤 ইউজার আইডি: <code>{user_id}</code>\n"
-                    f"💰 পরিমাণ: <b>{amount:.2f} BDT</b>\n"
-                    f"🧾 ইনভয়েস: <code>{invoice_id}</code>"
-                ),
-                parse_mode=ParseMode.HTML,
-            )
-        except Exception:
-            pass
+def _http_post_json(url: str, data: dict, timeout: int = 15) -> dict:
+    encoded = urllib.parse.urlencode(data).encode("utf-8")
+    req = urllib.request.Request(url, data=encoded, headers={"User-Agent": "CyberNestBot/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
 
+def _http_get_bytes(url: str, timeout: int = 10):
+    req = urllib.request.Request(url, headers={"User-Agent": "CyberNestBot/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read(), resp.headers.get("Content-Type", "image/jpeg")
 
 def add_notification(user_id: int, title: str, message: str):
     try:
@@ -198,13 +170,12 @@ def fetch_outlook_otp(account_str: str) -> dict:
     mail_addr, _, refresh_token, client_id = parts[0], parts[1], parts[2], parts[3]
     try:
         token_url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
-        resp = requests.post(token_url, data={
+        tdata = _http_post_json(token_url, {
             "client_id": client_id,
             "refresh_token": refresh_token,
             "grant_type": "refresh_token",
             "scope": "https://outlook.office.com/IMAP.AccessAsUser.All offline_access"
         }, timeout=15)
-        tdata = resp.json()
         access_token = tdata.get("access_token")
         if not access_token:
             return {"ok": False, "error": tdata.get("error_description", "Token refresh failed")}
@@ -243,7 +214,1025 @@ def fetch_outlook_otp(account_str: str) -> dict:
         return {"ok": False, "error": str(e)}
 
 # ------------------------------------------------------------------------------
-# 2. RENDER WEB SERVICE HEALTH CHECK SERVER (Keeps Render Free Instance Live)
+# 2. EMBEDDED TELEGRAM MINI APP HTML (NO SEPARATE webapp.html NEEDED)
+# ------------------------------------------------------------------------------
+EMBEDDED_WEBAPP_HTML = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>CyberNest Market</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg: #f6f7fb;
+      --card: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --accent: #ff6b00;
+      --accent-soft: #fff3e8;
+      --green: #10b981;
+      --green-soft: #ecfdf5;
+      --red: #ef4444;
+      --red-soft: #fef2f2;
+      --shadow: 0 6px 20px rgba(17, 24, 39, 0.06);
+    }
+    body.dark {
+      --bg: #0b0f19;
+      --card: #131a2a;
+      --text: #f3f4f6;
+      --muted: #9ca3af;
+      --border: #1f2937;
+      --accent: #ff7a1a;
+      --accent-soft: rgba(255, 107, 0, 0.14);
+      --green-soft: rgba(16, 185, 129, 0.14);
+      --red-soft: rgba(239, 68, 68, 0.14);
+      --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg); color: var(--text); padding-bottom: 92px;
+      transition: background 0.25s, color 0.25s;
+    }
+    #splash {
+      position: fixed; inset: 0; background: linear-gradient(135deg, #0b0f19 0%, #1a103d 100%);
+      color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      z-index: 9999; transition: opacity 0.45s ease;
+    }
+    #splash.hide { opacity: 0; pointer-events: none; }
+    .loader-ring {
+      width: 56px; height: 56px; border-radius: 50%;
+      border: 4px solid rgba(255,255,255,0.15); border-top-color: #ff6b00;
+      animation: spin 0.9s linear infinite; margin-bottom: 14px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .topbar {
+      position: sticky; top: 0; z-index: 50; background: var(--card);
+      border-bottom: 1px solid var(--border); padding: 10px 14px;
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    }
+    .user-mini { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .avatar {
+      width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, #ff6b00, #7c3aed);
+      color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .user-info { min-width: 0; }
+    .user-info small { display: block; font-size: 11px; color: var(--muted); }
+    .user-info b { display: block; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .top-actions { display: flex; align-items: center; gap: 8px; }
+    .bal-pill {
+      background: linear-gradient(135deg, #ff7a1a, #ff5500); color: #fff;
+      padding: 6px 12px; border-radius: 999px; font-weight: 700; font-size: 13px;
+      display: flex; align-items: center; gap: 6px; cursor: pointer; border: none;
+    }
+    .icon-btn {
+      width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border);
+      background: var(--bg); color: var(--text); display: flex; align-items: center; justify-content: center;
+      cursor: pointer; position: relative; font-size: 16px;
+    }
+    .badge-dot {
+      position: absolute; top: 5px; right: 6px; width: 8px; height: 8px;
+      border-radius: 50%; background: var(--red); display: none;
+    }
+
+    .container { padding: 14px; max-width: 600px; margin: 0 auto; }
+
+    .search-wrap {
+      background: var(--card); border: 1.5px solid var(--accent); border-radius: 14px;
+      padding: 8px 12px; display: flex; align-items: center; gap: 8px; box-shadow: var(--shadow);
+      margin-bottom: 14px;
+    }
+    .search-wrap input {
+      border: none; outline: none; background: transparent; color: var(--text);
+      font-size: 14px; width: 100%;
+    }
+
+    .hero-banner {
+      background: linear-gradient(135deg, #2e0249 0%, #570a57 50%, #ff6b00 100%);
+      color: #fff; border-radius: 16px; padding: 16px; margin-bottom: 16px;
+      box-shadow: var(--shadow); position: relative; overflow: hidden;
+    }
+    .hero-banner h3 { margin: 4px 0 6px; font-size: 18px; }
+    .hero-banner p { margin: 0; font-size: 12px; opacity: 0.9; line-height: 1.4; }
+    .hero-tag {
+      display: inline-block; background: rgba(255,255,255,0.2); padding: 3px 9px;
+      border-radius: 999px; font-size: 11px; font-weight: 600;
+    }
+
+    .cat-row {
+      display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 14px;
+      scrollbar-width: none;
+    }
+    .cat-row::-webkit-scrollbar { display: none; }
+    .cat-pill {
+      flex-shrink: 0; background: var(--card); border: 1px solid var(--border);
+      border-radius: 14px; padding: 10px 14px; font-size: 12px; font-weight: 600;
+      cursor: pointer; display: flex; align-items: center; gap: 6px; color: var(--text);
+    }
+    .cat-pill.active {
+      background: var(--accent); color: #fff; border-color: var(--accent);
+    }
+
+    .sec-title {
+      display: flex; align-items: center; justify-content: space-between;
+      margin: 12px 0 10px; font-weight: 700; font-size: 14px;
+    }
+
+    .top-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+      padding: 10px 12px; display: flex; align-items: center; justify-content: space-between;
+      gap: 10px; margin-bottom: 14px; box-shadow: var(--shadow); cursor: pointer;
+    }
+    .top-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .prod-thumb {
+      width: 48px; height: 48px; border-radius: 12px; object-fit: cover;
+      background: var(--accent-soft); display: flex; align-items: center; justify-content: center;
+      font-size: 22px; flex-shrink: 0;
+    }
+
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .p-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+      padding: 10px; box-shadow: var(--shadow); display: flex; flex-direction: column;
+      justify-content: space-between; position: relative;
+    }
+    .p-img-box {
+      height: 92px; border-radius: 12px; background: var(--bg);
+      display: flex; align-items: center; justify-content: center; overflow: hidden;
+      margin-bottom: 8px; position: relative;
+    }
+    .p-img-box img { width: 100%; height: 100%; object-fit: cover; }
+    .fav-btn {
+      position: absolute; top: 6px; right: 6px; width: 28px; height: 28px;
+      border-radius: 50%; border: none; background: rgba(255,255,255,0.9);
+      cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;
+    }
+    .p-brand { font-size: 11px; color: var(--muted); font-weight: 600; }
+    .p-name { font-size: 13px; font-weight: 700; margin: 2px 0 6px; }
+    .p-price { font-size: 15px; font-weight: 800; color: var(--text); margin-bottom: 4px; }
+    .p-meta { display: flex; align-items: center; justify-content: space-between; font-size: 11px; margin-bottom: 8px; }
+    .st-in { color: var(--green); font-weight: 700; }
+    .st-out { color: var(--red); font-weight: 700; }
+    .btn-primary {
+      width: 100%; border: none; border-radius: 10px; padding: 9px 12px;
+      background: linear-gradient(135deg, #ff7a1a, #ff5500); color: #fff;
+      font-weight: 700; font-size: 13px; cursor: pointer;
+    }
+    .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-outline {
+      border: 1px solid var(--border); background: var(--card); color: var(--text);
+      border-radius: 10px; padding: 8px 12px; font-weight: 600; font-size: 12px; cursor: pointer;
+    }
+
+    .bottom-nav {
+      position: fixed; bottom: 0; left: 0; right: 0; height: 68px;
+      background: var(--card); border-top: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-around; z-index: 60;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .nav-item {
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+      font-size: 11px; color: var(--muted); cursor: pointer; border: none; background: transparent;
+    }
+    .nav-item.active { color: var(--accent); font-weight: 700; }
+    .nav-center {
+      width: 52px; height: 52px; border-radius: 16px; margin-top: -22px;
+      background: linear-gradient(135deg, #ff7a1a, #ff5500); color: #fff;
+      display: flex; align-items: center; justify-content: center; font-size: 22px;
+      box-shadow: 0 8px 20px rgba(255, 107, 0, 0.35); border: 3px solid var(--bg);
+    }
+
+    .card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+      padding: 14px; margin-bottom: 12px; box-shadow: var(--shadow);
+    }
+    .input, textarea, select {
+      width: 100%; padding: 10px 12px; border-radius: 10px;
+      border: 1px solid var(--border); background: var(--bg); color: var(--text);
+      font-size: 13px; outline: none; margin-top: 6px; margin-bottom: 10px;
+    }
+    .qty-box {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--bg); border-radius: 12px; padding: 6px 12px; margin: 8px 0;
+    }
+    .qty-btn {
+      width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--border);
+      background: var(--card); color: var(--text); font-size: 18px; font-weight: 700; cursor: pointer;
+    }
+    .quick-qtys { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+    .q-pill {
+      padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--card); color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer;
+    }
+    .q-pill.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    .modal {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100;
+      display: none; align-items: flex-end; justify-content: center;
+    }
+    .modal.open { display: flex; }
+    .modal.center { align-items: center; padding: 16px; }
+    .sheet {
+      background: var(--card); width: 100%; max-width: 600px; max-height: 90vh;
+      overflow-y: auto; border-radius: 22px 22px 0 0; padding: 16px;
+      animation: slideUp 0.25s ease;
+    }
+    .modal.center .sheet { border-radius: 20px; max-width: 400px; }
+    @keyframes slideUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+    .row-between { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .pill-tabs { display: flex; gap: 8px; margin-bottom: 12px; overflow-x: auto; }
+    .tab-btn {
+      flex: 1; white-space: nowrap; padding: 9px 12px; border-radius: 10px;
+      border: 1px solid var(--border); background: var(--card); color: var(--text);
+      font-size: 12px; font-weight: 700; cursor: pointer;
+    }
+    .tab-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .copy-box {
+      background: var(--bg); border: 1px dashed var(--accent); border-radius: 10px;
+      padding: 10px; font-family: monospace; font-size: 13px; word-break: break-all;
+      display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0;
+    }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div id="splash">
+    <div class="loader-ring"></div>
+    <h2 style="margin:0">CyberNest Market</h2>
+    <small style="opacity:.75;margin-top:4px">Loading your digital store...</small>
+  </div>
+
+  <div class="topbar">
+    <div class="user-mini">
+      <div class="avatar" id="uAvatar">C</div>
+      <div class="user-info">
+        <small>Welcome back,</small>
+        <b id="uName">Loading...</b>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="bal-pill" onclick="switchPage('deposit')">
+        <span>💳</span> <span id="uBal">৳0.00</span> <span>+</span>
+      </button>
+      <button class="icon-btn" onclick="openNotifs()">
+        🔔 <span class="badge-dot" id="notifDot"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- PAGE: HOME -->
+  <div id="page-home" class="container">
+    <div class="search-wrap">
+      <span>🔍</span>
+      <input id="searchInput" type="text" placeholder="Search VPN, Proxy, Mail..." oninput="renderProducts()" />
+    </div>
+
+    <div class="hero-banner">
+      <span class="hero-tag">⚡ 24/7 Automated Store</span>
+      <h3 id="bannerTitle">CyberNest Digital Mart</h3>
+      <p id="bannerSub">Fastest VPN, Proxy & Mail delivery with bKash, Nagad & Binance.</p>
+    </div>
+
+    <div class="cat-row" id="catRow"></div>
+    <div id="topSellingWrap"></div>
+
+    <div class="sec-title">
+      <span id="prodSecTitle">🛍️ All Products</span>
+      <small id="prodCount" style="color:var(--muted)"></small>
+    </div>
+    <div class="grid" id="prodGrid"></div>
+  </div>
+
+  <!-- PAGE: DEPOSIT -->
+  <div id="page-deposit" class="container hidden">
+    <div class="card">
+      <h3 style="margin-top:0">💳 Manual Deposit</h3>
+      <p style="font-size:12px;color:var(--muted)">Send Money to any number below, then submit Amount & TrxID.</p>
+      <div id="depMethodsList"></div>
+      <label style="font-size:12px;font-weight:700">Payment Method</label>
+      <select id="depMethod" class="input">
+        <option value="bKash">bKash</option>
+        <option value="Nagad">Nagad</option>
+        <option value="Binance">Binance (USDT)</option>
+      </select>
+      <label style="font-size:12px;font-weight:700">Amount (BDT)</label>
+      <input id="depAmount" type="number" class="input" placeholder="e.g. 100" />
+      <label style="font-size:12px;font-weight:700">Transaction ID (TrxID)</label>
+      <input id="depTrx" type="text" class="input" placeholder="Paste TrxID here" />
+      <button class="btn-primary" onclick="submitDeposit()">✅ Submit Deposit Request</button>
+    </div>
+  </div>
+
+  <!-- PAGE: TOOLS -->
+  <div id="page-tools" class="container hidden">
+    <div class="pill-tabs">
+      <button class="tab-btn active" id="tBtnOutlook" onclick="switchTool('outlook')">✉️ Outlook / Hotmail Code</button>
+      <button class="tab-btn" id="tBtn2fa" onclick="switchTool('2fa')">🔑 2FA Live Code</button>
+    </div>
+
+    <div id="tool-outlook" class="card">
+      <h3 style="margin-top:0">✉️ Outlook / Hotmail Code</h3>
+      <p style="font-size:12px;color:var(--muted)">Paste <code>email|password|refresh_token|client_id</code> below:</p>
+      <textarea id="outlookInput" rows="4" placeholder="email|password|refresh_token|client_id"></textarea>
+      <div class="row-between" style="margin-bottom:10px">
+        <button class="btn-outline" style="flex:1" onclick="pasteTo('outlookInput')">📋 Paste</button>
+        <button class="btn-outline" style="flex:1" onclick="clearTool('outlook')">❌ Clear</button>
+      </div>
+      <button class="btn-primary" onclick="getOutlookCode()">🔄 Get Code</button>
+      <div id="outlookResult" class="hidden" style="margin-top:12px"></div>
+    </div>
+
+    <div id="tool-2fa" class="card hidden">
+      <h3 style="margin-top:0">🔑 2FA Authenticator</h3>
+      <p style="font-size:12px;color:var(--muted)">Paste your 2FA Secret Key to generate live 6-digit OTP:</p>
+      <input id="tfaInput" type="text" class="input" placeholder="e.g. JBSWY3DPEHPK3PXP" />
+      <div class="row-between" style="margin-bottom:10px">
+        <button class="btn-outline" style="flex:1" onclick="pasteTo('tfaInput')">📋 Paste</button>
+        <button class="btn-outline" style="flex:1" onclick="clearTool('2fa')">❌ Clear</button>
+      </div>
+      <button class="btn-primary" onclick="get2faCode()">🔑 Generate 2FA Code</button>
+      <div id="tfaResult" class="hidden" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+  <!-- PAGE: PROFILE -->
+  <div id="page-profile" class="container hidden">
+    <div class="card">
+      <div class="row-between">
+        <div>
+          <b id="profName" style="font-size:16px">User</b>
+          <div id="profMeta" style="font-size:12px;color:var(--muted)">ID: ---</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn-outline" id="themeBtn" onclick="toggleTheme()">🌙 Dark</button>
+          <button class="btn-outline" id="currBtn" onclick="toggleCurrency()">🇧🇩 BDT</button>
+        </div>
+      </div>
+      <div class="grid" style="grid-template-columns:repeat(3,1fr);margin-top:12px;text-align:center">
+        <div class="card" style="margin:0;padding:10px"><b id="stOrders">0</b><div style="font-size:11px;color:var(--muted)">Orders</div></div>
+        <div class="card" style="margin:0;padding:10px"><b id="stSpent">৳0</b><div style="font-size:11px;color:var(--muted)">Spent</div></div>
+        <div class="card" style="margin:0;padding:10px"><b id="stRef">0</b><div style="font-size:11px;color:var(--muted)">Referrals</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row-between">
+        <b>🛒 Purchase History</b>
+        <button class="btn-outline" onclick="loadHistory()">🔄 Refresh</button>
+      </div>
+      <div id="historyList" style="margin-top:10px;font-size:13px"></div>
+    </div>
+
+    <div class="card">
+      <b>👥 Referral Link</b>
+      <div class="copy-box" style="margin-top:8px">
+        <span id="refLink" style="font-size:12px">Loading...</span>
+        <button class="btn-outline" onclick="copyText(document.getElementById('refLink').innerText)">Copy</button>
+      </div>
+    </div>
+
+    <div class="card row-between">
+      <div><b>💬 Live Support</b><div style="font-size:12px;color:var(--muted)">Need help with an order?</div></div>
+      <button class="btn-primary" style="width:auto" onclick="openSupport()">Message Admin</button>
+    </div>
+  </div>
+
+  <!-- PAGE: ADMIN PANEL -->
+  <div id="page-admin" class="container hidden">
+    <div class="card">
+      <h3 style="margin:0">👑 Web Admin Dashboard</h3>
+      <small style="color:var(--muted)">Full live sync with Telegram Bot & Database</small>
+      <div class="grid" style="grid-template-columns:repeat(3,1fr);margin-top:10px;text-align:center">
+        <div class="card" style="margin:0;padding:8px"><b id="admUsers">0</b><div style="font-size:11px;color:var(--muted)">Users</div></div>
+        <div class="card" style="margin:0;padding:8px"><b id="admPendDep">0</b><div style="font-size:11px;color:var(--muted)">Pend. Dep</div></div>
+        <div class="card" style="margin:0;padding:8px"><b id="admPendOrd">0</b><div style="font-size:11px;color:var(--muted)">Pend. Ord</div></div>
+      </div>
+    </div>
+
+    <div class="pill-tabs">
+      <button class="tab-btn active" onclick="switchAdmTab('orders', this)">📦 Orders</button>
+      <button class="tab-btn" onclick="switchAdmTab('deposits', this)">💳 Deposits</button>
+      <button class="tab-btn" onclick="switchAdmTab('products', this)">🏷️ Products/Stock</button>
+      <button class="tab-btn" onclick="switchAdmTab('popup', this)">🎁 Popup & Coupon</button>
+    </div>
+
+    <div id="adm-tab-orders"></div>
+    <div id="adm-tab-deposits" class="hidden"></div>
+    <div id="adm-tab-products" class="hidden"></div>
+    <div id="adm-tab-popup" class="hidden"></div>
+  </div>
+
+  <!-- Bottom Navigation -->
+  <div class="bottom-nav">
+    <button class="nav-item active" id="nav-home" onclick="switchPage('home')"><span>🏠</span>Home</button>
+    <button class="nav-item" id="nav-tools" onclick="switchPage('tools')"><span>🔐</span>Tools</button>
+    <button class="nav-item" id="nav-deposit" onclick="switchPage('deposit')">
+      <div class="nav-center">💳</div>Deposit
+    </button>
+    <button class="nav-item" id="nav-profile" onclick="switchPage('profile')"><span>👤</span>Profile</button>
+    <button class="nav-item hidden" id="nav-admin" onclick="switchPage('admin')"><span>👑</span>Admin</button>
+  </div>
+
+  <!-- Product Purchase Modal -->
+  <div class="modal" id="buyModal">
+    <div class="sheet">
+      <div class="row-between" style="margin-bottom:10px">
+        <b id="mBrand" style="color:var(--accent);font-size:12px">CATEGORY</b>
+        <button class="btn-outline" onclick="closeModal('buyModal')">✕</button>
+      </div>
+      <div id="mImgWrap" style="height:130px;border-radius:14px;overflow:hidden;background:var(--bg);display:flex;align-items:center;justify-content:center;margin-bottom:10px"></div>
+      <h3 id="mName" style="margin:0 0 4px">Product Name</h3>
+      <p id="mDesc" style="font-size:12px;color:var(--muted);margin:0 0 10px;line-height:1.45"></p>
+      <div class="row-between" style="margin-bottom:8px">
+        <span id="mPrice" style="font-size:20px;font-weight:800;color:var(--accent)">৳0</span>
+        <span id="mStockBadge" style="font-size:12px;font-weight:700"></span>
+      </div>
+
+      <label style="font-size:12px;font-weight:700">QUANTITY</label>
+      <div class="qty-box">
+        <button class="qty-btn" onclick="changeQty(-1)">−</button>
+        <input id="mQtyInput" type="number" value="1" min="1" style="width:70px;text-align:center;font-weight:800;font-size:16px;border:none;background:transparent;color:var(--text)" oninput="recalcOrder()" />
+        <button class="qty-btn" onclick="changeQty(1)">+</button>
+      </div>
+      <div class="quick-qtys">
+        <button class="q-pill" onclick="setQty(1)">1</button>
+        <button class="q-pill" onclick="setQty(5)">5</button>
+        <button class="q-pill" onclick="setQty(10)">10</button>
+        <button class="q-pill" onclick="setQty(25)">25</button>
+        <button class="q-pill" onclick="setQty(50)">50</button>
+        <button class="q-pill" onclick="setQty(100)">100</button>
+      </div>
+
+      <div class="row-between">
+        <input id="couponInput" class="input" style="margin:0;flex:1" placeholder="Promo / Coupon code (optional)" />
+        <button class="btn-outline" onclick="applyCoupon()">Apply</button>
+      </div>
+      <div id="couponMsg" style="font-size:11px;margin:4px 0 8px"></div>
+
+      <div class="card" style="background:var(--bg);box-shadow:none;margin-bottom:12px">
+        <div class="row-between" style="font-size:12px;margin-bottom:4px"><span>Total Payable</span><b id="mTotal" style="font-size:16px;color:var(--accent)">৳0</b></div>
+        <div class="row-between" style="font-size:12px"><span>Your Balance</span><b id="mYourBal">৳0</b></div>
+      </div>
+      <button class="btn-primary" id="mConfirmBtn" onclick="confirmOrder()">🛒 Confirm & Buy Now</button>
+    </div>
+  </div>
+
+  <!-- Welcome Offer Popup -->
+  <div class="modal center" id="offerModal">
+    <div class="sheet" style="text-align:center">
+      <div id="offerImgWrap" style="margin-bottom:10px"></div>
+      <h3 id="offerTitle" style="margin:4px 0 8px">Special Offer!</h3>
+      <p id="offerText" style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:14px"></p>
+      <button class="btn-primary" onclick="closeModal('offerModal')">🛍️ Start Shopping</button>
+    </div>
+  </div>
+
+  <!-- Notifications Modal -->
+  <div class="modal" id="notifModal">
+    <div class="sheet">
+      <div class="row-between" style="margin-bottom:10px">
+        <h3 style="margin:0">🔔 Notifications</h3>
+        <button class="btn-outline" onclick="closeModal('notifModal')">✕</button>
+      </div>
+      <div id="notifList"></div>
+    </div>
+  </div>
+
+  <script>
+    const tg = window.Telegram ? window.Telegram.WebApp : null;
+    if (tg) { tg.ready(); tg.expand(); }
+    const initData = tg ? tg.initData : "";
+
+    let APP = {
+      user: {}, categories: [], products: [], settings: {},
+      currency: localStorage.getItem("cn_curr") || "BDT",
+      theme: localStorage.getItem("cn_theme") || "light",
+      selectedCat: "all",
+      favorites: JSON.parse(localStorage.getItem("cn_favs") || "[]"),
+      activeProduct: null,
+      discountPct: 0,
+      appliedCoupon: ""
+    };
+
+    if (APP.theme === "dark") document.body.classList.add("dark");
+
+    async function api(path, body = null) {
+      const opts = {
+        method: body ? "POST" : "GET",
+        headers: { "Content-Type": "application/json", "X-Telegram-Init-Data": initData }
+      };
+      if (body) opts.body = JSON.stringify(body);
+      const res = await fetch(path, opts);
+      return await res.json();
+    }
+
+    function fmtPrice(bdt) {
+      if (APP.currency === "USDT") return "$" + (Number(bdt) / (APP.settings.usdt_rate || 125)).toFixed(3);
+      return "৳" + (Number(bdt) < 1 ? Number(bdt).toFixed(2) : Number(bdt).toFixed(2).replace(/\.00$/, ""));
+    }
+
+    function prodImgUrl(p) {
+      if (!p.image_file_id) return "";
+      if (p.image_file_id.startsWith("http") || p.image_file_id.startsWith("data:")) return p.image_file_id;
+      return "/api/tg_photo?file_id=" + encodeURIComponent(p.image_file_id);
+    }
+
+    function catIcon(catName) {
+      const n = (catName || "").toLowerCase();
+      if (n.includes("vpn")) return "🛡️";
+      if (n.includes("proxy")) return "🌐";
+      if (n.includes("recovery")) return "🔐";
+      if (n.includes("mail")) return "✉️";
+      return "📦";
+    }
+
+    async function boot() {
+      try {
+        const data = await api("/api/init");
+        if (data.error) {
+          document.getElementById("uName").innerText = "Open inside Telegram";
+        } else {
+          APP.user = data.user;
+          APP.categories = data.categories;
+          APP.products = data.products;
+          APP.settings = data.settings;
+
+          document.getElementById("uName").innerText = APP.user.full_name || "Customer";
+          document.getElementById("uAvatar").innerText = (APP.user.full_name || "C")[0].toUpperCase();
+          document.getElementById("uBal").innerText = fmtPrice(APP.user.balance_bdt || 0);
+          document.getElementById("profName").innerText = APP.user.full_name || "Customer";
+          document.getElementById("profMeta").innerText = `ID: ${APP.user.user_id} • @${APP.user.username || "user"}`;
+          document.getElementById("stOrders").innerText = APP.user.total_orders || 0;
+          document.getElementById("stSpent").innerText = fmtPrice(APP.user.total_spent || 0);
+          document.getElementById("stRef").innerText = APP.user.referrals || 0;
+          document.getElementById("refLink").innerText = `https://t.me/${APP.settings.bot_username || "bot"}?start=${APP.user.user_id}`;
+
+          document.getElementById("depMethodsList").innerHTML = `
+            <div class="copy-box"><span>📱 bKash: <b>${APP.settings.bkash_number || ""}</b></span><button class="btn-outline" onclick="copyText('${APP.settings.bkash_number || ""}')">Copy</button></div>
+            <div class="copy-box"><span>📱 Nagad: <b>${APP.settings.nagad_number || ""}</b></span><button class="btn-outline" onclick="copyText('${APP.settings.nagad_number || ""}')">Copy</button></div>
+            <div class="copy-box"><span>💎 Binance: <b>${APP.settings.binance_id || ""}</b></span><button class="btn-outline" onclick="copyText('${APP.settings.binance_id || ""}')">Copy</button></div>
+          `;
+
+          if (APP.user.is_admin) {
+            document.getElementById("nav-admin").classList.remove("hidden");
+          }
+          if (data.unread_notifs > 0) document.getElementById("notifDot").style.display = "block";
+
+          renderCategories();
+          renderTopSelling();
+          renderProducts();
+
+          if (APP.settings.popup_enabled === "1" && !sessionStorage.getItem("popup_shown")) {
+            sessionStorage.setItem("popup_shown", "1");
+            document.getElementById("offerTitle").innerText = APP.settings.popup_title || "Special Offer!";
+            document.getElementById("offerText").innerText = APP.settings.popup_text || "";
+            const iw = document.getElementById("offerImgWrap");
+            if (APP.settings.popup_image) {
+              const src = APP.settings.popup_image.startsWith("http") || APP.settings.popup_image.startsWith("data:")
+                ? APP.settings.popup_image
+                : "/api/tg_photo?file_id=" + encodeURIComponent(APP.settings.popup_image);
+              iw.innerHTML = `<img src="${src}" style="width:100%;max-height:170px;object-fit:cover;border-radius:12px" />`;
+            } else iw.innerHTML = "";
+            document.getElementById("offerModal").classList.add("open");
+          }
+        }
+      } catch (e) { console.error(e); }
+      setTimeout(() => document.getElementById("splash").classList.add("hide"), 350);
+    }
+
+    function renderCategories() {
+      const row = document.getElementById("catRow");
+      let html = `<button class="cat-pill ${APP.selectedCat === 'all' ? 'active' : ''}" onclick="selectCat('all')">📦 All Products</button>`;
+      APP.categories.forEach(c => {
+        html += `<button class="cat-pill ${APP.selectedCat == c.id ? 'active' : ''}" onclick="selectCat(${c.id})">${c.name}</button>`;
+      });
+      row.innerHTML = html;
+    }
+
+    function selectCat(cid) {
+      APP.selectedCat = cid;
+      renderCategories();
+      renderProducts();
+    }
+
+    function renderTopSelling() {
+      const wrap = document.getElementById("topSellingWrap");
+      if (!APP.products.length) return;
+      const top = [...APP.products].sort((a, b) => (b.sold_count || 0) - (a.sold_count || 0))[0];
+      if (!top) return;
+      const img = prodImgUrl(top);
+      wrap.innerHTML = `
+        <div class="sec-title"><span>🔥 TOP SELLING</span></div>
+        <div class="top-card" onclick="openBuy(${top.id})">
+          <div class="top-left">
+            <div class="prod-thumb">${img ? `<img src="${img}" style="width:100%;height:100%;object-fit:cover;border-radius:12px">` : catIcon(top.cat_name)}</div>
+            <div>
+              <b style="font-size:13px">${top.sub_name} — ${top.name}</b>
+              <div style="font-size:12px;color:var(--accent);font-weight:700">${fmtPrice(top.price_bdt)} <span style="color:var(--muted);font-weight:400">• ${top.sold_count || 0} sold</span></div>
+            </div>
+          </div>
+          <button class="btn-primary" style="width:auto;padding:8px 14px">🛒 Buy</button>
+        </div>
+      `;
+    }
+
+    function renderProducts() {
+      const q = (document.getElementById("searchInput").value || "").toLowerCase().trim();
+      const filtered = APP.products.filter(p => {
+        if (APP.selectedCat !== "all" && p.category_id != APP.selectedCat) return false;
+        if (q && !(p.name + " " + p.sub_name + " " + p.cat_name).toLowerCase().includes(q)) return false;
+        return true;
+      });
+      document.getElementById("prodCount").innerText = `${filtered.length} items`;
+      const grid = document.getElementById("prodGrid");
+      if (!filtered.length) {
+        grid.innerHTML = `<div style="grid-column:span 2;text-align:center;color:var(--muted);padding:30px">No matching products found.</div>`;
+        return;
+      }
+      grid.innerHTML = filtered.map(p => {
+        const img = prodImgUrl(p);
+        const isVpnOrProxy = p.cat_name.toLowerCase().includes("vpn") || p.cat_name.toLowerCase().includes("proxy");
+        const available = p.is_active && (p.in_stock > 0 || isVpnOrProxy);
+        const stockLabel = !p.is_active
+          ? `<span class="st-out">● Unavailable</span>`
+          : (p.in_stock > 0 ? `<span class="st-in">● In stock (${p.in_stock})</span>` : (isVpnOrProxy ? `<span class="st-in">● Available</span>` : `<span class="st-out">● Out of stock</span>`));
+        const isFav = APP.favorites.includes(p.id);
+        return `
+          <div class="p-card">
+            <div>
+              <div class="p-img-box">
+                ${img ? `<img src="${img}" />` : `<span style="font-size:34px">${catIcon(p.cat_name)}</span>`}
+                <button class="fav-btn" onclick="toggleFav(event, ${p.id})">${isFav ? "❤️" : "🤍"}</button>
+              </div>
+              <div class="p-brand">${p.sub_name}</div>
+              <div class="p-name">${p.name}</div>
+              <div class="p-price">${fmtPrice(p.price_bdt)}</div>
+              <div class="p-meta">${stockLabel} <span>🔥 ${p.sold_count || 0}</span></div>
+            </div>
+            <button class="btn-primary" ${available ? "" : "disabled"} onclick="openBuy(${p.id})">${available ? "🛒 Buy now" : "Out of stock"}</button>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function toggleFav(e, pid) {
+      e.stopPropagation();
+      if (APP.favorites.includes(pid)) APP.favorites = APP.favorites.filter(x => x !== pid);
+      else APP.favorites.push(pid);
+      localStorage.setItem("cn_favs", JSON.stringify(APP.favorites));
+      renderProducts();
+    }
+
+    function openBuy(pid) {
+      const p = APP.products.find(x => x.id === pid);
+      if (!p) return;
+      APP.activeProduct = p;
+      APP.discountPct = 0;
+      APP.appliedCoupon = "";
+      document.getElementById("couponInput").value = "";
+      document.getElementById("couponMsg").innerText = "";
+      document.getElementById("mBrand").innerText = `${p.cat_name} • ${p.sub_name}`;
+      document.getElementById("mName").innerText = `${p.sub_name} — ${p.name}`;
+      document.getElementById("mDesc").innerText = p.description || "Fast & verified digital service with instant or rapid delivery.";
+      const img = prodImgUrl(p);
+      document.getElementById("mImgWrap").innerHTML = img ? `<img src="${img}" style="width:100%;height:100%;object-fit:cover">` : `<span style="font-size:48px">${catIcon(p.cat_name)}</span>`;
+      document.getElementById("mPrice").innerText = fmtPrice(p.price_bdt);
+      const isVpnOrProxy = p.cat_name.toLowerCase().includes("vpn") || p.cat_name.toLowerCase().includes("proxy");
+      document.getElementById("mStockBadge").innerHTML = p.in_stock > 0
+        ? `<span class="st-in">● ${p.in_stock} in stock</span>`
+        : (isVpnOrProxy ? `<span class="st-in">● Manual / On-Demand</span>` : `<span class="st-out">● Out of stock</span>`);
+      document.getElementById("mQtyInput").value = 1;
+      recalcOrder();
+      document.getElementById("buyModal").classList.add("open");
+    }
+
+    function changeQty(d) {
+      const inp = document.getElementById("mQtyInput");
+      inp.value = Math.max(1, (parseInt(inp.value) || 1) + d);
+      recalcOrder();
+    }
+    function setQty(q) {
+      document.getElementById("mQtyInput").value = q;
+      recalcOrder();
+    }
+    function recalcOrder() {
+      if (!APP.activeProduct) return;
+      const qty = Math.max(1, parseInt(document.getElementById("mQtyInput").value) || 1);
+      let total = APP.activeProduct.price_bdt * qty;
+      if (APP.discountPct > 0) total = total * (1 - APP.discountPct / 100);
+      document.getElementById("mTotal").innerText = fmtPrice(total);
+      const bal = APP.user.balance_bdt || 0;
+      document.getElementById("mYourBal").innerHTML = fmtPrice(bal) + (bal < total ? ` <span style="color:var(--red)">(Insufficient)</span>` : "");
+    }
+
+    async function applyCoupon() {
+      const code = document.getElementById("couponInput").value.trim();
+      if (!code) return;
+      const res = await api("/api/coupon/check", { code });
+      const msg = document.getElementById("couponMsg");
+      if (res.ok) {
+        APP.discountPct = res.discount_pct;
+        APP.appliedCoupon = code;
+        msg.innerHTML = `<span style="color:var(--green)">✅ ${res.discount_pct}% discount applied!</span>`;
+        recalcOrder();
+      } else {
+        APP.discountPct = 0; APP.appliedCoupon = "";
+        msg.innerHTML = `<span style="color:var(--red)">❌ ${res.error || "Invalid coupon"}</span>`;
+        recalcOrder();
+      }
+    }
+
+    async function confirmOrder() {
+      if (!APP.activeProduct) return;
+      const qty = Math.max(1, parseInt(document.getElementById("mQtyInput").value) || 1);
+      const btn = document.getElementById("mConfirmBtn");
+      btn.disabled = true; btn.innerText = "⏳ Processing...";
+      const res = await api("/api/order", { product_id: APP.activeProduct.id, quantity: qty, coupon: APP.appliedCoupon });
+      btn.disabled = false; btn.innerText = "🛒 Confirm & Buy Now";
+      if (res.ok) {
+        closeModal("buyModal");
+        if (tg && tg.showAlert) tg.showAlert(res.message);
+        boot();
+      } else {
+        if (tg && tg.showAlert) tg.showAlert("❌ " + (res.error || "Order failed"));
+      }
+    }
+
+    async function submitDeposit() {
+      const method = document.getElementById("depMethod").value;
+      const amount = parseFloat(document.getElementById("depAmount").value || 0);
+      const trx_id = document.getElementById("depTrx").value.trim();
+      if (!amount || !trx_id) return;
+      const res = await api("/api/deposit", { method, amount, trx_id });
+      if (res.ok) {
+        document.getElementById("depAmount").value = "";
+        document.getElementById("depTrx").value = "";
+        if (tg && tg.showAlert) tg.showAlert("✅ Deposit request submitted! Admin will approve shortly.");
+      }
+    }
+
+    function switchTool(t) {
+      document.getElementById("tool-outlook").classList.toggle("hidden", t !== "outlook");
+      document.getElementById("tool-2fa").classList.toggle("hidden", t !== "2fa");
+      document.getElementById("tBtnOutlook").classList.toggle("active", t === "outlook");
+      document.getElementById("tBtn2fa").classList.toggle("active", t === "2fa");
+    }
+
+    async function pasteTo(id) {
+      try { document.getElementById(id).value = await navigator.clipboard.readText(); }
+      catch (e) {}
+    }
+    function clearTool(t) {
+      if (t === "outlook") {
+        document.getElementById("outlookInput").value = "";
+        document.getElementById("outlookResult").classList.add("hidden");
+      } else {
+        document.getElementById("tfaInput").value = "";
+        document.getElementById("tfaResult").classList.add("hidden");
+      }
+    }
+    async function getOutlookCode() {
+      const raw = document.getElementById("outlookInput").value.trim();
+      if (!raw) return;
+      const box = document.getElementById("outlookResult");
+      box.classList.remove("hidden");
+      box.innerHTML = "⏳ Checking inbox...";
+      const res = await api("/api/tools/outlook", { account: raw });
+      if (res.ok) {
+        box.innerHTML = `
+          <div style="font-size:12px;color:var(--muted)">Subject: ${res.subject || "Inbox"}</div>
+          <div class="copy-box"><b>${res.code}</b><button class="btn-outline" onclick="copyText('${res.code}')">📋 Copy Code</button></div>
+        `;
+      } else {
+        box.innerHTML = `<span style="color:var(--red)">❌ ${res.error}</span>`;
+      }
+    }
+    async function get2faCode() {
+      const secret = document.getElementById("tfaInput").value.trim();
+      if (!secret) return;
+      const box = document.getElementById("tfaResult");
+      box.classList.remove("hidden");
+      const res = await api("/api/tools/2fa", { secret });
+      if (res.ok) {
+        box.innerHTML = `
+          <div class="copy-box"><b style="font-size:20px;letter-spacing:2px">${res.code}</b><button class="btn-outline" onclick="copyText('${res.code}')">📋 Copy Code</button></div>
+          <small style="color:var(--muted)">⏳ Valid for ${res.remaining}s</small>
+        `;
+      } else {
+        box.innerHTML = `<span style="color:var(--red)">❌ ${res.error}</span>`;
+      }
+    }
+
+    async function loadHistory() {
+      const res = await api("/api/orders/history");
+      const list = document.getElementById("historyList");
+      if (!res.orders || !res.orders.length) {
+        list.innerHTML = "<span style='color:var(--muted)'>No orders yet.</span>"; return;
+      }
+      list.innerHTML = res.orders.map(o => `
+        <div style="border-bottom:1px solid var(--border);padding:8px 0">
+          <div class="row-between"><b>${o.product_name} (x${o.quantity})</b><span>${fmtPrice(o.total_bdt)}</span></div>
+          <div class="row-between" style="font-size:11px;color:var(--muted);margin-top:2px">
+            <span>#${o.id} • ${o.created_at}</span>
+            <span style="color:${o.status === 'completed' ? 'var(--green)' : 'var(--accent)'};font-weight:700">${o.status.toUpperCase()}</span>
+          </div>
+          ${o.delivered_data ? `<div class="copy-box" style="margin-top:6px"><span style="font-size:11px">${o.delivered_data}</span><button class="btn-outline" onclick="copyText(\`${o.delivered_data.replace(/`/g, '')}\`)">Copy</button></div>` : ""}
+        </div>
+      `).join("");
+    }
+
+    async function openNotifs() {
+      document.getElementById("notifModal").classList.add("open");
+      document.getElementById("notifDot").style.display = "none";
+      const res = await api("/api/notifications");
+      const box = document.getElementById("notifList");
+      if (!res.items || !res.items.length) {
+        box.innerHTML = "<p style='color:var(--muted);text-align:center'>No notifications yet.</p>"; return;
+      }
+      box.innerHTML = res.items.map(n => `
+        <div class="card" style="padding:10px;margin-bottom:8px;box-shadow:none">
+          <b style="font-size:13px">${n.title}</b>
+          <div style="font-size:12px;color:var(--muted);margin:3px 0">${n.message}</div>
+          <small style="font-size:10px;color:var(--muted)">${n.created_at}</small>
+        </div>
+      `).join("");
+    }
+
+    async function loadAdmin() {
+      const res = await api("/api/admin/overview");
+      if (!res.ok) return;
+      document.getElementById("admUsers").innerText = res.stats.users;
+      document.getElementById("admPendDep").innerText = res.stats.pending_deposits;
+      document.getElementById("admPendOrd").innerText = res.stats.pending_orders;
+
+      document.getElementById("adm-tab-orders").innerHTML = res.pending_orders.length
+        ? res.pending_orders.map(o => `
+          <div class="card">
+            <b>Order #${o.id} — ${o.product_name} (x${o.quantity})</b>
+            <div style="font-size:12px;color:var(--muted)">User: ${o.user_id} • Paid: ${fmtPrice(o.total_bdt)}</div>
+            <input id="deliv_in_${o.id}" class="input" placeholder="Enter email:pass OR host:port:user:pass" />
+            <div class="row-between">
+              <button class="btn-primary" style="flex:1" onclick="admDeliver(${o.id})">🚀 Deliver</button>
+              <button class="btn-outline" style="color:var(--red)" onclick="admRefund(${o.id})">❌ Refund</button>
+            </div>
+          </div>
+        `).join("")
+        : `<div class="card">No pending manual orders.</div>`;
+
+      document.getElementById("adm-tab-deposits").innerHTML = res.pending_deposits.length
+        ? res.pending_deposits.map(d => `
+          <div class="card">
+            <b>Deposit #${d.id} — ${d.method} (${fmtPrice(d.amount)})</b>
+            <div style="font-size:12px;color:var(--muted)">User: ${d.user_id} • TrxID: <code>${d.trx_id}</code></div>
+            <div class="row-between" style="margin-top:8px">
+              <button class="btn-primary" style="flex:1" onclick="admDepAction(${d.id}, 'approve')">✅ Approve</button>
+              <button class="btn-outline" style="color:var(--red)" onclick="admDepAction(${d.id}, 'reject')">❌ Reject</button>
+            </div>
+          </div>
+        `).join("")
+        : `<div class="card">No pending deposits.</div>`;
+
+      document.getElementById("adm-tab-products").innerHTML = APP.products.map(p => `
+        <div class="card">
+          <div class="row-between">
+            <b>${p.sub_name} — ${p.name}</b>
+            <button class="btn-outline" onclick="admToggleProd(${p.id})">${p.is_active ? "🟢 Active" : "🔴 Inactive"}</button>
+          </div>
+          <div class="row-between" style="margin-top:6px">
+            <input id="adm_p_${p.id}" type="number" class="input" style="margin:0;width:110px" value="${p.price_bdt}" />
+            <button class="btn-outline" onclick="admSavePrice(${p.id})">💰 Save Price</button>
+          </div>
+          <input id="adm_img_${p.id}" class="input" placeholder="Paste Photo URL or Telegram file_id" value="${p.image_file_id || ""}" />
+          <textarea id="adm_stk_${p.id}" rows="2" placeholder="Paste stock lines (1 per line) to add"></textarea>
+          <div class="row-between">
+            <button class="btn-outline" onclick="admSavePhoto(${p.id})">🖼️ Save Photo</button>
+            <button class="btn-primary" style="width:auto" onclick="admAddStock(${p.id})">📥 Add Stock</button>
+          </div>
+        </div>
+      `).join("");
+
+      document.getElementById("adm-tab-popup").innerHTML = `
+        <div class="card">
+          <h4 style="margin:0 0 8px">🎁 Welcome Offer Popup</h4>
+          <select id="popEn" class="input">
+            <option value="1" ${APP.settings.popup_enabled === "1" ? "selected" : ""}>🟢 Enabled</option>
+            <option value="0" ${APP.settings.popup_enabled !== "1" ? "selected" : ""}>🔴 Disabled</option>
+          </select>
+          <input id="popTitle" class="input" placeholder="Popup Title" value="${APP.settings.popup_title || ""}" />
+          <textarea id="popText" rows="3" placeholder="Popup Message">${APP.settings.popup_text || ""}</textarea>
+          <input id="popImg" class="input" placeholder="Popup Image URL or file_id" value="${APP.settings.popup_image || ""}" />
+          <button class="btn-primary" onclick="admSavePopup()">💾 Save Popup</button>
+        </div>
+        <div class="card">
+          <h4 style="margin:0 0 8px">🎟️ Create Coupon Code</h4>
+          <input id="newCoupCode" class="input" placeholder="Code (e.g. CYBER10)" />
+          <input id="newCoupPct" type="number" class="input" placeholder="Discount % (e.g. 10)" />
+          <button class="btn-primary" onclick="admCreateCoupon()">➕ Add Coupon</button>
+        </div>
+      `;
+    }
+
+    function switchAdmTab(t, btn) {
+      ["orders", "deposits", "products", "popup"].forEach(x => {
+        document.getElementById("adm-tab-" + x).classList.toggle("hidden", x !== t);
+      });
+      document.querySelectorAll("#page-admin .tab-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+    }
+    async function admDeliver(oid) {
+      const val = document.getElementById("deliv_in_" + oid).value.trim();
+      if (!val) return;
+      const r = await api("/api/admin/deliver_order", { order_id: oid, data: val });
+      if (r.ok) { loadAdmin(); }
+    }
+    async function admRefund(oid) {
+      const r = await api("/api/admin/refund_order", { order_id: oid });
+      if (r.ok) { loadAdmin(); }
+    }
+    async function admDepAction(did, action) {
+      const r = await api("/api/admin/deposit_action", { deposit_id: did, action });
+      if (r.ok) { loadAdmin(); }
+    }
+    async function admToggleProd(pid) {
+      await api("/api/admin/product_update", { product_id: pid, toggle_active: true });
+      await boot(); loadAdmin();
+    }
+    async function admSavePrice(pid) {
+      const price = parseFloat(document.getElementById("adm_p_" + pid).value);
+      await api("/api/admin/product_update", { product_id: pid, price_bdt: price });
+      await boot(); loadAdmin();
+    }
+    async function admSavePhoto(pid) {
+      const image_file_id = document.getElementById("adm_img_" + pid).value.trim();
+      await api("/api/admin/product_update", { product_id: pid, image_file_id });
+      await boot(); loadAdmin();
+    }
+    async function admAddStock(pid) {
+      const lines = document.getElementById("adm_stk_" + pid).value.trim();
+      if (!lines) return;
+      await api("/api/admin/add_stock", { product_id: pid, lines });
+      document.getElementById("adm_stk_" + pid).value = "";
+      await boot(); loadAdmin();
+    }
+    async function admSavePopup() {
+      await api("/api/admin/popup", {
+        enabled: document.getElementById("popEn").value,
+        title: document.getElementById("popTitle").value,
+        text: document.getElementById("popText").value,
+        image: document.getElementById("popImg").value
+      });
+      await boot();
+    }
+    async function admCreateCoupon() {
+      const code = document.getElementById("newCoupCode").value.trim().toUpperCase();
+      const pct = parseFloat(document.getElementById("newCoupPct").value || 0);
+      if (!code || !pct) return;
+      await api("/api/admin/coupon", { code, discount_pct: pct });
+    }
+
+    function switchPage(p) {
+      ["home", "deposit", "tools", "profile", "admin"].forEach(x => {
+        document.getElementById("page-" + x).classList.toggle("hidden", x !== p);
+        const nav = document.getElementById("nav-" + x);
+        if (nav) nav.classList.toggle("active", x === p);
+      });
+      if (p === "profile") loadHistory();
+      if (p === "admin") loadAdmin();
+    }
+    function closeModal(id) { document.getElementById(id).classList.remove("open"); }
+    function toggleTheme() {
+      document.body.classList.toggle("dark");
+      APP.theme = document.body.classList.contains("dark") ? "dark" : "light";
+      localStorage.setItem("cn_theme", APP.theme);
+      document.getElementById("themeBtn").innerText = APP.theme === "dark" ? "☀️ Light" : "🌙 Dark";
+    }
+    function toggleCurrency() {
+      APP.currency = APP.currency === "BDT" ? "USDT" : "BDT";
+      localStorage.setItem("cn_curr", APP.currency);
+      document.getElementById("currBtn").innerText = APP.currency === "BDT" ? "🇧🇩 BDT" : "💲 USDT";
+      document.getElementById("uBal").innerText = fmtPrice(APP.user.balance_bdt || 0);
+      renderProducts(); renderTopSelling();
+    }
+    function copyText(txt) {
+      navigator.clipboard.writeText(txt).catch(() => {});
+    }
+    function openSupport() {
+      const u = (APP.settings.support_username || "@Talha_juba098").replace("@", "");
+      if (tg) tg.openTelegramLink("https://t.me/" + u);
+      else window.open("https://t.me/" + u, "_blank");
+    }
+
+    boot();
+  </script>
+</body>
+</html>"""
+
+# ------------------------------------------------------------------------------
+# 3. RENDER WEB SERVICE & MINI APP API SERVER
 # ------------------------------------------------------------------------------
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def _send_json(self, obj, code_num=200):
@@ -271,36 +1260,33 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         path = parsed.path
 
         if path == "/app" or path == "/app/":
-            html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "webapp.html")
-            if os.path.exists(html_path):
-                with open(html_path, "rb") as hf:
-                    content = hf.read()
-                self.send_response(200)
-                self.send_header("Content-type", "text/html; charset=utf-8")
-                self.end_headers()
-                self.wfile.write(content)
-            else:
-                self.send_response(404)
-                self.end_headers()
-                self.wfile.write(b"webapp.html not found")
+            content = EMBEDDED_WEBAPP_HTML.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(content)
             return
 
         if path == "/api/tg_photo":
             qs = urllib.parse.parse_qs(parsed.query)
             fid = qs.get("file_id", [""])[0]
             if not fid:
-                self.send_response(404); self.end_headers(); return
+                self.send_response(404)
+                self.end_headers()
+                return
             try:
-                r1 = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={fid}", timeout=8).json()
+                raw_info, _ = _http_get_bytes(f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={fid}", timeout=8)
+                r1 = json.loads(raw_info.decode("utf-8"))
                 fpath = r1["result"]["file_path"]
-                r2 = requests.get(f"https://api.telegram.org/file/bot{BOT_TOKEN}/{fpath}", timeout=10)
+                img_bytes, ctype = _http_get_bytes(f"https://api.telegram.org/file/bot{BOT_TOKEN}/{fpath}", timeout=10)
                 self.send_response(200)
-                self.send_header("Content-type", r2.headers.get("Content-Type", "image/jpeg"))
+                self.send_header("Content-type", ctype)
                 self.send_header("Cache-Control", "public, max-age=86400")
                 self.end_headers()
-                self.wfile.write(r2.content)
+                self.wfile.write(img_bytes)
             except Exception:
-                self.send_response(404); self.end_headers()
+                self.send_response(404)
+                self.end_headers()
             return
 
         if path == "/api/init":
@@ -326,8 +1312,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             prods = [dict(r) for r in c.fetchall()]
             c.execute("SELECT COUNT(*) as cnt, COALESCE(SUM(total_bdt), 0) as spent FROM orders WHERE user_id = ? AND status != 'refunded'", (uid,))
             ostat = dict(c.fetchone())
-            c.execute("SELECT COUNT(*) as cnt FROM users WHERE referred_by = ?", (uid,))
-            rcnt = c.fetchone()["cnt"]
             c.execute("SELECT COUNT(*) as cnt FROM notifications WHERE user_id = ? AND is_read = 0", (uid,))
             unread_n = c.fetchone()["cnt"]
             c.execute("SELECT key, value FROM settings")
@@ -343,13 +1327,13 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             return self._send_json({
                 "user": {
                     "user_id": uid,
-                    "full_name": db_u["full_name"],
-                    "username": db_u["username"],
-                    "balance_bdt": db_u["balance_bdt"],
+                    "full_name": db_u.get("name", "Customer"),
+                    "username": db_u.get("username", ""),
+                    "balance_bdt": db_u.get("balance_bdt", 0.0),
                     "is_admin": is_admin(uid),
                     "total_orders": ostat["cnt"],
                     "total_spent": ostat["spent"],
-                    "referrals": rcnt,
+                    "referrals": 0,
                 },
                 "categories": cats,
                 "products": prods,
@@ -359,8 +1343,10 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 
         if path == "/api/orders/history":
             uid, _ = self._get_auth_user()
-            if not uid: return self._send_json({"error": "Unauthorized"}, 401)
-            conn = get_db(); c = conn.cursor()
+            if not uid:
+                return self._send_json({"error": "Unauthorized"}, 401)
+            conn = get_db()
+            c = conn.cursor()
             c.execute("SELECT id, receipt_no, product_name, quantity, total_bdt, status, delivered_data, order_date as created_at FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 30", (uid,))
             rows = [dict(r) for r in c.fetchall()]
             conn.close()
@@ -368,21 +1354,29 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 
         if path == "/api/notifications":
             uid, _ = self._get_auth_user()
-            if not uid: return self._send_json({"error": "Unauthorized"}, 401)
-            conn = get_db(); c = conn.cursor()
+            if not uid:
+                return self._send_json({"error": "Unauthorized"}, 401)
+            conn = get_db()
+            c = conn.cursor()
             c.execute("SELECT id, title, message, created_at FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 25", (uid,))
             items = [dict(r) for r in c.fetchall()]
             c.execute("UPDATE notifications SET is_read = 1 WHERE user_id = ?", (uid,))
-            conn.commit(); conn.close()
+            conn.commit()
+            conn.close()
             return self._send_json({"items": items})
 
         if path == "/api/admin/overview":
             uid, _ = self._get_auth_user()
-            if not uid or not is_admin(uid): return self._send_json({"error": "Forbidden"}, 403)
-            conn = get_db(); c = conn.cursor()
-            c.execute("SELECT COUNT(*) as cnt FROM users"); u_cnt = c.fetchone()["cnt"]
-            c.execute("SELECT * FROM deposits WHERE status = 'pending' ORDER BY id DESC"); p_deps = [dict(r) for r in c.fetchall()]
-            c.execute("SELECT * FROM orders WHERE status = 'pending_delivery' ORDER BY id DESC"); p_ords = [dict(r) for r in c.fetchall()]
+            if not uid or not is_admin(uid):
+                return self._send_json({"error": "Forbidden"}, 403)
+            conn = get_db()
+            c = conn.cursor()
+            c.execute("SELECT COUNT(*) as cnt FROM users")
+            u_cnt = c.fetchone()["cnt"]
+            c.execute("SELECT * FROM deposits WHERE status = 'pending' ORDER BY id DESC")
+            p_deps = [dict(r) for r in c.fetchall()]
+            c.execute("SELECT * FROM orders WHERE status = 'pending_delivery' ORDER BY id DESC")
+            p_ords = [dict(r) for r in c.fetchall()]
             conn.close()
             return self._send_json({
                 "ok": True,
@@ -411,9 +1405,11 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 
             if path == "/api/coupon/check":
                 code_str = str(body.get("code", "")).strip().upper()
-                conn = get_db(); c = conn.cursor()
+                conn = get_db()
+                c = conn.cursor()
                 c.execute("SELECT discount_pct FROM coupons WHERE code = ? AND is_active = 1", (code_str,))
-                row = c.fetchone(); conn.close()
+                row = c.fetchone()
+                conn.close()
                 if row:
                     return self._send_json({"ok": True, "discount_pct": row["discount_pct"]})
                 return self._send_json({"ok": False, "error": "Invalid or expired coupon"})
@@ -424,7 +1420,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     totp = pyotp.TOTP(sec)
                     rem = 30 - (int(datetime.datetime.now().timestamp()) % 30)
                     return self._send_json({"ok": True, "code": totp.now(), "remaining": rem})
-                except Exception as e:
+                except Exception:
                     return self._send_json({"ok": False, "error": "Invalid 2FA Secret Key"})
 
             if path == "/api/tools/outlook":
@@ -437,16 +1433,29 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 trx_id = str(body.get("trx_id", "")).strip()
                 if amount <= 0 or not trx_id:
                     return self._send_json({"ok": False, "error": "Invalid amount or TrxID"})
-                conn = get_db(); c = conn.cursor()
+                conn = get_db()
+                c = conn.cursor()
                 now_str = datetime.datetime.now().strftime("%Y-%m-%d %I:%M %p")
-                c.execute("INSERT INTO deposits (user_id, method, amount, trx_id, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)", (uid, method, amount, trx_id, now_str))
+                c.execute(
+                    "INSERT INTO deposits (user_id, method, amount, trx_id, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)",
+                    (uid, method, amount, trx_id, now_str),
+                )
                 dep_id = c.lastrowid
-                conn.commit(); conn.close()
+                conn.commit()
+                conn.close()
                 add_notification(uid, "💳 Deposit Submitted", f"{method} {amount:.2f} BDT (TrxID: {trx_id}) is pending approval.")
                 if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
-                    kb = InlineKeyboardMarkup([[InlineKeyboardButton(f"✅ Approve #{dep_id}", callback_data=f"adm_dep_app_{dep_id}"), InlineKeyboardButton(f"❌ Reject", callback_data=f"adm_dep_rej_{dep_id}")]])
+                    kb = InlineKeyboardMarkup([[
+                        InlineKeyboardButton(f"✅ Approve #{dep_id}", callback_data=f"adm_dep_approve_{dep_id}"),
+                        InlineKeyboardButton("❌ Reject", callback_data=f"adm_dep_reject_{dep_id}")
+                    ]])
                     asyncio.run_coroutine_threadsafe(
-                        _GLOBAL_BOT_APP.bot.send_message(chat_id=SUPER_ADMIN_ID, text=f"🔔 <b>Mini App Deposit Request #{dep_id}</b>\n👤 User: <code>{uid}</code>\n💳 Method: {method}\n💰 Amount: <b>{amount:.2f} BDT</b>\n🔑 TrxID: <code>{trx_id}</code>", parse_mode=ParseMode.HTML, reply_markup=kb),
+                        _GLOBAL_BOT_APP.bot.send_message(
+                            chat_id=SUPER_ADMIN_ID,
+                            text=f"🔔 <b>Mini App Deposit Request #{dep_id}</b>\n👤 User: <code>{uid}</code>\n💳 Method: {method}\n💰 Amount: <b>{amount:.2f} BDT</b>\n🔑 TrxID: <code>{trx_id}</code>",
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=kb,
+                        ),
                         _GLOBAL_EVENT_LOOP
                     )
                 return self._send_json({"ok": True})
@@ -455,8 +1464,15 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 pid = int(body.get("product_id", 0))
                 qty = max(1, int(body.get("quantity", 1)))
                 coupon = str(body.get("coupon", "")).strip().upper()
-                conn = get_db(); c = conn.cursor()
-                c.execute("SELECT p.*, s.name as sub_name, c.name as cat_name FROM products p JOIN subcategories s ON p.subcategory_id = s.id JOIN categories c ON s.category_id = c.id WHERE p.id = ?", (pid,))
+                conn = get_db()
+                c = conn.cursor()
+                c.execute("""
+                    SELECT p.*, s.name as sub_name, c.name as cat_name
+                    FROM products p
+                    JOIN subcategories s ON p.subcategory_id = s.id
+                    JOIN categories c ON s.category_id = c.id
+                    WHERE p.id = ?
+                """, (pid,))
                 prod = c.fetchone()
                 if not prod or not (prod["is_active"] if "is_active" in prod.keys() else 1):
                     conn.close()
@@ -465,7 +1481,8 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 if coupon:
                     c.execute("SELECT discount_pct FROM coupons WHERE code = ? AND is_active = 1", (coupon,))
                     crow = c.fetchone()
-                    if crow: disc = float(crow["discount_pct"])
+                    if crow:
+                        disc = float(crow["discount_pct"])
                 total_bdt = prod["price_bdt"] * qty * (1 - disc / 100.0)
                 c.execute("SELECT balance_bdt FROM users WHERE user_id = ?", (uid,))
                 bal = c.fetchone()["balance_bdt"]
@@ -475,9 +1492,8 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 
                 c.execute("SELECT id, content FROM stock WHERE product_id = ? AND is_sold = 0 LIMIT ?", (pid, qty))
                 srows = c.fetchall()
-                is_vpn = "vpn" in prod["cat_name"].lower()
-                is_proxy = "proxy" in prod["cat_name"].lower()
-                if len(srows) < qty and not (is_vpn or is_proxy):
+                is_vpn_or_proxy = ("vpn" in prod["cat_name"].lower()) or ("proxy" in prod["cat_name"].lower())
+                if len(srows) < qty and not is_vpn_or_proxy:
                     conn.close()
                     return self._send_json({"ok": False, "error": "Out of stock! Please check back later."})
 
@@ -490,31 +1506,51 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 if len(srows) >= qty:
                     sids = [r["id"] for r in srows]
                     items = [r["content"] for r in srows]
-                    c.execute(f"UPDATE stock SET is_sold = 1, sold_to = ?, sold_at = ? WHERE id IN ({','.join(['?']*len(sids))})", [uid, now_str] + sids)
-                    c.execute("INSERT INTO orders (receipt_no, user_id, product_id, product_name, category_name, quantity, unit_price, total_bdt, total_usdt, status, delivered_data, order_date, day_of_week) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?)",
-                              (receipt_no, uid, pid, full_name, prod["cat_name"], qty, prod["price_bdt"], total_bdt, total_bdt/125.0, "\n".join(items), now_str, day_name))
-                    conn.commit(); conn.close()
+                    c.execute(
+                        f"UPDATE stock SET is_sold = 1, sold_to = ?, sold_at = ? WHERE id IN ({','.join(['?']*len(sids))})",
+                        [uid, now_str] + sids,
+                    )
+                    c.execute("""
+                        INSERT INTO orders (receipt_no, user_id, product_id, product_name, category_name, quantity, unit_price, total_bdt, total_usdt, status, delivered_data, order_date, day_of_week)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?)
+                    """, (receipt_no, uid, pid, full_name, prod["cat_name"], qty, prod["price_bdt"], total_bdt, total_bdt / 125.0, "\n".join(items), now_str, day_name))
+                    conn.commit()
+                    conn.close()
                     add_notification(uid, "✅ Order Delivered!", f"{full_name} (x{qty}) delivered to your Telegram inbox.")
                     if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
                         msg_card = format_credentials_card(items, full_name, prod["cat_name"])
                         asyncio.run_coroutine_threadsafe(_GLOBAL_BOT_APP.bot.send_message(chat_id=uid, text=msg_card, parse_mode=ParseMode.HTML), _GLOBAL_EVENT_LOOP)
                     return self._send_json({"ok": True, "message": "✅ Order Completed! Credentials sent to your Telegram inbox & Profile History."})
                 else:
-                    c.execute("INSERT INTO orders (receipt_no, user_id, product_id, product_name, category_name, quantity, unit_price, total_bdt, total_usdt, status, order_date, day_of_week) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_delivery', ?, ?)",
-                              (receipt_no, uid, pid, full_name, prod["cat_name"], qty, prod["price_bdt"], total_bdt, total_bdt/125.0, now_str, day_name))
+                    c.execute("""
+                        INSERT INTO orders (receipt_no, user_id, product_id, product_name, category_name, quantity, unit_price, total_bdt, total_usdt, status, order_date, day_of_week)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_delivery', ?, ?)
+                    """, (receipt_no, uid, pid, full_name, prod["cat_name"], qty, prod["price_bdt"], total_bdt, total_bdt / 125.0, now_str, day_name))
                     oid = c.lastrowid
-                    conn.commit(); conn.close()
+                    conn.commit()
+                    conn.close()
                     add_notification(uid, "⏳ Manual Order Pending", f"Order #{oid} ({full_name}) is waiting for admin delivery.")
                     if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
-                        adm_kb = InlineKeyboardMarkup([[InlineKeyboardButton(f"🚀 Deliver Order #{oid}", callback_data=f"adm_fulfill_{oid}")], [InlineKeyboardButton(f"❌ Cancel & Refund", callback_data=f"adm_refund_{oid}")]])
-                        asyncio.run_coroutine_threadsafe(_GLOBAL_BOT_APP.bot.send_message(chat_id=SUPER_ADMIN_ID, text=f"🔔 <b>Mini App Manual Order #{oid}</b>\n🛡️ {full_name} (x{qty})\n💰 Paid: {total_bdt:.2f} BDT\n👤 User: <code>{uid}</code>", parse_mode=ParseMode.HTML, reply_markup=adm_kb), _GLOBAL_EVENT_LOOP)
+                        adm_kb = InlineKeyboardMarkup([
+                            [InlineKeyboardButton(f"🚀 Deliver Order #{oid}", callback_data=f"adm_fulfill_{oid}")],
+                            [InlineKeyboardButton("❌ Cancel & Refund", callback_data=f"adm_refund_{oid}")]
+                        ])
+                        asyncio.run_coroutine_threadsafe(
+                            _GLOBAL_BOT_APP.bot.send_message(
+                                chat_id=SUPER_ADMIN_ID,
+                                text=f"🔔 <b>Mini App Manual Order #{oid}</b>\n🛡️ {full_name} (x{qty})\n💰 Paid: {total_bdt:.2f} BDT\n👤 User: <code>{uid}</code>",
+                                parse_mode=ParseMode.HTML,
+                                reply_markup=adm_kb,
+                            ),
+                            _GLOBAL_EVENT_LOOP
+                        )
                     return self._send_json({"ok": True, "message": f"🎉 Order #{oid} placed! Admin will deliver it in 15-30 mins."})
 
-            # Admin API Endpoints
             if path.startswith("/api/admin/"):
                 if not is_admin(uid):
                     return self._send_json({"ok": False, "error": "Forbidden"}, 403)
-                conn = get_db(); c = conn.cursor()
+                conn = get_db()
+                c = conn.cursor()
 
                 if path == "/api/admin/deliver_order":
                     oid = int(body.get("order_id", 0))
@@ -522,9 +1558,11 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     c.execute("SELECT * FROM orders WHERE id = ?", (oid,))
                     o = c.fetchone()
                     if not o:
-                        conn.close(); return self._send_json({"ok": False, "error": "Order not found"})
+                        conn.close()
+                        return self._send_json({"ok": False, "error": "Order not found"})
                     c.execute("UPDATE orders SET status = 'completed', delivered_data = ? WHERE id = ?", (ddata, oid))
-                    conn.commit(); conn.close()
+                    conn.commit()
+                    conn.close()
                     add_notification(o["user_id"], "✅ Order Delivered!", f"Order #{oid} ({o['product_name']}) has been delivered!")
                     if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
                         card = format_credentials_card([ddata], o["product_name"], o["category_name"])
@@ -540,7 +1578,8 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                         c.execute("UPDATE users SET balance_bdt = balance_bdt + ? WHERE user_id = ?", (o["total_bdt"], o["user_id"]))
                         conn.commit()
                         add_notification(o["user_id"], "❌ Order Refunded", f"Order #{oid} refunded: +{o['total_bdt']:.2f} BDT")
-                    conn.close(); return self._send_json({"ok": True})
+                    conn.close()
+                    return self._send_json({"ok": True})
 
                 if path == "/api/admin/deposit_action":
                     did = int(body.get("deposit_id", 0))
@@ -556,7 +1595,8 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                             c.execute("UPDATE deposits SET status = 'rejected' WHERE id = ?", (did,))
                             add_notification(d["user_id"], "❌ Deposit Rejected", f"Deposit #{did} ({d['amount']:.2f} BDT) was rejected.")
                         conn.commit()
-                    conn.close(); return self._send_json({"ok": True})
+                    conn.close()
+                    return self._send_json({"ok": True})
 
                 if path == "/api/admin/product_update":
                     pid = int(body.get("product_id", 0))
@@ -564,17 +1604,20 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                         c.execute("UPDATE products SET is_active = CASE WHEN COALESCE(is_active,1)=1 THEN 0 ELSE 1 END WHERE id = ?", (pid,))
                     if "price_bdt" in body:
                         pr = float(body["price_bdt"])
-                        c.execute("UPDATE products SET price_bdt = ?, price_usdt = ? WHERE id = ?", (pr, pr/125.0, pid))
+                        c.execute("UPDATE products SET price_bdt = ?, price_usdt = ? WHERE id = ?", (pr, pr / 125.0, pid))
                     if "image_file_id" in body:
                         c.execute("UPDATE products SET image_file_id = ? WHERE id = ?", (str(body["image_file_id"]).strip() or None, pid))
-                    conn.commit(); conn.close(); return self._send_json({"ok": True})
+                    conn.commit()
+                    conn.close()
+                    return self._send_json({"ok": True})
 
                 if path == "/api/admin/add_stock":
                     pid = int(body.get("product_id", 0))
                     lines = [ln.strip() for ln in str(body.get("lines", "")).splitlines() if ln.strip()]
                     for ln in lines:
                         c.execute("INSERT INTO stock (product_id, content, is_sold) VALUES (?, ?, 0)", (pid, ln))
-                    conn.commit(); conn.close()
+                    conn.commit()
+                    conn.close()
                     return self._send_json({"ok": True, "added": len(lines)})
 
                 if path == "/api/admin/popup":
@@ -582,7 +1625,8 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     set_setting("popup_title", str(body.get("title", "")))
                     set_setting("popup_text", str(body.get("text", "")))
                     set_setting("popup_image", str(body.get("image", "")))
-                    conn.close(); return self._send_json({"ok": True})
+                    conn.close()
+                    return self._send_json({"ok": True})
 
                 if path == "/api/admin/coupon":
                     code_s = str(body.get("code", "")).strip().upper()
@@ -591,49 +1635,11 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                         c.execute("INSERT INTO coupons (code, discount_pct, is_active) VALUES (%s, %s, 1) ON CONFLICT (code) DO UPDATE SET discount_pct = EXCLUDED.discount_pct, is_active = 1", (code_s, pct))
                     else:
                         c.execute("INSERT OR REPLACE INTO coupons (code, discount_pct, is_active) VALUES (?, ?, 1)", (code_s, pct))
-                    conn.commit(); conn.close(); return self._send_json({"ok": True})
+                    conn.commit()
+                    conn.close()
+                    return self._send_json({"ok": True})
 
             return self._send_json({"ok": False, "error": "Unknown route"}, 404)
-
-        if "/webhook" in self.path or "/payment" in self.path:
-            content_length = int(self.headers.get("Content-Length", 0))
-            post_data = self.rfile.read(content_length)
-            try:
-                data = json.loads(post_data.decode("utf-8"))
-                logger.info(f"Received Paymently Webhook: {data}")
-                status = str(data.get("status", "")).upper()
-                if status in ("COMPLETED", "SUCCESS", "PAID"):
-                    invoice_id = str(data.get("invoice_id", ""))
-                    amount = float(data.get("amount", 0))
-                    metadata = data.get("metadata", {})
-                    user_id = int(metadata.get("user_id", 0)) if metadata else 0
-
-                    if user_id > 0 and amount > 0:
-                        conn = get_db()
-                        c = conn.cursor()
-                        c.execute("SELECT id FROM deposits WHERE trx_id = ? AND status = 'approved'", (invoice_id,))
-                        if not c.fetchone():
-                            now_str = datetime.datetime.now().strftime("%Y-%m-%d %I:%M %p")
-                            c.execute("UPDATE users SET balance_bdt = balance_bdt + ? WHERE user_id = ?", (amount, user_id))
-                            c.execute("INSERT INTO deposits (user_id, method, amount, trx_id, status, created_at) VALUES (?, 'Paymently Auto', ?, ?, 'approved', ?)", (user_id, amount, invoice_id, now_str))
-                            conn.commit()
-                            if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
-                                asyncio.run_coroutine_threadsafe(
-                                    _notify_payment_success(user_id, amount, invoice_id),
-                                    _GLOBAL_EVENT_LOOP
-                                )
-                        conn.close()
-
-                self.send_response(200)
-                self.send_header("Content-type", "application/json")
-                self.end_headers()
-                self.wfile.write(b'{"status":"ok"}')
-                return
-            except Exception as e:
-                logger.error(f"Error handling webhook: {e}")
-                self.send_response(400)
-                self.end_headers()
-                return
 
         self.send_response(404)
         self.end_headers()
@@ -647,11 +1653,10 @@ def start_health_server():
     server.serve_forever()
 
 # ------------------------------------------------------------------------------
-# 3. HIGH-SPEED PERSISTENT DATABASE LAYER (Neon PostgreSQL + SQLite Fallback)
+# 4. HIGH-SPEED PERSISTENT DATABASE LAYER (Neon PostgreSQL + SQLite Fallback)
 # ------------------------------------------------------------------------------
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 IS_POSTGRES = bool(DATABASE_URL and ("postgres" in DATABASE_URL))
-
 _GLOBAL_CONN = None
 
 def get_raw_connection():
@@ -690,9 +1695,7 @@ class SmartCursor:
 
     def execute(self, sql, params=None):
         if self.is_pg:
-            # 1. Translate parameter placeholder
             sql = sql.replace("?", "%s")
-            # 2. DDL translations
             sql = sql.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
             sql = sql.replace("AUTOINCREMENT", "")
             sql = sql.replace("INTEGER PRIMARY KEY", "BIGINT PRIMARY KEY")
@@ -702,8 +1705,7 @@ class SmartCursor:
             if "INSERT INTO users" in sql and "ON CONFLICT" not in sql:
                 sql += " ON CONFLICT (user_id) DO NOTHING"
 
-            # 3. Handle RETURNING id for lastrowid
-            if sql.strip().upper().startswith("INSERT INTO") and ("RETURNING" not in sql.upper()) and ("SETTINGS" not in sql.upper()) and ("USERS" not in sql.upper()):
+            if sql.strip().upper().startswith("INSERT INTO") and ("RETURNING" not in sql.upper()) and ("SETTINGS" not in sql.upper()) and ("USERS" not in sql.upper()) and ("COUPONS" not in sql.upper()):
                 sql += " RETURNING id"
                 try:
                     res = self.raw.execute(sql, params) if params is not None else self.raw.execute(sql)
@@ -714,7 +1716,6 @@ class SmartCursor:
                 except Exception as e:
                     logger.warning(f"Insert returning error: {e}")
                     pass
-            # Normal execution with safe rollback
             try:
                 if params is not None:
                     return self.raw.execute(sql, params)
@@ -763,11 +1764,10 @@ class DBWrapper:
             self.conn.commit()
 
     def close(self):
-        pass  # Persistent connection kept alive
+        pass
 
 def get_db():
     return DBWrapper()
-
 
 def sync_vpn_catalog_v3(conn, cursor):
     try:
@@ -807,7 +1807,6 @@ def sync_vpn_catalog_v3(conn, cursor):
         else:
             cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", ("vpn_catalog_v3_synced", "1"))
         conn.commit()
-        logger.info("Synced 8 VPN brands (+5 BDT) successfully.")
     except Exception as e:
         logger.error(f"sync_vpn_catalog_v3 error: {e}", exc_info=True)
 
@@ -815,7 +1814,6 @@ def init_db():
     conn = get_db()
     cursor = conn.cursor()
 
-    # Users Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
         user_id BIGINT PRIMARY KEY,
@@ -829,7 +1827,6 @@ def init_db():
     )
     """)
 
-    # Categories Table (Level 1)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS categories (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -839,7 +1836,6 @@ def init_db():
     )
     """)
 
-    # Subcategories / Brands Table (Level 2)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS subcategories (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -850,7 +1846,6 @@ def init_db():
     )
     """)
 
-    # Products / Variants Table (Level 3)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS products (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -866,7 +1861,6 @@ def init_db():
     )
     """)
 
-    # Stock Items Table (Email:Pass, Proxy string, Key)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS stock (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -880,7 +1874,6 @@ def init_db():
     )
     """)
 
-    # Orders Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS orders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -901,7 +1894,6 @@ def init_db():
     )
     """)
 
-    # Deposits Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS deposits (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -915,7 +1907,6 @@ def init_db():
     )
     """)
 
-    # Key-Value Settings Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
@@ -923,7 +1914,25 @@ def init_db():
     )
     """)
 
-    # Ensure columns exist safely with IF NOT EXISTS
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id BIGINT,
+        title TEXT,
+        message TEXT,
+        is_read INTEGER DEFAULT 0,
+        created_at TEXT
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS coupons (
+        code TEXT PRIMARY KEY,
+        discount_pct REAL DEFAULT 0.0,
+        is_active INTEGER DEFAULT 1
+    )
+    """)
+
     if conn.is_pg:
         try:
             cursor.execute("ALTER TABLE categories ADD COLUMN IF NOT EXISTS position INTEGER DEFAULT 0")
@@ -947,72 +1956,15 @@ def init_db():
         except Exception:
             pass
 
-    # Migration: Purge legacy intermediate 'Accounts' and 'Recovery Accounts' subcategories
-    try:
-        cursor.execute("UPDATE settings SET value = 'CyberNest Market' WHERE key = 'shop_name' AND (value = 'Will be Earn Shop' OR value = '')")
-        cursor.execute("SELECT id FROM subcategories WHERE name IN ('Accounts', 'Recovery Accounts')")
-        bad_subs = cursor.fetchall()
-        if bad_subs:
-            bad_ids = [r["id"] for r in bad_subs]
-            placeholders = ",".join(["?"] * len(bad_ids))
-            cursor.execute(f"DELETE FROM stock WHERE product_id IN (SELECT id FROM products WHERE subcategory_id IN ({placeholders}))", bad_ids)
-            cursor.execute(f"DELETE FROM products WHERE subcategory_id IN ({placeholders})", bad_ids)
-            cursor.execute(f"DELETE FROM subcategories WHERE id IN ({placeholders})", bad_ids)
-            conn.commit()
-            logger.info(f"Purged legacy subcategories: {bad_ids}")
-    except Exception as e:
-        logger.warning(f"Migration purge notice: {e}")
-
-
-
-    # Ensure direct subcategories exist under Mail
-    try:
-        cursor.execute("SELECT id FROM categories WHERE name LIKE '%Mail%' AND name NOT LIKE '%Recovery%' LIMIT 1")
-        m_row = cursor.fetchone()
-        if m_row:
-            m_id = m_row["id"]
-            for sname, srate in [("Hotmail", 0.65), ("Outlook", 0.68), ("FR Outlook", 0.87)]:
-                cursor.execute("SELECT id FROM subcategories WHERE category_id = ? AND name = ?", (m_id, sname))
-                if not cursor.fetchone():
-                    cursor.execute("INSERT INTO subcategories (category_id, name, position) VALUES (?, ?, 0)", (m_id, sname))
-                    s_id = cursor.lastrowid
-                    cursor.execute("INSERT INTO products (subcategory_id, name, price_bdt, price_usdt, is_on_demand) VALUES (?, ?, ?, ?, 0)", (s_id, sname, srate, srate / 125.0))
-            conn.commit()
-    except Exception as e:
-        logger.warning(f"Mail subcategory check notice: {e}")
-
-    # Ensure direct subcategories exist under Recovery Added Mail
-    try:
-        cursor.execute("SELECT id FROM categories WHERE name LIKE '%Recovery%Mail%' LIMIT 1")
-        r_row = cursor.fetchone()
-        if r_row:
-            r_id = r_row["id"]
-            for sname, srate in [("Recovery Hotmail", 0.95), ("Recovery Outlook", 0.95), ("Recovery FR Outlook", 1.20)]:
-                cursor.execute("SELECT id FROM subcategories WHERE category_id = ? AND name = ?", (r_id, sname))
-                if not cursor.fetchone():
-                    cursor.execute("INSERT INTO subcategories (category_id, name, position) VALUES (?, ?, 0)", (r_id, sname))
-                    s_id = cursor.lastrowid
-                    cursor.execute("INSERT INTO products (subcategory_id, name, price_bdt, price_usdt, is_on_demand) VALUES (?, ?, ?, ?, 0)", (s_id, sname, srate, srate / 125.0))
-            conn.commit()
-    except Exception as e:
-        logger.warning(f"Recovery subcategory check notice: {e}")
-
-    conn.commit()
-
-    # Seed Default Settings
     default_settings = {
         "shop_name": "CyberNest Market",
         "shop_tagline": "Digital Products & Services",
         "usdt_rate": "125.0",
         "min_deposit_manual": "20.0",
-        "min_deposit_instant": "100.0",
         "support_username": "@Talha_juba098",
         "bkash_number": "01XXXXXXXXX (Personal - Send Money)",
         "nagad_number": "01XXXXXXXXX (Personal - Send Money)",
         "binance_id": "Pay ID: 12345678 / USDT (TRC20): TQxxxxxxxxxxxxxxxxxx",
-        "paymently_base_url": "https://abutalha.paymently.io/api",
-        "paymently_api_key": "DSlm0lfHRXTa6ZaKuBoRfODt6esAIRxhzUWwBacg",
-        "render_app_url": "https://telegram-bot-2-cs6b.onrender.com",
         "mail_code_url_1": "https://code.yamin.bd/",
     }
     for k, v in default_settings.items():
@@ -1022,7 +1974,6 @@ def init_db():
             cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
     conn.commit()
 
-    # Auto-healing Seed Check
     cursor.execute("SELECT COUNT(*) as cnt FROM categories")
     row = cursor.fetchone()
     cnt = row["cnt"] if isinstance(row, dict) else row[0]
@@ -1030,7 +1981,6 @@ def init_db():
     s_row = cursor.fetchone()
     s_cnt = s_row["cnt"] if isinstance(s_row, dict) else s_row[0]
     if cnt == 0 or s_cnt == 0:
-        logger.info("Initializing fresh categories, brands and variants...")
         try:
             cursor.execute("DELETE FROM products")
             cursor.execute("DELETE FROM subcategories")
@@ -1045,8 +1995,6 @@ def init_db():
 
 def seed_clean_store(conn):
     cursor = conn.cursor()
-
-    # 1. Categories (Level 1)
     cats = [
         ("🛡️ VPN", "🛡️"),
         ("🌐 Proxy", "🌐"),
@@ -1060,7 +2008,6 @@ def seed_clean_store(conn):
     cursor.execute("SELECT id, name FROM categories")
     cat_map = {row["name"]: row["id"] for row in cursor.fetchall()}
 
-    # 2. VPN Brands (Level 2) & Durations (Level 3)
     vpn_id = cat_map.get("🛡️ VPN")
     vpn_catalog = {
         "Nord VPN": [("7 Days", 20.0), ("3 Days", 15.0), ("15 Days", 35.0), ("30 Days", 60.0)],
@@ -1072,36 +2019,30 @@ def seed_clean_store(conn):
         "Panda VPN": [("3 Days", 20.0), ("7 Days", 28.0)],
         "PROTON VPN": [("14 Days", 51.0), ("7 Days", 30.0), ("30 Days", 80.0)],
     }
-
     for brand, variants in vpn_catalog.items():
         cursor.execute("INSERT INTO subcategories (category_id, name) VALUES (?, ?)", (vpn_id, brand))
         sub_id = cursor.lastrowid
         for dur_name, bdt in variants:
-            usdt = bdt / 125.0
             cursor.execute(
                 "INSERT INTO products (subcategory_id, name, price_bdt, price_usdt, is_on_demand) VALUES (?, ?, ?, ?, 1)",
-                (sub_id, dur_name, bdt, usdt),
+                (sub_id, dur_name, bdt, bdt / 125.0),
             )
 
-    # 3. Proxy Brands & Sizes
     proxy_id = cat_map.get("🌐 Proxy")
     proxy_catalog = {
         "9 Proxy": [("100 MB", 12.0), ("200 MB", 23.0), ("500 MB", 60.0), ("1 GB", 110.0)],
         "Rapid Proxy": [("100 MB", 12.0), ("200 MB", 25.0), ("500 MB", 60.0), ("1 GB", 115.0)],
         "711 Proxy": [("100 MB", 10.0), ("200 MB", 18.0), ("500 MB", 45.0)],
     }
-
     for pbrand, pvariants in proxy_catalog.items():
         cursor.execute("INSERT INTO subcategories (category_id, name) VALUES (?, ?)", (proxy_id, pbrand))
         psub_id = cursor.lastrowid
         for pkg_name, bdt in pvariants:
-            usdt = bdt / 125.0
             cursor.execute(
                 "INSERT INTO products (subcategory_id, name, price_bdt, price_usdt, is_on_demand) VALUES (?, ?, ?, ?, 0)",
-                (psub_id, pkg_name, bdt, usdt),
+                (psub_id, pkg_name, bdt, bdt / 125.0),
             )
 
-    # 4. Mail Brands & Plans (Direct: Hotmail, Outlook, FR Outlook)
     mail_id = cat_map.get("✉️ Mail")
     mail_catalog = {
         "Hotmail": [("Hotmail", 0.65)],
@@ -1117,7 +2058,6 @@ def seed_clean_store(conn):
                 (msub_id, vname, bdt, bdt / 125.0),
             )
 
-    # 5. Recovery Added Mail (Direct: Recovery Hotmail, Recovery Outlook, Recovery FR Outlook)
     rec_mail_id = cat_map.get("✉️ Recovery Added Mail")
     rec_catalog = {
         "Recovery Hotmail": [("Recovery Added Hotmail", 0.95)],
@@ -1132,12 +2072,9 @@ def seed_clean_store(conn):
                 "INSERT INTO products (subcategory_id, name, price_bdt, price_usdt, is_on_demand) VALUES (?, ?, ?, ?, 0)",
                 (rsub_id, vname, bdt, bdt / 125.0),
             )
-
     conn.commit()
 
-# DB Helpers
 def format_price(val: float) -> str:
-    """Formats prices cleanly supporting sub-1 BDT (e.g. 0.87, 0.65) and whole numbers."""
     if val is None:
         return "0"
     if val < 1:
@@ -1208,17 +2145,10 @@ def get_user_state(user_id: int):
     return None, {}
 
 def is_admin(user_id: int) -> bool:
-    if user_id == SUPER_ADMIN_ID:
-        return True
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT is_admin FROM users WHERE user_id = ?", (user_id,))
-    row = c.fetchone()
-    conn.close()
-    return bool(row and row["is_admin"] == 1)
+    return int(user_id) == SUPER_ADMIN_ID
 
 # ------------------------------------------------------------------------------
-# 4. KEYBOARD LAYOUTS
+# 5. KEYBOARD LAYOUTS
 # ------------------------------------------------------------------------------
 DEFAULT_MENU_LAYOUT = [
     ["🛍️ Buy Products"],
@@ -1249,7 +2179,7 @@ def get_main_reply_keyboard(user_id: int) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
 
 # ------------------------------------------------------------------------------
-# 5. EXCEL & PDF RECEIPT GENERATORS
+# 6. EXCEL & PDF RECEIPT GENERATORS
 # ------------------------------------------------------------------------------
 def generate_excel_delivery(items: List[str], product_name: str, receipt_no: str) -> io.BytesIO:
     wb = openpyxl.Workbook()
@@ -1349,7 +2279,7 @@ def generate_pdf_receipt(
         fontName='Helvetica-Bold',
         fontSize=20,
         textColor=colors.HexColor('#FFFFFF'),
-        alignment=0, # Left-aligned next to logo
+        alignment=0,
         leading=22,
     )
 
@@ -1357,12 +2287,10 @@ def generate_pdf_receipt(
     shop_name = get_setting("shop_name", "CyberNest Market")
     shop_tagline = get_setting("shop_tagline", "Digital Products & Services")
 
-    # Logo Flowable
     try:
         logo_stream = io.BytesIO(base64.b64decode(CYBERNEST_LOGO_BASE64))
         logo_img = RLImage(logo_stream, width=54, height=54)
-    except Exception as e:
-        logger.warning(f"Error loading logo in PDF: {e}")
+    except Exception:
         logo_img = ""
 
     header_html = f"""
@@ -1501,66 +2429,11 @@ def generate_pdf_receipt(
     bio.seek(0)
     return bio
 
-
-
-def create_paymently_charge(amount: float, user_id: int, user_name: str, bot_username: str) -> Optional[Dict[str, Any]]:
-    base_url = get_setting("paymently_base_url", "https://abutalha.paymently.io/api").rstrip("/")
-    api_key = get_setting("paymently_api_key", "DSlm0lfHRXTa6ZaKuBoRfODt6esAIRxhzUWwBacg")
-    render_url = get_setting("render_app_url", "https://telegram-bot-2-cs6b.onrender.com").rstrip("/")
-    
-    endpoint = f"{base_url}/checkout-v2"
-    payload = {
-        "full_name": user_name or "Telegram User",
-        "email": f"user{user_id}@telegram.org",
-        "amount": str(amount),
-        "metadata": {
-            "user_id": str(user_id)
-        },
-        "redirect_url": f"https://t.me/{bot_username.lstrip('@')}",
-        "return_type": "GET",
-        "cancel_url": f"https://t.me/{bot_username.lstrip('@')}",
-        "webhook_url": f"{render_url}/webhook/payment"
-    }
-    headers = {
-        "RT-UDDOKTAPAY-API-KEY": api_key,
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "User-Agent": "CyberNestBot/1.0"
-    }
-    req = urllib.request.Request(endpoint, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=15) as response:
-            res_data = json.loads(response.read().decode("utf-8"))
-            return res_data
-    except Exception as e:
-        logger.error(f"Error creating Paymently charge: {e}")
-        return None
-
-def verify_paymently_charge(invoice_id: str) -> Optional[Dict[str, Any]]:
-    base_url = get_setting("paymently_base_url", "https://abutalha.paymently.io/api").rstrip("/")
-    api_key = get_setting("paymently_api_key", "DSlm0lfHRXTa6ZaKuBoRfODt6esAIRxhzUWwBacg")
-    endpoint = f"{base_url}/verify-payment"
-    payload = {"invoice_id": invoice_id}
-    headers = {
-        "RT-UDDOKTAPAY-API-KEY": api_key,
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "User-Agent": "CyberNestBot/1.0"
-    }
-    req = urllib.request.Request(endpoint, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=15) as response:
-            res_data = json.loads(response.read().decode("utf-8"))
-            return res_data
-    except Exception as e:
-        logger.error(f"Error verifying Paymently charge: {e}")
-        return None
-
 def format_credentials_card(items: List[str], prod_name: str, cat_name: str) -> str:
-    """Formats credentials with tap-to-copy code blocks matching user's screenshots."""
+    """Formats credentials with one-tap copy code blocks."""
     is_proxy = "PROXY" in cat_name.upper() or "PROXY" in prod_name.upper()
     lines = []
-    
+
     if is_proxy:
         lines.append("✅ <b>Proxy Delivered!</b>")
         lines.append(f"🌐 <b>{prod_name}</b>")
@@ -1581,6 +2454,7 @@ def format_credentials_card(items: List[str], prod_name: str, cat_name: str) -> 
             lines.append(f"🔌 <b>Port</b>     : <code>{port}</code>")
             lines.append(f"👤 <b>Username</b> : <code>{u_name}</code>")
             lines.append(f"🔐 <b>Password</b> : <code>{pwd}</code>")
+            lines.append(f"📋 <b>Full</b>     : <code>{item}</code>")
             if idx < len(items):
                 lines.append("")
     else:
@@ -1594,7 +2468,7 @@ def format_credentials_card(items: List[str], prod_name: str, cat_name: str) -> 
                 email, pwd = parts[0], parts[1]
                 if len(items) > 1:
                     lines.append(f"📦 <b>Item #{idx}</b>")
-                lines.append(f"👤 <b>Email / User</b> : <code>{email}</code>")
+                lines.append(f"📧 <b>Email / User</b> : <code>{email}</code>")
                 lines.append(f"🔐 <b>Password</b>     : <code>{pwd}</code>")
                 if len(parts) >= 3:
                     tok = parts[2]
@@ -1609,18 +2483,17 @@ def format_credentials_card(items: List[str], prod_name: str, cat_name: str) -> 
                 lines.append("")
 
     lines.append("────────────────────────")
-    lines.append("💡 <i>Tap any value to copy</i>")
+    lines.append("💡 <i>Tap any value above to copy in one click</i>")
     return "\n".join(lines)
 
 # ------------------------------------------------------------------------------
-# 6. USER HANDLERS (Shop, Profile, Deposit, 2FA, Support)
+# 7. USER HANDLERS (Shop, Profile, Deposit, 2FA, Support)
 # ------------------------------------------------------------------------------
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    db_user = get_or_create_user(user.id, user.full_name, user.username)
+    get_or_create_user(user.id, user.full_name, user.username)
     shop_name = get_setting("shop_name", "CyberNest Market")
 
-    # Deep-Linking verification check
     if context.args and len(context.args) > 0:
         arg = context.args[0]
         if arg.startswith("order_"):
@@ -1628,7 +2501,6 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await show_order_verification(update, receipt_code)
             return
 
-    # Check Force Join Membership
     in_group, in_channel = await check_user_membership(context.bot, user.id)
     if not (in_group and in_channel):
         force_txt = (
@@ -1644,17 +2516,15 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💎 <b>{shop_name}</b>\n"
         f"─────────────────────────────\n"
         f"🛍️ প্রিমিয়াম VPN, Proxy আর Mail সার্ভিস — সবচেয়ে দ্রুত ডেলিভারিতে, ২৪/৭।\n\n"
-        f"📌 নিচের মেনু থেকে বেছে নিন 👇"
+        f"📌 নিচের মেনু থেকে বা বাম কোণার <b>Open Shop</b> বাটনে চাপ দিয়ে শপ ওপেন করুন 👇"
     )
     reply_kb = get_main_reply_keyboard(user.id)
     await update.message.reply_text(welcome_text, parse_mode=ParseMode.HTML, reply_markup=reply_kb)
 
-
 async def check_user_membership(bot, user_id: int) -> Tuple[bool, bool]:
-    """Checks if a user is a member of the Welcome Group and Proof Channel."""
     if user_id == SUPER_ADMIN_ID:
         return True, True
-    
+
     in_group = True
     in_channel = True
 
@@ -1662,22 +2532,19 @@ async def check_user_membership(bot, user_id: int) -> Tuple[bool, bool]:
         m_group = await bot.get_chat_member(chat_id=get_welcome_group_id(), user_id=user_id)
         if m_group.status in ("left", "kicked"):
             in_group = False
-    except Exception as e:
-        logger.debug(f"Group membership check: {e}")
+    except Exception:
         in_group = False
 
     try:
         m_chan = await bot.get_chat_member(chat_id=get_transaction_channel_id(), user_id=user_id)
         if m_chan.status in ("left", "kicked"):
             in_channel = False
-    except Exception as e:
-        logger.debug(f"Channel membership check: {e}")
+    except Exception:
         in_channel = False
 
     return in_group, in_channel
 
 def get_force_join_keyboard(in_group: bool, in_channel: bool) -> InlineKeyboardMarkup:
-    """Builds clean inline buttons with embedded URLs (no visible raw text links)."""
     buttons = []
     if not in_group:
         buttons.append([InlineKeyboardButton("📢 Join Update Group", url=get_welcome_group_link())])
@@ -1686,9 +2553,7 @@ def get_force_join_keyboard(in_group: bool, in_channel: bool) -> InlineKeyboardM
     buttons.append([InlineKeyboardButton("✅ ভেরিফাই করুন", callback_data="btn_check_verification")])
     return InlineKeyboardMarkup(buttons)
 
-
 async def execute_smart_broadcast(bot, reply_target, sdata: dict, btn_text: Optional[str] = None, btn_url: Optional[str] = None, buttons_list: Optional[list] = None):
-    """Broadcasts message (with optional single/multiple inline buttons) to all users and Update Group ONLY."""
     msg_text = sdata.get("msg_text", "")
     photo_id = sdata.get("photo_id")
     reply_markup = None
@@ -1786,7 +2651,7 @@ async def profile_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def buy_products_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT id, name FROM categories ORDER BY id ASC")
+    c.execute("SELECT id, name FROM categories ORDER BY position ASC, id ASC")
     cats = c.fetchall()
     conn.close()
 
@@ -1815,7 +2680,7 @@ async def support_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "যেকোনো সমস্যায় নিচে এডমিনকে মেসেজ দিন:"
     )
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📨 Message Admin", url="tg://user?id=8919985167")]
+        [InlineKeyboardButton("📨 Message Admin", url=f"tg://user?id={SUPER_ADMIN_ID}")]
     ])
     await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
 
@@ -1835,7 +2700,7 @@ async def deposit_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 # ------------------------------------------------------------------------------
-# 7. INLINE CALLBACK QUERY DISPATCHER (Users & Admin Nested Flow)
+# 8. INLINE CALLBACK QUERY DISPATCHER (Users & Admin Nested Flow)
 # ------------------------------------------------------------------------------
 async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1843,7 +2708,6 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         "btn_check_verification",
         "adm_toggle_autosales",
         "adm_toggle_autosales_mgr",
-        "adm_instant_tx_push",
     )
     if query.data not in _alert_callbacks:
         try:
@@ -1854,7 +2718,6 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     user_id = query.from_user.id
     db_user = get_or_create_user(user_id, query.from_user.full_name, query.from_user.username)
 
-    # Force Join Verification Check Button (accessible to ALL users)
     if data == "btn_check_verification":
         try:
             in_group, in_channel = await check_user_membership(context.bot, user_id)
@@ -1890,14 +2753,8 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
                     pass
         except Exception as e:
             logger.error(f"Verification button error: {e}", exc_info=True)
-            try:
-                await query.answer("⚠️ সাময়িক সমস্যা হয়েছে, আবার চেষ্টা করুন।", show_alert=True)
-            except Exception:
-                pass
         return
 
-    # ---------------- USER SHOP BROWSING FLOW (4-TIER NESTED) ----------------
-    # Step 1 -> Step 2: Category Selected -> Show Brands / Subcategories
     if data.startswith("usr_cat_"):
         cat_id = int(data.split("_")[2])
         conn = get_db()
@@ -1906,7 +2763,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         cat_row = c.fetchone()
         cat_name = cat_row["name"] if cat_row else "Category"
 
-        c.execute("SELECT id, name FROM subcategories WHERE category_id = ? ORDER BY id ASC", (cat_id,))
+        c.execute("SELECT id, name FROM subcategories WHERE category_id = ? ORDER BY position ASC, id ASC", (cat_id,))
         subs = c.fetchall()
         conn.close()
 
@@ -1935,7 +2792,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     if data == "usr_root_cats":
         conn = get_db()
         c = conn.cursor()
-        c.execute("SELECT id, name FROM categories ORDER BY id ASC")
+        c.execute("SELECT id, name FROM categories ORDER BY position ASC, id ASC")
         cats = c.fetchall()
         conn.close()
         text = "🛍️ <b>Buy Products</b>\n\nSelect a category:"
@@ -1946,7 +2803,6 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
-    # Step 2 -> Step 3: Brand Selected -> Show Variants with Real Stock & Exact Decimal Prices
     if data.startswith("usr_sub_"):
         sub_id = int(data.split("_")[2])
         conn = get_db()
@@ -1958,7 +2814,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         WHERE s.id = ?
         """, (sub_id,))
         meta = c.fetchone()
-        
+
         c.execute("""
         SELECT p.id, p.name, p.price_bdt, p.price_usdt, p.is_on_demand, COALESCE(p.is_active, 1) as is_active, COUNT(st.id) as in_stock
         FROM products p
@@ -1990,7 +2846,6 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
         return
 
-    # Step 3 -> Step 4: Variant Selected -> Show Product Card & Quantity Selector
     if data.startswith("usr_prod_"):
         prod_id = int(data.split("_")[2])
         conn = get_db()
@@ -2008,7 +2863,6 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await render_purchase_summary(query, prod_id, quantity=1, edit=True)
         return
 
-    # Interactive Purchase Summary Calculator Callbacks
     if data.startswith("calc_add_"):
         parts = data.split("_")
         prod_id = int(parts[2])
@@ -2030,7 +2884,6 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     if data.startswith("calc_confirm_"):
-        # Check Force Join Membership before buying
         in_group, in_channel = await check_user_membership(context.bot, user_id)
         if not (in_group and in_channel):
             kb = get_force_join_keyboard(in_group, in_channel)
@@ -2047,7 +2900,6 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await process_order(query, prod_id, qty)
         return
 
-    # Step 4 -> Purchase Order
     if data.startswith("qty_"):
         parts = data.split("_")
         prod_id = int(parts[1])
@@ -2064,61 +2916,6 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         )
         return
 
-    # Deposit Choice: Instant Auto Payment vs Manual Send Money
-    if data == "dep_opt_instant":
-        min_ins = float(get_setting("min_deposit_instant", "100.0"))
-        set_user_state(user_id, "WAITING_DEP_AMOUNT_INSTANT", {})
-        await query.message.reply_text(
-            f"⚡ <b>Instant Auto Payment (কোনো TrxID লাগবে না):</b>\n\n"
-            f"আপনি কত টাকা ডিপোজিট করতে চান? টাকার পরিমাণ লিখে পাঠান (সর্বনিম্ন <b>{min_ins:.0f}</b> টাকা):",
-            parse_mode=ParseMode.HTML,
-        )
-        return
-
-    if data == "dep_opt_manual":
-        min_man = float(get_setting("min_deposit_manual", "20.0"))
-        set_user_state(user_id, "WAITING_DEP_AMOUNT_MANUAL", {})
-        await query.message.reply_text(
-            f"📱 <b>Manual Send Money (পার্সোনাল নাম্বার):</b>\n\n"
-            f"আপনি কত টাকা ডিপোজিট করতে চান? টাকার পরিমাণ লিখে পাঠান (সর্বনিম্ন <b>{min_man:.0f}</b> টাকা):",
-            parse_mode=ParseMode.HTML,
-        )
-        return
-
-    # Auto Payment (Paymently Gateway Link Generation)
-    if data == "usr_dep_auto_pay":
-        state, sdata = get_user_state(user_id)
-        amount = sdata.get("amount", 20.0)
-        bot_info = await context.bot.get_me()
-
-        await query.message.reply_text("⏳ আপনার সিকিউর পেমেন্ট লিংক তৈরি করা হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...")
-        charge_res = create_paymently_charge(amount, user_id, query.from_user.full_name, bot_info.username)
-
-        if charge_res and charge_res.get("status") and charge_res.get("payment_url"):
-            pay_url = charge_res["payment_url"]
-            inv_id = charge_res.get("invoice_id", "")
-            set_user_state(user_id, None)
-
-            txt = (
-                f"💳 <b>অটোমেটিক পেমেন্ট গেটওয়ে (bKash / Nagad / Cards)</b>\n"
-                f"─────────────────────────────\n"
-                f"💰 <b>ডিপোজিট পরিমাণ:</b> <b>{amount:.2f} BDT</b>\n"
-                f"🧾 <b>ইনভয়েস আইডি:</b> <code>{inv_id}</code>\n\n"
-                f"📌 নিচের <b>Pay Now</b> বাটনে চাপ দিয়ে বিকাশ বা নগদে পেমেন্ট সম্পন্ন করুন।\n"
-                f"পেমেন্ট শেষ হওয়ামাত্র কোনো TrxID ছাড়াই আপনার ব্যালেন্স স্বয়ংক্রিয়ভাবে যোগ হয়ে যাবে!\n\n"
-                f"<i>(পেমেন্ট শেষে অটো যোগ না হলে 'Check Payment Status' বাটনে চাপ দিন)</i>"
-            )
-            kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("💳 Pay Now (বিকাশ / নগদ)", url=pay_url)],
-                [InlineKeyboardButton("🔄 Check Payment Status", callback_data=f"usr_checkpay_{inv_id}_{amount}")],
-                [InlineKeyboardButton("< Cancel", callback_data="usr_root_cats")]
-            ])
-            await query.message.reply_text(txt, parse_mode=ParseMode.HTML, reply_markup=kb)
-        else:
-            await query.message.reply_text("⚠️ গেটওয়ে সার্ভারে সাময়িক সমস্যা হচ্ছে। দয়া করে Manual Send Money অপশনটি ব্যবহার করুন।")
-        return
-
-    # Manual payment methods menu
     if data == "usr_dep_manual_menu":
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("📱 bKash", callback_data="usr_dep_method_bKash"), InlineKeyboardButton("📱 Nagad", callback_data="usr_dep_method_Nagad")],
@@ -2127,37 +2924,6 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await query.edit_message_text("নিচের কোন মাধ্যমে সেন্ড মানি করবেন সিলেক্ট করুন:", reply_markup=kb)
         return
 
-    # Manual verify button (Instant verification fallback)
-    if data.startswith("usr_checkpay_"):
-        parts = data.split("_")
-        inv_id = parts[2]
-        amount = float(parts[3])
-
-        await query.message.reply_text(f"🔍 ইনভয়েস <code>{inv_id}</code> যাচাই করা হচ্ছে...")
-        v_res = verify_paymently_charge(inv_id)
-
-        if v_res and str(v_res.get("status", "")).upper() in ("COMPLETED", "PAID", "SUCCESS"):
-            conn = get_db()
-            c = conn.cursor()
-            c.execute("SELECT id FROM deposits WHERE trx_id = ? AND status = 'approved'", (inv_id,))
-            if not c.fetchone():
-                now_str = datetime.datetime.now().strftime("%Y-%m-%d %I:%M %p")
-                c.execute("UPDATE users SET balance_bdt = balance_bdt + ? WHERE user_id = ?", (amount, user_id))
-                c.execute("INSERT INTO deposits (user_id, method, amount, trx_id, status, created_at) VALUES (?, 'Paymently Auto', ?, ?, 'approved', ?)", (user_id, amount, inv_id, now_str))
-                conn.commit()
-                await query.message.reply_text(
-                    f"🎉 <b>পেমেন্ট সফলভাবে ভেরিফাইড হয়েছে!</b>\n"
-                    f"আপনার অ্যাকাউন্টে <b>{amount:.2f} BDT</b> যোগ করা হয়েছে!",
-                    parse_mode=ParseMode.HTML,
-                )
-            else:
-                await query.message.reply_text("✅ এই পেমেন্টের ব্যালেন্স ইতিমধ্যে যোগ করা হয়েছে।")
-            conn.close()
-        else:
-            await query.message.reply_text("⏳ এখনো পেমেন্ট সম্পন্ন হয়নি। পেমেন্ট শেষ করে আবার চেক করুন।")
-        return
-
-    # ---------------- DEPOSIT METHOD SELECTION ----------------
     if data.startswith("usr_dep_method_"):
         method = data.split("_")[3]
         state, sdata = get_user_state(user_id)
@@ -2185,7 +2951,6 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await query.edit_message_text(text, parse_mode=ParseMode.HTML)
         return
 
-    # ---------------- 2FA TOOL ----------------
     if data == "tool_2fa_prompt":
         set_user_state(user_id, "WAITING_2FA_KEY", {})
         await query.message.reply_text(
@@ -2194,7 +2959,6 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         )
         return
 
-    # ---------------- PROFILE ACTIONS ----------------
     if data == "prof_purchases":
         conn = get_db()
         c = conn.cursor()
@@ -2210,11 +2974,9 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         for o in orders:
             btn_title = f"🧾 {o['receipt_no']} — {o['product_name']} ({o['total_bdt']:.0f} Tk)"
             kb.append([InlineKeyboardButton(btn_title, callback_data=f"prof_view_order_{o['id']}")])
-        kb.append([InlineKeyboardButton("< Back to Profile", callback_data="prof_back_root")])
         await query.message.reply_text(txt, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
         return
 
-    # View Specific Purchase Details (matching image_5b8b20.png)
     if data.startswith("prof_view_order_"):
         order_id = int(data.split("_")[3])
         conn = get_db()
@@ -2227,7 +2989,6 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
             await query.message.reply_text("❌ অর্ডারটি পাওয়া যায়নি।")
             return
 
-        # Parse credentials
         creds_display = ""
         if o["delivered_data"]:
             try:
@@ -2261,7 +3022,6 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await query.message.reply_text(txt, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
         return
 
-    # Resend Receipt PDF
     if data.startswith("prof_resend_pdf_"):
         order_id = int(data.split("_")[3])
         conn = get_db()
@@ -2345,7 +3105,6 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await query.message.reply_text(msg, parse_mode=ParseMode.HTML)
         return
 
-    # ---------------- ADMIN PANEL DISPATCHER ----------------
     if data.startswith("adm_"):
         if not is_admin(user_id):
             return
@@ -2360,12 +3119,9 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         return
 
 # ------------------------------------------------------------------------------
-# 8. PRODUCT CARD & PURCHASE ENGINE
+# 9. PRODUCT CARD & PURCHASE ENGINE
 # ------------------------------------------------------------------------------
-
-
 async def post_transaction_to_channel(bot, receipt_no: str, customer_name: str, telegram_id: int, product_name: str, quantity: int, total_bdt: float):
-    """Broadcasts sale transaction to the proof channel matching image_206ea3.png format."""
     bot_info = await bot.get_me()
     text = (
         f"🔔 <b>নতুন প্রোডাক্ট সেল হয়েছে!</b>\n"
@@ -2391,7 +3147,6 @@ async def post_transaction_to_channel(bot, receipt_no: str, customer_name: str, 
         return False, str(e)
 
 async def render_purchase_summary(query_or_message, prod_id: int, quantity: int = 1, edit: bool = True):
-    """Renders the interactive Purchase Summary card with live calculator buttons matching image_2e14ee.png."""
     conn = get_db()
     c = conn.cursor()
     c.execute("""
@@ -2467,78 +3222,6 @@ async def render_purchase_summary(query_or_message, prod_id: int, quantity: int 
 
     await query_or_message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
 
-async def show_product_card(query, prod_id: int):
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("""
-    SELECT p.*, s.name as sub_name, s.category_id, c.name as cat_name
-    FROM products p
-    JOIN subcategories s ON p.subcategory_id = s.id
-    JOIN categories c ON s.category_id = c.id
-    WHERE p.id = ?
-    """, (prod_id,))
-    p = c.fetchone()
-
-    c.execute("SELECT COUNT(*) as cnt FROM stock WHERE product_id = ? AND is_sold = 0", (prod_id,))
-    avail_stock = c.fetchone()["cnt"]
-    conn.close()
-
-    if not p:
-        await query.message.reply_text("প্রোডাক্টটি পাওয়া যায়নি।")
-        return
-
-    is_mail_cat = ("mail" in p["cat_name"].lower() or "মেইল" in p["cat_name"])
-    stock_line = f"📊 <b>Stock:</b> {avail_stock} টি স্টকে আছে\n" if is_mail_cat else ""
-    desc_part = f"\n📝 <i>{p['description']}</i>\n" if p['description'] else ""
-
-    caption = (
-        f"<b>{p['sub_name']} — {p['name']}</b>\n"
-        f"─────────────────────────────{desc_part}\n"
-        f"💰 <b>Price:</b> {format_price(p['price_bdt'])} BDT / {p['price_usdt']:.4f} USDT per unit\n"
-        f"{stock_line}\n"
-        f"Select quantity:"
-    )
-
-    kb = [
-        [
-            InlineKeyboardButton(f"1× {format_price(p['price_bdt'])} BDT", callback_data=f"qty_{p['id']}_1"),
-            InlineKeyboardButton(f"2× {format_price(p['price_bdt']*2)} BDT", callback_data=f"qty_{p['id']}_2"),
-        ],
-        [
-            InlineKeyboardButton(f"3× {format_price(p['price_bdt']*3)} BDT", callback_data=f"qty_{p['id']}_3"),
-            InlineKeyboardButton(f"4× {format_price(p['price_bdt']*4)} BDT", callback_data=f"qty_{p['id']}_4"),
-        ],
-        [
-            InlineKeyboardButton(f"5× {format_price(p['price_bdt']*5)} BDT", callback_data=f"qty_{p['id']}_5"),
-            InlineKeyboardButton(f"6× {format_price(p['price_bdt']*6)} BDT", callback_data=f"qty_{p['id']}_6"),
-        ],
-        [
-            InlineKeyboardButton(f"7× {format_price(p['price_bdt']*7)} BDT", callback_data=f"qty_{p['id']}_7"),
-            InlineKeyboardButton(f"8× {format_price(p['price_bdt']*8)} BDT", callback_data=f"qty_{p['id']}_8"),
-        ],
-        [
-            InlineKeyboardButton(f"9× {format_price(p['price_bdt']*9)} BDT", callback_data=f"qty_{p['id']}_9"),
-            InlineKeyboardButton(f"10× {format_price(p['price_bdt']*10)} BDT", callback_data=f"qty_{p['id']}_10"),
-        ],
-        [InlineKeyboardButton("✏️ Custom Quantity", callback_data=f"custqty_{p['id']}")],
-        [InlineKeyboardButton("< Back", callback_data=f"usr_sub_{p['subcategory_id']}")],
-    ]
-
-    # If photo exists, send photo! If not, send clean text!
-    if p["image_file_id"]:
-        try:
-            await query.message.reply_photo(
-                photo=p["image_file_id"],
-                caption=caption,
-                parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup(kb),
-            )
-            return
-        except Exception as e:
-            logger.warning(f"Error sending photo: {e}")
-
-    await query.message.reply_text(caption, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
-
 async def process_order(query, prod_id: int, quantity: int):
     try:
         user_id = query.from_user.id
@@ -2585,7 +3268,6 @@ async def process_order(query, prod_id: int, quantity: int):
         receipt_no = f"RCP-{secrets.token_hex(5).upper()}"
         full_product_name = f"{prod['sub_name']} ({prod['name']})"
 
-        # Check available stock
         c.execute("SELECT id, content FROM stock WHERE product_id = ? AND is_sold = 0 LIMIT ?", (prod_id, quantity))
         stock_rows = c.fetchall()
 
@@ -2599,7 +3281,6 @@ async def process_order(query, prod_id: int, quantity: int):
             )
             return
 
-        # If stock is available -> Instant Auto-Delivery
         if len(stock_rows) >= quantity:
             c.execute("UPDATE users SET balance_bdt = balance_bdt - ? WHERE user_id = ?", (total_bdt, user_id))
             stock_ids = [r["id"] for r in stock_rows]
@@ -2618,7 +3299,6 @@ async def process_order(query, prod_id: int, quantity: int):
 
             bot_info = await get_bot(query).get_me()
 
-            # Delivery Strategy: 1 Item = 1-Tap Copy Card, >1 Items = Excel Delivery (No Chat Flooding!)
             if quantity == 1:
                 card_text = format_credentials_card(items_content, full_product_name, prod["cat_name"])
                 await query.message.reply_text(card_text, parse_mode=ParseMode.HTML)
@@ -2630,10 +3310,9 @@ async def process_order(query, prod_id: int, quantity: int):
                             caption=f"📂 <b>Excel Data Backup:</b> <code>{receipt_no}</code>",
                             parse_mode=ParseMode.HTML,
                         )
-                    except Exception as e:
-                        logger.warning(f"Error sending excel: {e}")
+                    except Exception:
+                        pass
             else:
-                # Bulk Orders: Send sleek confirmation message and deliver accounts strictly via Excel file
                 bulk_msg = (
                     f"🎉 <b>আপনার অর্ডার সফলভাবে সম্পন্ন হয়েছে!</b>\n"
                     f"─────────────────────────────\n"
@@ -2641,8 +3320,7 @@ async def process_order(query, prod_id: int, quantity: int):
                     f"📦 <b>প্রোডাক্ট:</b> {full_product_name}\n"
                     f"🔢 <b>পরিমাণ:</b> {quantity} টি | <b>মোট পরিশোধ:</b> {format_price(total_bdt)} BDT\n"
                     f"─────────────────────────────\n"
-                    f"📂 <b>আপনার সবকটি {quantity} টি অ্যাকাউন্ট/মেইল নিচের এক্সেল ফাইলে সুন্দরভাবে সাজিয়ে দেওয়া হলো।</b>\n"
-                    f"<i>(ফাইলটি ডাউনলোড করে ওপেন করলেই সব ইমেইল ও পাসওয়ার্ড পেয়ে যাবেন)</i>"
+                    f"📂 <b>আপনার সবকটি {quantity} টি অ্যাকাউন্ট/মেইল নিচের এক্সেল ফাইলে সুন্দরভাবে সাজিয়ে দেওয়া হলো।</b>"
                 )
                 await query.message.reply_text(bulk_msg, parse_mode=ParseMode.HTML)
                 try:
@@ -2652,10 +3330,9 @@ async def process_order(query, prod_id: int, quantity: int):
                         caption=f"📂 <b>Accounts Excel File:</b> <code>{receipt_no}</code> ({quantity} pcs)",
                         parse_mode=ParseMode.HTML,
                     )
-                except Exception as e:
-                    logger.error(f"Error sending bulk excel file: {e}")
+                except Exception:
+                    pass
 
-            # Send Official PDF Receipt
             try:
                 pdf_bio = generate_pdf_receipt(
                     receipt_no=receipt_no,
@@ -2676,10 +3353,9 @@ async def process_order(query, prod_id: int, quantity: int):
                     caption=f"🧾 <b>Official Payment Receipt:</b> <code>{receipt_no}</code>",
                     parse_mode=ParseMode.HTML,
                 )
-            except Exception as e:
-                logger.error(f"Error sending PDF receipt: {e}")
+            except Exception:
+                pass
 
-            # Alert Admin & Post to Proof Channel
             try:
                 await get_bot(query).send_message(
                     chat_id=SUPER_ADMIN_ID,
@@ -2695,13 +3371,11 @@ async def process_order(query, prod_id: int, quantity: int):
             except Exception:
                 pass
 
-            # Broadcast Real Transaction to Channel
             asyncio.create_task(
                 post_transaction_to_channel(get_bot(query), receipt_no, user_name, user_id, full_product_name, quantity, total_bdt)
             )
             return
 
-        # If out of stock / On-demand -> Create Pending Order with Full Notifications & PDF Receipt
         c.execute("UPDATE users SET balance_bdt = balance_bdt - ? WHERE user_id = ?", (total_bdt, user_id))
         c.execute("""
         INSERT INTO orders (receipt_no, user_id, product_id, product_name, category_name, quantity, unit_price, total_bdt, total_usdt, status, order_date, day_of_week)
@@ -2713,7 +3387,6 @@ async def process_order(query, prod_id: int, quantity: int):
 
         bot_info = await get_bot(query).get_me()
 
-        # 1. Send Official Order Confirmation Card to Customer
         confirm_msg = (
             f"🎉 <b>আপনার অর্ডারটি সফলভাবে গ্রহণ করা হয়েছে!</b>\n"
             f"─────────────────────────────\n"
@@ -2726,7 +3399,6 @@ async def process_order(query, prod_id: int, quantity: int):
         )
         await query.message.reply_text(confirm_msg, parse_mode=ParseMode.HTML)
 
-        # 2. Attach Official PDF Receipt with Scannable QR Code to Customer
         try:
             pdf_bio = generate_pdf_receipt(
                 receipt_no=receipt_no,
@@ -2747,10 +3419,9 @@ async def process_order(query, prod_id: int, quantity: int):
                 caption=f"🧾 <b>Official Payment Receipt:</b> <code>{receipt_no}</code>",
                 parse_mode=ParseMode.HTML,
             )
-        except Exception as e:
-            logger.error(f"Error generating PDF receipt for pending order: {e}")
+        except Exception:
+            pass
 
-        # 3. Alert Super Admin with Action Buttons
         adm_kb = InlineKeyboardMarkup([
             [InlineKeyboardButton(f"🚀 Deliver Order #{order_id}", callback_data=f"adm_fulfill_{order_id}")],
             [InlineKeyboardButton(f"❌ Cancel & Refund #{order_id}", callback_data=f"adm_refund_{order_id}")]
@@ -2772,8 +3443,8 @@ async def process_order(query, prod_id: int, quantity: int):
                 parse_mode=ParseMode.HTML,
                 reply_markup=adm_kb,
             )
-        except Exception as e:
-            logger.error(f"Error alerting admin for order #{order_id}: {e}")
+        except Exception:
+            pass
     except Exception as e:
         logger.error(f"Critical error in process_order: {e}", exc_info=True)
         try:
@@ -2782,30 +3453,11 @@ async def process_order(query, prod_id: int, quantity: int):
             pass
 
 # ------------------------------------------------------------------------------
-# 9. ADMIN PANEL (4-TIER NESTED MENUS FOR STOCK, BUTTONS, PHOTOS, USERS)
+# 10. ADMIN PANEL (4-TIER NESTED MENUS FOR STOCK, BUTTONS, PHOTOS, USERS)
 # ------------------------------------------------------------------------------
-async def admin_panel_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if not is_admin(user_id):
-        return
-
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) as cnt FROM deposits WHERE status = 'pending'")
-    pend_dep = c.fetchone()["cnt"]
-    c.execute("SELECT COUNT(*) as cnt FROM orders WHERE status = 'pending_delivery'")
-    pend_ord = c.fetchone()["cnt"]
-    conn.close()
-
-    text = (
-        f"👑 <b>সুপার এডমিন কন্ট্রোল ড্যাশবোর্ড</b>\n"
-        f"─────────────────────────────\n"
-        f"সব কাজ নেস্টেড বাটন দিয়ে ৩-৪ ধাপে পরিচালনা করুন:\n\n"
-        f"💳 পেন্ডিং ডিপোজিট: <b>{pend_dep}</b> টি\n"
-        f"🛡️ পেন্ডিং ম্যানুয়াল অর্ডার: <b>{pend_ord}</b> টি"
-    )
+def build_admin_dashboard_markup(pend_dep: int, pend_ord: int) -> InlineKeyboardMarkup:
     status_tx = "🟢 Auto Channel Sales: ON" if _AUTO_SALES_ACTIVE else "🔴 Auto Channel Sales: OFF"
-    kb = InlineKeyboardMarkup([
+    return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("📥 Add Stock", callback_data="adm_stk_step1_cats"),
             InlineKeyboardButton("🏷️ Manage Buttons & Prices", callback_data="adm_btn_step1_cats"),
@@ -2835,13 +3487,33 @@ async def admin_panel_menu_handler(update: Update, context: ContextTypes.DEFAULT
             InlineKeyboardButton("🔄 Factory Reset / Clear Data", callback_data="adm_factory_reset_warn"),
         ]
     ])
-    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+
+async def admin_panel_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        return
+
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) as cnt FROM deposits WHERE status = 'pending'")
+    pend_dep = c.fetchone()["cnt"]
+    c.execute("SELECT COUNT(*) as cnt FROM orders WHERE status = 'pending_delivery'")
+    pend_ord = c.fetchone()["cnt"]
+    conn.close()
+
+    text = (
+        f"👑 <b>সুপার এডমিন কন্ট্রোল ড্যাশবোর্ড</b>\n"
+        f"─────────────────────────────\n"
+        f"সব কাজ নেস্টেড বাটন দিয়ে ৩-৪ ধাপে পরিচালনা করুন:\n\n"
+        f"💳 পেন্ডিং ডিপোজিট: <b>{pend_dep}</b> টি\n"
+        f"🛡️ পেন্ডিং ম্যানুয়াল অর্ডার: <b>{pend_ord}</b> টি"
+    )
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=build_admin_dashboard_markup(pend_dep, pend_ord))
 
 async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT_TYPE):
     global _AUTO_SALES_ACTIVE
     user_id = query.from_user.id
 
-    # Channel TX Manager Menu
     if data == "adm_tx_manager":
         st_label = "🟢 অটো ট্রানজ্যাকশন: চালু" if _AUTO_SALES_ACTIVE else "🔴 অটো ট্রানজ্যাকশন: বন্ধ"
         tx_txt = (
@@ -2850,7 +3522,7 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             f"📢 চ্যানেল আইডি: <code>{get_transaction_channel_id()}</code>\n"
             f"👥 গ্রুপ আইডি: <code>{get_welcome_group_id()}</code>\n"
             f"⚙️ অটো লুপ স্ট্যাটাস: <b>{'চালু আছে 🟢' if _AUTO_SALES_ACTIVE else 'বন্ধ আছে 🔴'}</b>\n\n"
-            "এখান থেকে আপনি কাস্টম ট্রানজ্যাকশন তৈরি করতে, টেস্ট মেসেজ পাঠাতে বা আইডি/লিংক সেট করতে পারবেন:"
+            "এখান থেকে আপনি কাস্টম ট্রানজ্যাকশন তৈরি করতে বা আইডি/লিংক সেট করতে পারবেন:"
         )
         tx_kb = InlineKeyboardMarkup([
             [InlineKeyboardButton(st_label, callback_data="adm_toggle_autosales_mgr")],
@@ -2865,69 +3537,7 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         _AUTO_SALES_ACTIVE = not _AUTO_SALES_ACTIVE
         state_str = "চালু করা হয়েছে 🟢" if _AUTO_SALES_ACTIVE else "বন্ধ করা হয়েছে 🔴"
         await query.answer(f"চ্যানেল অটো ট্রানজ্যাকশন {state_str}!", show_alert=True)
-        st_label = "🟢 অটো ট্রানজ্যাকশন: চালু" if _AUTO_SALES_ACTIVE else "🔴 অটো ট্রানজ্যাকশন: বন্ধ"
-        tx_txt = (
-            "⚡ <b>চ্যানেল ট্রানজ্যাকশন ম্যানেজার</b>\n"
-            "─────────────────────────────\n"
-            f"📢 চ্যানেল আইডি: <code>{get_transaction_channel_id()}</code>\n"
-            f"👥 গ্রুপ আইডি: <code>{get_welcome_group_id()}</code>\n"
-            f"⚙️ অটো লুপ স্ট্যাটাস: <b>{'চালু আছে 🟢' if _AUTO_SALES_ACTIVE else 'বন্ধ আছে 🔴'}</b>\n\n"
-            "এখান থেকে আপনি কাস্টম ট্রানজ্যাকশন তৈরি করতে, টেস্ট মেসেজ পাঠাতে বা আইডি/লিংক সেট করতে পারবেন:"
-        )
-        tx_kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton(st_label, callback_data="adm_toggle_autosales_mgr")],
-            [InlineKeyboardButton("✍️ Custom Transaction (নিজে বানান)", callback_data="adm_custom_tx_start")],
-            [InlineKeyboardButton("⚙️ Group & Channel ID/Link Settings", callback_data="adm_gc_settings")],
-            [InlineKeyboardButton("< Back to Dashboard", callback_data="adm_root")],
-        ])
-        await query.edit_message_text(tx_txt, parse_mode=ParseMode.HTML, reply_markup=tx_kb)
-        return
-
-    if data == "adm_instant_tx_push":
-        try:
-            await query.answer("⏳ চ্যানেলে পাঠানো হচ্ছে...")
-        except Exception:
-            pass
-        try:
-            conn = get_db()
-            c = conn.cursor()
-            c.execute("""
-            SELECT p.name as prod_name, s.name as sub_name, p.price_bdt 
-            FROM products p 
-            JOIN subcategories s ON p.subcategory_id = s.id 
-            ORDER BY RANDOM() LIMIT 1
-            """)
-            row = c.fetchone()
-            conn.close()
-            c_name = random.choice(CUSTOMER_SAMPLE_NAMES)
-            fake_uid = random.randint(7100000000, 7999999999)
-            qty = random.choice([1, 2, 4, 5])
-            if row:
-                p_name = f"{row['sub_name']} ({row['prod_name']})"
-                total_p = row["price_bdt"] * qty
-            else:
-                p_name = "Rapid Proxy (100 MB)"
-                total_p = 12.0 * qty
-            fake_receipt = f"RCP-{secrets.token_hex(5).upper()}"
-            ok, err = await post_transaction_to_channel(context.bot, fake_receipt, c_name, fake_uid, p_name, qty, total_p)
-            if ok:
-                await query.message.reply_text(
-                    f"✅ <b>টেস্ট ট্রানজ্যাকশন সফলভাবে চ্যানেলে পাঠানো হয়েছে!</b>\n"
-                    f"📢 চ্যানেল: <code>{get_transaction_channel_id()}</code>\n"
-                    f"🧾 Receipt: <code>{fake_receipt}</code>",
-                    parse_mode=ParseMode.HTML,
-                )
-            else:
-                await query.message.reply_text(
-                    f"❌ <b>চ্যানেলে টেস্ট ট্রানজ্যাকশন পাঠানো যায়নি!</b>\n\n"
-                    f"📌 <b>ব্যবহৃত চ্যানেল আইডি:</b> <code>{get_transaction_channel_id()}</code>\n"
-                    f"⚠️ <b>আসল কারণ:</b> <code>{err}</code>\n\n"
-                    f"💡 <b>সমাধান:</b> আপনার চ্যানেলে গিয়ে <code>/id</code> লিখে সঠিক আইডিটি কপি করুন এবং বটকে চ্যানেলে <b>Post Messages</b> পারমিশনসহ Admin বানান।",
-                    parse_mode=ParseMode.HTML,
-                )
-        except Exception as e:
-            logger.error(f"adm_instant_tx_push error: {e}", exc_info=True)
-            await query.message.reply_text(f"❌ <b>এরর হয়েছে:</b> <code>{e}</code>", parse_mode=ParseMode.HTML)
+        await handle_admin_callbacks(query, "adm_tx_manager", context)
         return
 
     if data == "adm_gc_settings":
@@ -2956,36 +3566,35 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
 
     if data == "adm_set_wgrp_id":
         set_user_state(user_id, "ADMIN_WAITING_WGRP_ID", {})
-        await query.message.reply_text("👥 আপনার <b>Update Group ID</b> লিখে পাঠান (যেমন: <code>-1001234567890</code> বা <code>-5340748538</code>):", parse_mode=ParseMode.HTML)
+        await query.message.reply_text("👥 আপনার <b>Update Group ID</b> লিখে পাঠান:", parse_mode=ParseMode.HTML)
         return
 
     if data == "adm_set_wgrp_link":
         set_user_state(user_id, "ADMIN_WAITING_WGRP_LINK", {})
-        await query.message.reply_text("🔗 আপনার <b>Update Group ইনভাইট লিংক</b> লিখে পাঠান (যেমন: <code>https://t.me/...</code>):", parse_mode=ParseMode.HTML)
+        await query.message.reply_text("🔗 আপনার <b>Update Group ইনভাইট লিংক</b> লিখে পাঠান:", parse_mode=ParseMode.HTML)
         return
 
     if data == "adm_set_txch_id":
         set_user_state(user_id, "ADMIN_WAITING_TXCH_ID", {})
-        await query.message.reply_text("📢 আপনার <b>Transaction Channel ID</b> লিখে পাঠান (যেমন: <code>-1004285154535</code>):", parse_mode=ParseMode.HTML)
+        await query.message.reply_text("📢 আপনার <b>Transaction Channel ID</b> লিখে পাঠান:", parse_mode=ParseMode.HTML)
         return
 
     if data == "adm_set_txch_link":
         set_user_state(user_id, "ADMIN_WAITING_TXCH_LINK", {})
-        await query.message.reply_text("🔗 আপনার <b>Transaction Channel লিংক</b> লিখে পাঠান (যেমন: <code>https://t.me/...</code>):", parse_mode=ParseMode.HTML)
+        await query.message.reply_text("🔗 আপনার <b>Transaction Channel লিংক</b> লিখে পাঠান:", parse_mode=ParseMode.HTML)
         return
 
     if data == "adm_custom_tx_start":
         set_user_state(user_id, "ADMIN_WAITING_CUSTOM_TX_NAME", {})
-        await query.message.reply_text("✍️ <b>কাস্টম ট্রানজ্যাকশন (ধাপ ১/৪):</b>\nকাস্টমারের নাম লিখে পাঠান (যেমন: <code>7x_TALHA</code>):", parse_mode=ParseMode.HTML)
+        await query.message.reply_text("✍️ <b>কাস্টম ট্রানজ্যাকশন (ধাপ ১/৪):</b>\nকাস্টমারের নাম লিখে পাঠান:", parse_mode=ParseMode.HTML)
         return
 
-    # Broadcast with Optional Inline Button
+    # Step-by-step Multi-Button Broadcast
     if data == "adm_broadcast_start":
         set_user_state(user_id, "ADMIN_WAITING_BCAST_MSG", {})
         await query.message.reply_text(
             "📢 <b>স্মার্ট ব্রডকাস্ট (ধাপ ১):</b>\n"
-            "আপনার নোটিশ বা আপডেট মেসেজটি লিখে পাঠান (ছবি বা টেক্সট)।\n"
-            "<i>(এটি সকল ইউজারের ইনবক্স এবং আপডেট গ্রুপে যাবে, কিন্তু ট্রানজ্যাকশন চ্যানেলে যাবে না)</i>",
+            "আপনার নোটিশ বা আপডেট মেসেজটি লিখে পাঠান (ছবি বা টেক্সট):",
             parse_mode=ParseMode.HTML,
         )
         return
@@ -2998,38 +3607,29 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
 
     if data == "adm_bcast_add_btn":
         sdata = get_user_state(user_id)[1]
-        set_user_state(user_id, "ADMIN_WAITING_BCAST_BTN_INFO", sdata)
+        set_user_state(user_id, "ADMIN_WAITING_BCAST_BTN_COUNT", sdata)
         await query.message.reply_text(
-            "🔗 <b>বাটনের নাম ও লিংক দিন:</b>\n"
-            "ফরম্যাট: <code>বাটনের নাম | লিংক</code>\n\n"
-            "উদাহরণ:\n<code>🛒 এখনই কিনুন | https://t.me/fast_shop_100_bot</code>",
+            "🔢 <b>আপনি কয়টি বাটন অ্যাড করতে চান?</b>\n"
+            "সংখ্যা লিখুন (যেমন: <code>1</code>, <code>2</code>, <code>3</code>... সর্বোচ্চ ১০টি):",
             parse_mode=ParseMode.HTML,
         )
         return
 
-    # Admin Receipt Lookup
     if data == "adm_check_receipt":
         set_user_state(user_id, "ADMIN_WAITING_RECEIPT_CODE", {})
-        await query.message.reply_text("🧾 <b>রিসিপ্ট কোডটি লিখুন:</b>\n(যেমন: <code>RCP-14AB642E92</code> বা শুধু <code>14AB642E92</code>)", parse_mode=ParseMode.HTML)
+        await query.message.reply_text("🧾 <b>রিসিপ্ট কোডটি লিখুন:</b>", parse_mode=ParseMode.HTML)
         return
 
-    # Toggle Auto Channel Sales
     if data == "adm_toggle_autosales":
         _AUTO_SALES_ACTIVE = not _AUTO_SALES_ACTIVE
         state_str = "চালু করা হয়েছে 🟢" if _AUTO_SALES_ACTIVE else "বন্ধ করা হয়েছে 🔴"
         await query.answer(f"চ্যানেল অটো ট্রানজ্যাকশন {state_str}!", show_alert=True)
-        # Refresh dashboard
         data = "adm_root"
 
-    # Factory Reset Warning & Execution
     if data == "adm_factory_reset_warn":
         warn_txt = (
             "⚠️ <b>সতর্কবার্তা: আপনি কি নিশ্চিত যে ফ্যাক্টরি রিসেট করবেন?</b>\n\n"
-            "• সকল টেস্ট অর্ডার ও হিস্টোরি মুছে যাবে।\n"
-            "• সকল স্টক ডেটা ক্লিয়ার হয়ে যাবে।\n"
-            "• সকল টেস্ট ডিপোজিট মুছে যাবে।\n"
-            "• ইউজারদের ব্যালেন্স ০ হয়ে ফ্রেশ শুরু হবে।\n\n"
-            "<i>(শপের নাম, ক্যাটাগরি ও পেমেন্ট সেটিংস অক্ষত থাকবে)</i>"
+            "• সকল টেস্ট অর্ডার, স্টক ও ডিপোজিট মুছে যাবে এবং ব্যালেন্স ০ হবে।"
         )
         r_kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔴 Yes, Wipe All Data", callback_data="adm_factory_reset_confirm")],
@@ -3047,10 +3647,9 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         c.execute("UPDATE users SET balance_bdt = 0")
         conn.commit()
         conn.close()
-        await query.edit_message_text("✅ <b>ফ্যাক্টরি রিসেট সম্পন্ন!</b>\nবটের সকল টেস্ট অর্ডার, স্টক ও ডিপোজিট সফলভাবে মুছে ফেলা হয়েছে। বট এখন সম্পূর্ণ নতুন শোরুমের মতো ফ্রেশ!", parse_mode=ParseMode.HTML)
+        await query.edit_message_text("✅ <b>ফ্যাক্টরি রিসেট সম্পন্ন!</b>", parse_mode=ParseMode.HTML)
         return
 
-    # Root Admin Dashboard
     if data == "adm_root":
         conn = get_db()
         c = conn.cursor()
@@ -3066,63 +3665,27 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             f"💳 পেন্ডিং ডিপোজিট: <b>{pend_dep}</b> টি\n"
             f"🛡️ পেন্ডিং ম্যানুয়াল অর্ডার: <b>{pend_ord}</b> টি"
         )
-        status_tx = "🟢 Auto Channel Sales: ON" if _AUTO_SALES_ACTIVE else "🔴 Auto Channel Sales: OFF"
-        kb = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("📥 Add Stock", callback_data="adm_stk_step1_cats"),
-                InlineKeyboardButton("🏷️ Manage Buttons & Prices", callback_data="adm_btn_step1_cats"),
-            ],
-            [
-                InlineKeyboardButton("🖼️ Manage Product Photos", callback_data="adm_pho_step1_cats"),
-                InlineKeyboardButton("💳 Payment Settings", callback_data="adm_pay_settings"),
-            ],
-            [
-                InlineKeyboardButton(f"💳 Deposits ({pend_dep})", callback_data="adm_pending_deposits"),
-                InlineKeyboardButton(f"🛡️ Orders ({pend_ord})", callback_data="adm_pending_orders"),
-            ],
-            [
-                InlineKeyboardButton("👥 User Management", callback_data="adm_usr_list_0"),
-                InlineKeyboardButton("📊 Shop Statistics", callback_data="adm_statistics"),
-            ],
-            [
-                InlineKeyboardButton("🧾 Check / Download Receipt", callback_data="adm_check_receipt"),
-                InlineKeyboardButton("📢 Broadcast (with Button)", callback_data="adm_broadcast_start"),
-            ],
-            [
-                InlineKeyboardButton(status_tx, callback_data="adm_toggle_autosales"),
-                InlineKeyboardButton("⚡ Channel TX Manager", callback_data="adm_tx_manager"),
-            ],
-            [
-                InlineKeyboardButton("🎛️ Menu Layout Manager", callback_data="adm_menu_layout"),
-                InlineKeyboardButton("🔄 Factory Reset / Clear Data", callback_data="adm_factory_reset_warn"),
-            ]
-        ])
-        await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=build_admin_dashboard_markup(pend_dep, pend_ord))
         return
 
-    # ==================== 1. ADD STOCK FLOW (4-TIER NESTED) ====================
-    # Step 1: Select Category
     if data == "adm_stk_step1_cats":
         conn = get_db()
         c = conn.cursor()
-        c.execute("SELECT id, name FROM categories ORDER BY id ASC")
+        c.execute("SELECT id, name FROM categories ORDER BY position ASC, id ASC")
         cats = c.fetchall()
         conn.close()
-        kb = []
-        for cat in cats:
-            kb.append([InlineKeyboardButton(cat["name"], callback_data=f"adm_stk_step2_sub_{cat['id']}")])
+        kb = [[InlineKeyboardButton(cat["name"], callback_data=f"adm_stk_step2_sub_{cat['id']}")] for cat in cats]
         kb.append([InlineKeyboardButton("< Back to Dashboard", callback_data="adm_root")])
-        await query.edit_message_text("📥 <b>[Add Stock — ধাপ ১]</b>\nযে ক্যাটাগরির স্টকে প্রোডাক্ট যোগ করবেন, সেটি সিলেক্ট করুন:", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text("📥 <b>[Add Stock — ধাপ ১]</b>\nক্যাটাগরি সিলেক্ট করুন:", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
         return
 
-    # Step 2: Select Brand / Subcategory
     if data.startswith("adm_stk_step2_sub_"):
         cat_id = int(data.split("_")[4])
         conn = get_db()
         c = conn.cursor()
         c.execute("SELECT name FROM categories WHERE id = ?", (cat_id,))
         cat_row = c.fetchone()
-        c.execute("SELECT id, name FROM subcategories WHERE category_id = ? ORDER BY id ASC", (cat_id,))
+        c.execute("SELECT id, name FROM subcategories WHERE category_id = ? ORDER BY position ASC, id ASC", (cat_id,))
         subs = c.fetchall()
         conn.close()
 
@@ -3137,10 +3700,9 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         if row:
             kb.append(row)
         kb.append([InlineKeyboardButton("< Back", callback_data="adm_stk_step1_cats")])
-        await query.edit_message_text(f"📥 <b>[Add Stock — ধাপ ২]</b>\n<b>{cat_name}</b> ➔ কোন ব্র্যান্ডে স্টক যোগ করবেন সিলেক্ট করুন:", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text(f"📥 <b>[Add Stock — ধাপ ২]</b>\n<b>{cat_name}</b> ➔ ব্র্যান্ড সিলেক্ট করুন:", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
         return
 
-    # Step 3: Select Variant / Duration / Package
     if data.startswith("adm_stk_step3_prod_"):
         sub_id = int(data.split("_")[4])
         conn = get_db()
@@ -3157,15 +3719,12 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         conn.close()
 
         title = f"{meta['cat_name']} ➔ {meta['sub_name']}" if meta else "Select Variant"
-        kb = []
-        for p in prods:
-            kb.append([InlineKeyboardButton(f"📦 {p['name']} ({format_price(p['price_bdt'])} Tk)", callback_data=f"adm_stk_step4_upload_{p['id']}")])
+        kb = [[InlineKeyboardButton(f"📦 {p['name']} ({format_price(p['price_bdt'])} Tk)", callback_data=f"adm_stk_step4_upload_{p['id']}")] for p in prods]
         back_cat = meta["category_id"] if meta else 1
         kb.append([InlineKeyboardButton("< Back", callback_data=f"adm_stk_step2_sub_{back_cat}")])
-        await query.edit_message_text(f"📥 <b>[Add Stock — ধাপ ৩]</b>\n<b>{title}</b> ➔ কোন প্যাকেজ/মেয়াদে স্টক দেবেন সিলেক্ট করুন:", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text(f"📥 <b>[Add Stock — ধাপ ৩]</b>\n<b>{title}</b> ➔ প্যাকেজ সিলেক্ট করুন:", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
         return
 
-    # Step 4: Prompt Stock Upload (Excel or Text)
     if data.startswith("adm_stk_step4_upload_"):
         prod_id = int(data.split("_")[4])
         conn = get_db()
@@ -3177,17 +3736,13 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         set_user_state(user_id, "ADMIN_WAITING_STOCK_INPUT", {"prod_id": prod_id})
         await query.message.reply_text(
             f"📥 <b>[Add Stock — ধাপ ৪: ডেটা আপলোড]</b>\n"
-            f"📦 নির্বাচিত প্রোডাক্ট: <b>{p['sub_name']} ({p['prod_name']})</b>\n"
+            f"📦 প্রোডাক্ট: <b>{p['sub_name']} ({p['prod_name']})</b>\n"
             f"─────────────────────────────\n"
-            f"• আপনি একটি এক্সেল (<code>.xlsx</code>) ফাইল পাঠাতে পারেন।\n"
-            f"• অথবা চ্যাটে এক লাইনে একটি করে অ্যাকাউন্ট/প্রক্সি পেস্ট করে পাঠিয়ে দিন।\n\n"
-            f"বট নিজে থেকেই সবগুলো গুনে স্টকে ঢুকিয়ে নেবে।",
+            f"• <code>.xlsx</code> এক্সেল ফাইল পাঠান অথবা প্রতি লাইনে একটি করে অ্যাকাউন্ট/প্রক্সি পেস্ট করুন।",
             parse_mode=ParseMode.HTML,
         )
         return
 
-    # ==================== 2. MANAGE BUTTONS & PRODUCTS (4-TIER NESTED) ====================
-    # Step 1: Categories with Live Reordering (⬆️ / ⬇️)
     if data == "adm_btn_step1_cats":
         conn = get_db()
         c = conn.cursor()
@@ -3198,64 +3753,42 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         for idx, cat in enumerate(cats):
             up_btn = InlineKeyboardButton("⬆️", callback_data=f"adm_cat_up_{cat['id']}") if idx > 0 else InlineKeyboardButton("·", callback_data="adm_noop")
             down_btn = InlineKeyboardButton("⬇️", callback_data=f"adm_cat_down_{cat['id']}") if idx < len(cats) - 1 else InlineKeyboardButton("·", callback_data="adm_noop")
-            kb.append([
-                InlineKeyboardButton(f"📁 {cat['name']}", callback_data=f"adm_btn_step2_sub_{cat['id']}"),
-                up_btn,
-                down_btn,
-            ])
+            kb.append([InlineKeyboardButton(f"📁 {cat['name']}", callback_data=f"adm_btn_step2_sub_{cat['id']}"), up_btn, down_btn])
         kb.append([InlineKeyboardButton("➕ Add New Category", callback_data="adm_btn_add_cat")])
         kb.append([InlineKeyboardButton("< Back to Dashboard", callback_data="adm_root")])
-        await query.edit_message_text(
-            "🏷️ <b>[বাটন ও প্রোডাক্ট পরিচালনা — ধাপ ১]</b>\n"
-            "যে ক্যাটাগরি ম্যানেজ করবেন তাতে চাপুন। পজিশন বদলাতে ⬆️ বা ⬇️ ব্যবহার করুন:",
-            parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup(kb),
-        )
+        await query.edit_message_text("🏷️ <b>[বাটন ও প্রোডাক্ট পরিচালনা — ধাপ ১]</b>", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
         return
 
-    # Step 2: Brands / Subcategories
     if data.startswith("adm_btn_step2_sub_"):
         cat_id = int(data.split("_")[4])
         conn = get_db()
         c = conn.cursor()
         c.execute("SELECT name FROM categories WHERE id = ?", (cat_id,))
         cat_row = c.fetchone()
-        c.execute("SELECT id, name FROM subcategories WHERE category_id = ? ORDER BY id ASC", (cat_id,))
+        c.execute("SELECT id, name, position FROM subcategories WHERE category_id = ? ORDER BY position ASC, id ASC", (cat_id,))
         subs = c.fetchall()
         conn.close()
 
         cat_name = cat_row["name"] if cat_row else "Category"
-        c.execute("SELECT id, name, position FROM subcategories WHERE category_id = ? ORDER BY position ASC, id ASC", (cat_id,))
-        subs = c.fetchall()
         kb = []
         for idx, s in enumerate(subs):
             up_btn = InlineKeyboardButton("⬆️", callback_data=f"adm_sub_up_{s['id']}") if idx > 0 else InlineKeyboardButton("·", callback_data="adm_noop")
             down_btn = InlineKeyboardButton("⬇️", callback_data=f"adm_sub_down_{s['id']}") if idx < len(subs) - 1 else InlineKeyboardButton("·", callback_data="adm_noop")
-            kb.append([
-                InlineKeyboardButton(f"📁 {s['name']}", callback_data=f"adm_btn_step3_prod_{s['id']}"),
-                up_btn,
-                down_btn,
-            ])
+            kb.append([InlineKeyboardButton(f"📁 {s['name']}", callback_data=f"adm_btn_step3_prod_{s['id']}"), up_btn, down_btn])
         kb.append([InlineKeyboardButton(f"➕ Add New Brand in {cat_name}", callback_data=f"adm_btn_add_sub_{cat_id}")])
         kb.append([
-            InlineKeyboardButton(f"✏️ Rename Category", callback_data=f"adm_ren_cat_{cat_id}"),
-            InlineKeyboardButton(f"🗑️ Delete Category", callback_data=f"adm_del_cat_{cat_id}")
+            InlineKeyboardButton("✏️ Rename Category", callback_data=f"adm_ren_cat_{cat_id}"),
+            InlineKeyboardButton("🗑️ Delete Category", callback_data=f"adm_del_cat_{cat_id}")
         ])
         kb.append([InlineKeyboardButton("< Back to Categories", callback_data="adm_btn_step1_cats")])
-        await query.edit_message_text(f"🏷️ <b>[বাটন ও প্রোডাক্ট পরিচালনা — ধাপ ২]</b>\n<b>{cat_name}</b> ➔ ব্র্যান্ড বা সেকশন বেছে নিন (এডিট/ডিলিট করতে ব্র্যান্ডে চাপুন):", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text(f"🏷️ <b>{cat_name}</b> ➔ ব্র্যান্ড বেছে নিন:", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
         return
 
-    # Step 3: Variants / Plans list
     if data.startswith("adm_btn_step3_prod_"):
         sub_id = int(data.split("_")[4])
         conn = get_db()
         c = conn.cursor()
-        c.execute("""
-        SELECT s.name as sub_name, s.category_id, c.name as cat_name
-        FROM subcategories s
-        JOIN categories c ON s.category_id = c.id
-        WHERE s.id = ?
-        """, (sub_id,))
+        c.execute("SELECT s.name as sub_name, s.category_id, c.name as cat_name FROM subcategories s JOIN categories c ON s.category_id = c.id WHERE s.id = ?", (sub_id,))
         meta = c.fetchone()
         c.execute("SELECT id, name, price_bdt FROM products WHERE subcategory_id = ? ORDER BY id ASC", (sub_id,))
         prods = c.fetchall()
@@ -3263,9 +3796,7 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
 
         title = f"{meta['cat_name']} ➔ {meta['sub_name']}" if meta else "Section"
         brand_name = meta["sub_name"] if meta else "Brand"
-        kb = []
-        for p in prods:
-            kb.append([InlineKeyboardButton(f"📦 {p['name']} ({format_price(p['price_bdt'])} Tk)", callback_data=f"adm_btn_step4_edit_{p['id']}")])
+        kb = [[InlineKeyboardButton(f"📦 {p['name']} ({format_price(p['price_bdt'])} Tk)", callback_data=f"adm_btn_step4_edit_{p['id']}")] for p in prods]
         kb.append([InlineKeyboardButton(f"➕ Add New Duration / Package in {brand_name}", callback_data=f"adm_btn_add_prod_{sub_id}")])
         kb.append([
             InlineKeyboardButton(f"✏️ Rename Brand ({brand_name})", callback_data=f"adm_ren_sub_{sub_id}"),
@@ -3273,10 +3804,9 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         ])
         back_cat = meta["category_id"] if meta else 1
         kb.append([InlineKeyboardButton("< Back to Brands", callback_data=f"adm_btn_step2_sub_{back_cat}")])
-        await query.edit_message_text(f"🏷️ <b>[বাটন ও প্রোডাক্ট পরিচালনা — ধাপ ৩]</b>\n<b>{title}</b>\n\n• নতুন ভ্যারিয়েন্ট যোগ করতে বা ব্র্যান্ডের নাম পরিবর্তন/ডিলিট করতে নিচের অপশন বেছে নিন:", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text(f"🏷️ <b>{title}</b>", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
         return
 
-    # Step 4: Variant Control Card (Price, Rename, Description, Photo, Delete)
     if data.startswith("adm_btn_step4_edit_"):
         prod_id = int(data.split("_")[4])
         conn = get_db()
@@ -3285,19 +3815,18 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         p = c.fetchone()
         conn.close()
 
-        is_act = bool(p.get("is_active", 1) if isinstance(p, dict) else p["is_active"])
+        is_act = bool(p["is_active"] if "is_active" in p.keys() else 1)
         act_label = "🟢 Status: Active (Available)" if is_act else "🔴 Status: Inactive (Out of Stock)"
-        photo_status = "🖼️ নিজস্ব ছবি সেট করা আছে" if p["image_file_id"] else "⚪ কোনো ছবি নেই (ক্লিন টেক্সট শো করবে)"
-        desc_txt = p["description"] if p["description"] else "কোনো কাস্টম বিবরণ দেওয়া নেই"
+        photo_status = "🖼️ নিজস্ব ছবি সেট করা আছে" if p["image_file_id"] else "⚪ কোনো ছবি নেই"
+        desc_txt = p["description"] if p["description"] else "ডিফল্ট বিবরণ চালু আছে"
 
         txt = (
             f"📦 <b>{p['sub_name']} — {p['name']}</b>\n"
             f"─────────────────────────────\n"
-            f"⚡ <b>অবস্থা:</b> <b>{'Active (এভেলেবেল) 🟢' if is_act else 'Inactive (স্টকে নেই) 🔴'}</b>\n"
-            f"💰 <b>বর্তমান দাম:</b> <b>{p['price_bdt']:.2f} BDT</b> ({p['price_usdt']:.4f} USDT)\n"
+            f"⚡ <b>অবস্থা:</b> <b>{'Active 🟢' if is_act else 'Inactive 🔴'}</b>\n"
+            f"💰 <b>বর্তমান দাম:</b> <b>{p['price_bdt']:.2f} BDT</b>\n"
             f"📸 <b>ফটো স্ট্যাটাস:</b> {photo_status}\n"
-            f"📝 <b>কাস্টম বিবরণ:</b>\n<i>{desc_txt}</i>\n\n"
-            f"কী পরিবর্তন করতে চান? নিচের বাটনে চাপ দিন:"
+            f"📝 <b>বিবরণ:</b> <i>{desc_txt}</i>"
         )
         kb = [
             [InlineKeyboardButton(act_label, callback_data=f"adm_toggact_{p['id']}")],
@@ -3315,31 +3844,23 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         prod_id = int(data.split("_")[2])
         conn = get_db()
         c = conn.cursor()
-        c.execute("SELECT COALESCE(is_active, 1) as is_active, subcategory_id FROM products WHERE id = ?", (prod_id,))
+        c.execute("SELECT COALESCE(is_active, 1) as is_active FROM products WHERE id = ?", (prod_id,))
         pr = c.fetchone()
         if pr:
             new_st = 0 if pr["is_active"] else 1
             c.execute("UPDATE products SET is_active = ? WHERE id = ?", (new_st, prod_id))
             conn.commit()
         conn.close()
-        # Re-render Step 4 card
         await handle_admin_callbacks(query, f"adm_btn_step4_edit_{prod_id}", context)
         return
 
     if data == "adm_menu_layout":
         layout = get_menu_layout()
-        txt = (
-            "🎛️ <b>মেইন মেনু বাটন লেআউট ম্যানেজার</b>\n"
-            "─────────────────────────────\n"
-            "যেকোনো বাটনে চাপ দিয়ে সেটিকে <b>উপরে (⬆️), নিচে (⬇️), বামে (⬅️), ডানে (➡️)</b> অথবা <b>আলাদা সারিতে (Full Width)</b> মুভ করুন:\n\n"
-        )
+        txt = "🎛️ <b>মেইন মেনু বাটন লেআউট ম্যানেজার</b>\n\n"
         kb = []
         for r_idx, row in enumerate(layout):
             txt += f"<b>Layer {r_idx+1}:</b> " + " | ".join(row) + "\n"
-            kb_row = []
-            for c_idx, lbl in enumerate(row):
-                kb_row.append(InlineKeyboardButton(f"✏️ {lbl}", callback_data=f"adm_ml_sel_{r_idx}_{c_idx}"))
-            kb.append(kb_row)
+            kb.append([InlineKeyboardButton(f"✏️ {lbl}", callback_data=f"adm_ml_sel_{r_idx}_{c_idx}") for c_idx, lbl in enumerate(row)])
         kb.append([InlineKeyboardButton("🔄 Reset Default Layout", callback_data="adm_ml_reset")])
         kb.append([InlineKeyboardButton("< Back to Dashboard", callback_data="adm_root")])
         await query.edit_message_text(txt, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
@@ -3359,26 +3880,13 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             await handle_admin_callbacks(query, "adm_menu_layout", context)
             return
         lbl = layout[r_idx][c_idx]
-        txt = (
-            f"🎛️ <b>বাটন পজিশন এডিটর:</b> <code>{lbl}</code>\n"
-            f"📍 বর্তমান অবস্থান: <b>Layer {r_idx+1}, Position {c_idx+1}</b>\n\n"
-            f"কোন দিকে মুভ করতে চান?"
-        )
         kb = [
-            [
-                InlineKeyboardButton("⬆️ Move Up (উপরে)", callback_data=f"adm_ml_mv_{r_idx}_{c_idx}_up"),
-                InlineKeyboardButton("⬇️ Move Down (নিচে)", callback_data=f"adm_ml_mv_{r_idx}_{c_idx}_down"),
-            ],
-            [
-                InlineKeyboardButton("⬅️ Move Left (বামে)", callback_data=f"adm_ml_mv_{r_idx}_{c_idx}_left"),
-                InlineKeyboardButton("➡️ Move Right (ডানে)", callback_data=f"adm_ml_mv_{r_idx}_{c_idx}_right"),
-            ],
-            [
-                InlineKeyboardButton("↔️ Separate Row (এক সারিতে একা)", callback_data=f"adm_ml_mv_{r_idx}_{c_idx}_solo"),
-            ],
+            [InlineKeyboardButton("⬆️ Move Up", callback_data=f"adm_ml_mv_{r_idx}_{c_idx}_up"), InlineKeyboardButton("⬇️ Move Down", callback_data=f"adm_ml_mv_{r_idx}_{c_idx}_down")],
+            [InlineKeyboardButton("⬅️ Move Left", callback_data=f"adm_ml_mv_{r_idx}_{c_idx}_left"), InlineKeyboardButton("➡️ Move Right", callback_data=f"adm_ml_mv_{r_idx}_{c_idx}_right")],
+            [InlineKeyboardButton("↔️ Separate Row", callback_data=f"adm_ml_mv_{r_idx}_{c_idx}_solo")],
             [InlineKeyboardButton("< Back to Layout", callback_data="adm_menu_layout")],
         ]
-        await query.edit_message_text(txt, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text(f"🎛️ <b>বাটন এডিটর:</b> <code>{lbl}</code>", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
         return
 
     if data.startswith("adm_ml_mv_"):
@@ -3403,16 +3911,14 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
                     layout[r_idx + 1].append(lbl)
                 else:
                     layout.append([lbl])
-            elif direction == "solo":
-                if len(layout[r_idx]) > 1:
-                    layout[r_idx].pop(c_idx)
-                    layout.insert(r_idx + 1, [lbl])
+            elif direction == "solo" and len(layout[r_idx]) > 1:
+                layout[r_idx].pop(c_idx)
+                layout.insert(r_idx + 1, [lbl])
             save_menu_layout(layout)
             await query.message.reply_text(f"✅ <b>{lbl}</b> আপডেট করা হয়েছে!", parse_mode=ParseMode.HTML, reply_markup=get_main_reply_keyboard(user_id))
         await handle_admin_callbacks(query, "adm_menu_layout", context)
         return
 
-    # Up / Down Reordering Handlers for Categories
     if data.startswith("adm_cat_up_") or data.startswith("adm_cat_down_"):
         is_up = "up" in data
         target_id = int(data.split("_")[3])
@@ -3425,19 +3931,15 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
                 swap_idx = idx - 1 if is_up else idx + 1
                 if 0 <= swap_idx < len(all_cats):
                     other_id = all_cats[swap_idx]["id"]
-                    p1 = ct["position"] or idx
-                    p2 = all_cats[swap_idx]["position"] or swap_idx
-                    if p1 == p2:
-                        p1, p2 = idx, swap_idx
+                    p1, p2 = idx, swap_idx
                     c.execute("UPDATE categories SET position = ? WHERE id = ?", (p2, target_id))
                     c.execute("UPDATE categories SET position = ? WHERE id = ?", (p1, other_id))
                     conn.commit()
                 break
         conn.close()
-        # Refresh Step 1
-        data = "adm_btn_step1_cats"
+        await handle_admin_callbacks(query, "adm_btn_step1_cats", context)
+        return
 
-    # Up / Down Reordering Handlers for Subcategories (Brands)
     if data.startswith("adm_sub_up_") or data.startswith("adm_sub_down_"):
         is_up = "up" in data
         target_id = int(data.split("_")[3])
@@ -3446,7 +3948,6 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         c.execute("SELECT category_id FROM subcategories WHERE id = ?", (target_id,))
         p_row = c.fetchone()
         parent_cat_id = p_row["category_id"] if p_row else 1
-
         c.execute("SELECT id, position FROM subcategories WHERE category_id = ? ORDER BY position ASC, id ASC", (parent_cat_id,))
         all_subs = c.fetchall()
         for idx, sb in enumerate(all_subs):
@@ -3454,51 +3955,42 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
                 swap_idx = idx - 1 if is_up else idx + 1
                 if 0 <= swap_idx < len(all_subs):
                     other_id = all_subs[swap_idx]["id"]
-                    p1 = sb["position"] or idx
-                    p2 = all_subs[swap_idx]["position"] or swap_idx
-                    if p1 == p2:
-                        p1, p2 = idx, swap_idx
-                    c.execute("UPDATE subcategories SET position = ? WHERE id = ?", (p2, target_id))
-                    c.execute("UPDATE subcategories SET position = ? WHERE id = ?", (p1, other_id))
+                    c.execute("UPDATE subcategories SET position = ? WHERE id = ?", (swap_idx, target_id))
+                    c.execute("UPDATE subcategories SET position = ? WHERE id = ?", (idx, other_id))
                     conn.commit()
                 break
         conn.close()
-        # Refresh Step 2
-        data = f"adm_btn_step2_sub_{parent_cat_id}"
+        await handle_admin_callbacks(query, f"adm_btn_step2_sub_{parent_cat_id}", context)
+        return
 
     if data == "adm_noop":
         return
 
-    # Brand & Category Rename / Delete Callback Handlers
     if data.startswith("adm_ren_sub_"):
         sub_id = int(data.split("_")[3])
         set_user_state(user_id, "ADMIN_WAITING_REN_SUB", {"sub_id": sub_id})
-        await query.message.reply_text("✏️ <b>ব্র্যান্ডের নতুন নাম লিখে পাঠান:</b>\n(যেমন: FR Outlook বা Nord VPN)", parse_mode=ParseMode.HTML)
+        await query.message.reply_text("✏️ <b>ব্র্যান্ডের নতুন নাম লিখে পাঠান:</b>", parse_mode=ParseMode.HTML)
         return
 
     if data.startswith("adm_del_sub_"):
         sub_id = int(data.split("_")[3])
         conn = get_db()
         c = conn.cursor()
-        c.execute("SELECT s.name as sub_name, s.category_id FROM subcategories s WHERE s.id = ?", (sub_id,))
+        c.execute("SELECT name FROM subcategories WHERE id = ?", (sub_id,))
         sub_row = c.fetchone()
         if sub_row:
-            cat_id = sub_row["category_id"]
             c.execute("DELETE FROM stock WHERE product_id IN (SELECT id FROM products WHERE subcategory_id = ?)", (sub_id,))
             c.execute("DELETE FROM products WHERE subcategory_id = ?", (sub_id,))
             c.execute("DELETE FROM subcategories WHERE id = ?", (sub_id,))
             conn.commit()
-            conn.close()
-            await query.message.reply_text(f"🗑️ <b>ব্র্যান্ড '{sub_row['sub_name']}' এবং এর সব প্রোডাক্ট সফলভাবে মুছে ফেলা হয়েছে!</b>", parse_mode=ParseMode.HTML)
-        else:
-            conn.close()
-            await query.message.reply_text("ব্র্যান্ড পাওয়া যায়নি।")
+            await query.message.reply_text(f"🗑️ ব্র্যান্ড '{sub_row['name']}' মুছে ফেলা হয়েছে!")
+        conn.close()
         return
 
     if data.startswith("adm_ren_cat_"):
         cat_id = int(data.split("_")[3])
         set_user_state(user_id, "ADMIN_WAITING_REN_CAT", {"cat_id": cat_id})
-        await query.message.reply_text("✏️ <b>ক্যাটাগরির নতুন নাম লিখে পাঠান:</b>\n(যেমন: ✉️ Hotmail/Outlook Services)", parse_mode=ParseMode.HTML)
+        await query.message.reply_text("✏️ <b>ক্যাটাগরির নতুন নাম লিখে পাঠান:</b>", parse_mode=ParseMode.HTML)
         return
 
     if data.startswith("adm_del_cat_"):
@@ -3513,30 +4005,26 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             c.execute("DELETE FROM subcategories WHERE category_id = ?", (cat_id,))
             c.execute("DELETE FROM categories WHERE id = ?", (cat_id,))
             conn.commit()
-            conn.close()
-            await query.message.reply_text(f"🗑️ <b>ক্যাটাগরি '{cat_row['name']}' এবং এর সব ব্র্যান্ড মুছে ফেলা হয়েছে!</b>", parse_mode=ParseMode.HTML)
-        else:
-            conn.close()
-            await query.message.reply_text("ক্যাটাগরি পাওয়া যায়নি।")
+            await query.message.reply_text(f"🗑️ ক্যাটাগরি '{cat_row['name']}' মুছে ফেলা হয়েছে!")
+        conn.close()
         return
 
-    # Actions: Price, Rename, Description, Delete
     if data.startswith("adm_chgprice_"):
         prod_id = int(data.split("_")[2])
         set_user_state(user_id, "ADMIN_WAITING_PRICE", {"prod_id": prod_id})
-        await query.message.reply_text("নতুন BDT দাম লিখুন (যেমন: 0.87 বা 0.65 বা 15 — ১ টাকার নিচের যেকোনো দশমিক দিতে পারবেন):")
+        await query.message.reply_text("নতুন BDT দাম লিখুন (যেমন: 0.87 বা 15):")
         return
 
     if data.startswith("adm_rename_"):
         prod_id = int(data.split("_")[2])
         set_user_state(user_id, "ADMIN_WAITING_NAME", {"prod_id": prod_id})
-        await query.message.reply_text("নতুন নাম বা মেয়াদ লিখুন (যেমন: 15 Days বা 1 GB):")
+        await query.message.reply_text("নতুন নাম বা মেয়াদ লিখুন:")
         return
 
     if data.startswith("adm_editdesc_"):
         prod_id = int(data.split("_")[2])
         set_user_state(user_id, "ADMIN_WAITING_DESC", {"prod_id": prod_id})
-        await query.message.reply_text("📝 এই প্রোডাক্ট কার্ডে প্রদর্শনের জন্য যে বিবরণ বা নির্দেশিকা টেক্সট দিতে চান, তা লিখে পাঠান:")
+        await query.message.reply_text("📝 কাস্টম বিবরণ লিখে পাঠান:")
         return
 
     if data.startswith("adm_delprod_"):
@@ -3546,53 +4034,47 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         c.execute("DELETE FROM products WHERE id = ?", (prod_id,))
         conn.commit()
         conn.close()
-        await query.edit_message_text("✅ প্রোডাক্টটি সফলভাবে মুছে ফেলা হয়েছে।")
+        await query.edit_message_text("✅ প্রোডাক্টটি মুছে ফেলা হয়েছে।")
         return
 
-    # Add Category / Brand / Variant Prompts
     if data == "adm_btn_add_cat":
         set_user_state(user_id, "ADMIN_WAITING_NEW_CAT_NAME", {})
-        await query.message.reply_text("➕ <b>নতুন ক্যাটাগরি তৈরি:</b>\nক্যাটাগরির নাম লিখুন (যেমন: 🎮 Gaming Services):", parse_mode=ParseMode.HTML)
+        await query.message.reply_text("➕ নতুন ক্যাটাগরির নাম লিখুন:")
         return
 
     if data.startswith("adm_btn_add_sub_"):
         cat_id = int(data.split("_")[4])
         set_user_state(user_id, "ADMIN_WAITING_NEW_SUB_NAME", {"cat_id": cat_id})
-        await query.message.reply_text("➕ <b>নতুন ব্র্যান্ড / সেকশন যোগ:</b>\nব্র্যান্ডের নাম লিখুন (যেমন: Privado VPN বা Luna Proxy):", parse_mode=ParseMode.HTML)
+        await query.message.reply_text("➕ নতুন ব্র্যান্ডের নাম লিখুন:")
         return
 
     if data.startswith("adm_btn_add_prod_"):
         sub_id = int(data.split("_")[4])
         set_user_state(user_id, "ADMIN_WAITING_ADDPROD_NAME", {"sub_id": sub_id})
-        await query.message.reply_text("➕ <b>নতুন মেয়াদ / সাইজ যোগ:</b>\nমেয়াদ বা প্যাকেজের নাম লিখুন (যেমন: 10 Days বা 500 MB):", parse_mode=ParseMode.HTML)
+        await query.message.reply_text("➕ নতুন মেয়াদ বা প্যাকেজের নাম লিখুন:")
         return
 
-    # ==================== 3. MANAGE PHOTOS (4-TIER NESTED) ====================
     if data == "adm_pho_step1_cats":
         conn = get_db()
         c = conn.cursor()
-        c.execute("SELECT id, name FROM categories ORDER BY id ASC")
+        c.execute("SELECT id, name FROM categories ORDER BY position ASC, id ASC")
         cats = c.fetchall()
         conn.close()
-        kb = []
-        for cat in cats:
-            kb.append([InlineKeyboardButton(cat["name"], callback_data=f"adm_pho_step2_sub_{cat['id']}")])
+        kb = [[InlineKeyboardButton(cat["name"], callback_data=f"adm_pho_step2_sub_{cat['id']}")] for cat in cats]
         kb.append([InlineKeyboardButton("< Back to Dashboard", callback_data="adm_root")])
-        await query.edit_message_text("🖼️ <b>[প্রোডাক্ট ফটো ম্যানেজার — ধাপ ১]</b>\nক্যাটাগরি সিলেক্ট করুন:", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text("🖼️ <b>[প্রোডাক্ট ফটো ম্যানেজার — ধাপ ১]</b>", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
         return
 
     if data.startswith("adm_pho_step2_sub_"):
         cat_id = int(data.split("_")[4])
         conn = get_db()
         c = conn.cursor()
-        c.execute("SELECT id, name FROM subcategories WHERE category_id = ? ORDER BY id ASC", (cat_id,))
+        c.execute("SELECT id, name FROM subcategories WHERE category_id = ? ORDER BY position ASC, id ASC", (cat_id,))
         subs = c.fetchall()
         conn.close()
-        kb = []
-        for s in subs:
-            kb.append([InlineKeyboardButton(f"📁 {s['name']}", callback_data=f"adm_pho_step3_prod_{s['id']}")])
+        kb = [[InlineKeyboardButton(f"📁 {s['name']}", callback_data=f"adm_pho_step3_prod_{s['id']}")] for s in subs]
         kb.append([InlineKeyboardButton("< Back", callback_data="adm_pho_step1_cats")])
-        await query.edit_message_text("🖼️ <b>[প্রোডাক্ট ফটো ম্যানেজার — ধাপ ২]</b>\nব্র্যান্ড সিলেক্ট করুন:", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text("🖼️ <b>[প্রোডাক্ট ফটো ম্যানেজার — ধাপ ২]</b>", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
         return
 
     if data.startswith("adm_pho_step3_prod_"):
@@ -3602,12 +4084,9 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         c.execute("SELECT id, name, image_file_id FROM products WHERE subcategory_id = ? ORDER BY id ASC", (sub_id,))
         prods = c.fetchall()
         conn.close()
-        kb = []
-        for p in prods:
-            icon = "🖼️" if p["image_file_id"] else "⚪"
-            kb.append([InlineKeyboardButton(f"{icon} {p['name']}", callback_data=f"adm_pho_step4_view_{p['id']}")])
+        kb = [[InlineKeyboardButton(f"{'🖼️' if p['image_file_id'] else '⚪'} {p['name']}", callback_data=f"adm_pho_step4_view_{p['id']}")] for p in prods]
         kb.append([InlineKeyboardButton("< Back", callback_data="adm_pho_step1_cats")])
-        await query.edit_message_text("🖼️ <b>[প্রোডাক্ট ফটো ম্যানেজার — ধাপ ৩]</b>\nযে ভ্যারিয়েন্টের ছবি সেট করবেন বেছে নিন (⚪ = ছবি নেই, 🖼️ = নিজস্ব ছবি আছে):", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text("🖼️ <b>[প্রোডাক্ট ফটো ম্যানেজার — ধাপ ৩]</b>", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
         return
 
     if data.startswith("adm_pho_step4_view_"):
@@ -3617,26 +4096,18 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         c.execute("SELECT p.*, s.name as sub_name FROM products p JOIN subcategories s ON p.subcategory_id = s.id WHERE p.id = ?", (prod_id,))
         p = c.fetchone()
         conn.close()
-
-        status = "✅ নিজস্ব ছবি আপলোড করা আছে" if p["image_file_id"] else "❌ কোনো ছবি নেই (শুধু ক্লিন টেক্সট শো করবে)"
-        txt = (
-            f"🖼️ <b>{p['sub_name']} — {p['name']}</b>\n\n"
-            f"বর্তমান ফটো অবস্থা: {status}\n\n"
-            f"নতুন ছবি দিতে চাইলে নিচের বাটনে চাপ দিন:"
-        )
-        kb = [
-            [InlineKeyboardButton("📸 Upload / Change Photo", callback_data=f"adm_setphoto_{p['id']}")],
-        ]
+        status = "✅ নিজস্ব ছবি আপলোড করা আছে" if p["image_file_id"] else "❌ কোনো ছবি নেই"
+        kb = [[InlineKeyboardButton("📸 Upload / Change Photo", callback_data=f"adm_setphoto_{p['id']}")]]
         if p["image_file_id"]:
             kb.append([InlineKeyboardButton("🗑️ Remove Photo", callback_data=f"adm_delphoto_{p['id']}")])
         kb.append([InlineKeyboardButton("< Back", callback_data=f"adm_pho_step3_prod_{p['subcategory_id']}")])
-        await query.edit_message_text(txt, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text(f"🖼️ <b>{p['sub_name']} — {p['name']}</b>\n\nঅবস্থা: {status}", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
         return
 
     if data.startswith("adm_setphoto_"):
         prod_id = int(data.split("_")[2])
         set_user_state(user_id, "ADMIN_WAITING_PHOTO_UPLOAD", {"prod_id": prod_id})
-        await query.message.reply_text("📸 অনুগ্রহ করে এই প্রোডাক্টের জন্য যে ছবিটি দিতে চান, সেটি টেলিগ্রামের চ্যাটে ফটো আকারে সেন্ড করুন:")
+        await query.message.reply_text("📸 এই প্রোডাক্টের জন্য ছবিটি টেলিগ্রামের চ্যাটে ফটো আকারে পাঠান:")
         return
 
     if data.startswith("adm_delphoto_"):
@@ -3646,104 +4117,74 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         c.execute("UPDATE products SET image_file_id = NULL WHERE id = ?", (prod_id,))
         conn.commit()
         conn.close()
-        await query.edit_message_text("✅ ছবি সফলভাবে মুছে ফেলা হয়েছে। এখন এটি ক্লিন টেক্সটে শো করবে।")
+        await query.edit_message_text("✅ ছবি মুছে ফেলা হয়েছে।")
         return
 
-    # ==================== 4. PAYMENT SETTINGS ====================
     if data == "adm_pay_settings":
         bkash = get_setting("bkash_number")
         nagad = get_setting("nagad_number")
         binance = get_setting("binance_id")
         rate = get_setting("usdt_rate", "125.0")
         min_man = get_setting("min_deposit_manual", "20.0")
-        min_ins = get_setting("min_deposit_instant", "100.0")
 
         text = (
-            f"💳 <b>পেমেন্ট সেটিংস ও কন্ট্রোল প্যানেল:</b>\n"
+            f"💳 <b>পেমেন্ট সেটিংস:</b>\n"
             f"─────────────────────────────\n"
-            f"📱 <b>bKash Personal:</b> <code>{bkash}</code>\n"
-            f"📱 <b>Nagad Personal:</b> <code>{nagad}</code>\n"
-            f"💎 <b>Binance Info:</b> <code>{binance}</code>\n"
-            f"⚡ <b>ইনস্ট্যান্ট অটো মিনিমাম:</b> <b>{float(min_ins):.0f} BDT</b>\n"
-            f"📱 <b>ম্যানুয়াল মিনিমাম:</b> <b>{float(min_man):.0f} BDT</b>\n"
-            f"💵 <b>USDT রেট:</b> 1 USDT = {rate} BDT\n\n"
-            f"যেটি পরিবর্তন করতে চান, নিচের বাটনে চাপ দিন:"
+            f"📱 <b>bKash:</b> <code>{bkash}</code>\n"
+            f"📱 <b>Nagad:</b> <code>{nagad}</code>\n"
+            f"💎 <b>Binance:</b> <code>{binance}</code>\n"
+            f"💰 <b>সর্বনিম্ন ডিপোজিট:</b> <b>{float(min_man):.0f} BDT</b>\n"
+            f"💵 <b>USDT রেট:</b> 1 USDT = {rate} BDT"
         )
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("📱 Edit bKash Number", callback_data="adm_set_bkash")],
             [InlineKeyboardButton("📱 Edit Nagad Number", callback_data="adm_set_nagad")],
             [InlineKeyboardButton("💎 Edit Binance Info", callback_data="adm_set_binance")],
-            [InlineKeyboardButton("⚡ Edit Instant Min Deposit", callback_data="adm_set_mindep_instant")],
-            [InlineKeyboardButton("💰 Edit Manual Min Deposit", callback_data="adm_set_mindep_manual")],
-            [InlineKeyboardButton("💵 Edit USDT Exchange Rate", callback_data="adm_set_rate")],
+            [InlineKeyboardButton("💰 Edit Min Deposit", callback_data="adm_set_mindep_manual")],
+            [InlineKeyboardButton("💵 Edit USDT Rate", callback_data="adm_set_rate")],
             [InlineKeyboardButton("< Back to Dashboard", callback_data="adm_root")],
         ])
         await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
         return
 
-    if data == "adm_set_mindep_instant":
-        set_user_state(user_id, "ADMIN_WAITING_MINDEP_INSTANT", {})
-        await query.message.reply_text("⚡ ইনস্ট্যান্ট অটো পেমেন্টে সর্বনিম্ন ডিপোজিট কত টাকা হবে লিখুন (যেমন: 100):")
-        return
-
     if data == "adm_set_mindep_manual":
         set_user_state(user_id, "ADMIN_WAITING_MINDEP_MANUAL", {})
-        await query.message.reply_text("📱 ম্যানুয়াল সেন্ড মানিতে সর্বনিম্ন ডিপোজিট কত টাকা হবে লিখুন (যেমন: 20):")
+        await query.message.reply_text("📱 সর্বনিম্ন ডিপোজিট কত টাকা হবে লিখুন:")
         return
 
     if data == "adm_set_bkash":
         set_user_state(user_id, "ADMIN_WAITING_BKASH", {})
-        await query.message.reply_text("নতুন বিকাশ পার্সোনাল নাম্বার লিখুন:")
+        await query.message.reply_text("নতুন বিকাশ নাম্বার লিখুন:")
         return
 
     if data == "adm_set_nagad":
         set_user_state(user_id, "ADMIN_WAITING_NAGAD", {})
-        await query.message.reply_text("নতুন নগদ পার্সোনাল নাম্বার লিখুন:")
+        await query.message.reply_text("নতুন নগদ নাম্বার লিখুন:")
         return
 
     if data == "adm_set_binance":
         set_user_state(user_id, "ADMIN_WAITING_BINANCE", {})
-        await query.message.reply_text("নতুন বাইনান্স পে আইডি বা USDT অ্যাড্রেস লিখুন:")
-        return
-
-    if data == "adm_set_mindep":
-        set_user_state(user_id, "ADMIN_WAITING_MINDEP", {})
-        await query.message.reply_text("সর্বনিম্ন ডিপোজিট কত টাকা হবে তা সংখ্যায় লিখুন (যেমন: 10, 20, 50):")
+        await query.message.reply_text("নতুন বাইনান্স তথ্য লিখুন:")
         return
 
     if data == "adm_set_rate":
         set_user_state(user_id, "ADMIN_WAITING_RATE", {})
-        await query.message.reply_text("নতুন USDT এক্সচেঞ্জ রেট লিখুন (যেমন: 128.5):")
+        await query.message.reply_text("নতুন USDT রেট লিখুন:")
         return
 
-    # ==================== 5. USER MANAGEMENT (PAGINATED & INTERACTIVE) ====================
     if data.startswith("adm_usr_list_"):
         page = int(data.split("_")[3])
         limit = 8
         offset = page * limit
-
         conn = get_db()
         c = conn.cursor()
         c.execute("SELECT COUNT(*) as total FROM users")
         total_u = c.fetchone()["total"]
-
         c.execute("SELECT user_id, name, balance_bdt FROM users ORDER BY user_id DESC LIMIT ? OFFSET ?", (limit, offset))
         u_list = c.fetchall()
         conn.close()
 
-        txt = (
-            f"👥 <b>ইউজার ম্যানেজমেন্ট ও প্রোফাইল তালিকা</b>\n"
-            f"─────────────────────────────\n"
-            f"মোট রেজিস্টার্ড ইউজার: <b>{total_u}</b> জন\n"
-            f"নিচের ইউজারের উপর ক্লিক করে প্রোফাইল ও ব্যালেন্স কন্ট্রোল করুন:"
-        )
-
-        kb = []
-        for u in u_list:
-            u_name = u["name"][:16] if u["name"] else "User"
-            btn_title = f"👤 {u_name} (ID: {u['user_id']}) - {u['balance_bdt']:.0f} Tk"
-            kb.append([InlineKeyboardButton(btn_title, callback_data=f"adm_usr_view_{u['user_id']}")])
-
+        kb = [[InlineKeyboardButton(f"👤 {(u['name'] or 'User')[:16]} ({u['balance_bdt']:.0f} Tk)", callback_data=f"adm_usr_view_{u['user_id']}")] for u in u_list]
         nav_row = []
         if page > 0:
             nav_row.append(InlineKeyboardButton("◀️ Previous", callback_data=f"adm_usr_list_{page - 1}"))
@@ -3751,9 +4192,8 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             nav_row.append(InlineKeyboardButton("Next ▶️", callback_data=f"adm_usr_list_{page + 1}"))
         if nav_row:
             kb.append(nav_row)
-
         kb.append([InlineKeyboardButton("< Back to Dashboard", callback_data="adm_root")])
-        await query.edit_message_text(txt, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text(f"👥 <b>মোট ইউজার: {total_u} জন</b>", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
         return
 
     if data.startswith("adm_usr_view_"):
@@ -3762,49 +4202,14 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         c = conn.cursor()
         c.execute("SELECT * FROM users WHERE user_id = ?", (target_uid,))
         u = c.fetchone()
-        c.execute("SELECT COUNT(*) as cnt, SUM(total_bdt) as spent FROM orders WHERE user_id = ? AND status = 'completed'", (target_uid,))
-        stats = c.fetchone()
-        c.execute("SELECT receipt_no, product_name, quantity, total_bdt, order_date FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 10", (target_uid,))
-        all_orders = c.fetchall()
         conn.close()
-
         if not u:
-            await query.message.reply_text("❌ এই ইউজারকে পাওয়া যায়নি।")
             return
-
-        spent = stats["spent"] or 0.0
-        contact_url = f"tg://user?id={u['user_id']}"
-
-        orders_txt = "\n📦 <b>অর্ডারের বিস্তারিত তালিকা (সর্বশেষ ১০টি):</b>\n"
-        if all_orders:
-            for ro in all_orders:
-                orders_txt += f"• <code>{ro['receipt_no']}</code> | <b>{ro['product_name']}</b> ({ro['quantity']} টি) - <b>{ro['total_bdt']:.0f} Tk</b> [{ro['order_date']}]\n"
-        else:
-            orders_txt += "<i>এখনো কোনো অর্ডার করেনি।</i>\n"
-
-        info = (
-            f"👤 <b>ইউজার প্রোফাইল ও পূর্ণাঙ্গ হিসাব:</b>\n"
-            f"─────────────────────────────\n"
-            f"🆔 <b>আইডি:</b> <code>{u['user_id']}</code>\n"
-            f"👤 <b>নাম:</b> {u['name']}\n"
-            f"💬 <b>ইউজারনেম:</b> @{u['username'] if u['username'] else 'None'}\n"
-            f"💰 <b>বর্তমান ব্যালেন্স:</b> <b>{u['balance_bdt']:.2f} BDT</b>\n"
-            f"🛍️ <b>মোট সফল অর্ডার:</b> <b>{stats['cnt']} টি</b> (মোট খরচ: <b>{spent:.2f} BDT</b>)\n"
-            f"📅 <b>জয়েনিং তারিখ:</b> {u['joined_date']}\n"
-            f"─────────────────────────────"
-            f"{orders_txt}"
-        )
+        info = f"👤 <b>{u['name']}</b>\n🆔 ID: <code>{u['user_id']}</code>\n💰 ব্যালেন্স: <b>{u['balance_bdt']:.2f} BDT</b>"
         ukb = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("➕ Add Balance", callback_data=f"adm_usr_addbal_{u['user_id']}"),
-                InlineKeyboardButton("➖ Deduct Balance", callback_data=f"adm_usr_dedbal_{u['user_id']}"),
-            ],
-            [
-                InlineKeyboardButton("💬 Contact User (Direct Chat)", url=contact_url),
-            ],
-            [
-                InlineKeyboardButton("< Back to User List", callback_data="adm_usr_list_0"),
-            ]
+            [InlineKeyboardButton("➕ Add Balance", callback_data=f"adm_usr_addbal_{u['user_id']}"), InlineKeyboardButton("➖ Deduct Balance", callback_data=f"adm_usr_dedbal_{u['user_id']}")],
+            [InlineKeyboardButton("💬 Direct Message", url=f"tg://user?id={u['user_id']}")],
+            [InlineKeyboardButton("< Back", callback_data="adm_usr_list_0")],
         ])
         await query.edit_message_text(info, parse_mode=ParseMode.HTML, reply_markup=ukb)
         return
@@ -3812,16 +4217,15 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
     if data.startswith("adm_usr_addbal_"):
         target_uid = int(data.split("_")[3])
         set_user_state(user_id, "ADMIN_WAITING_ADDBAL_AMT", {"target_uid": target_uid})
-        await query.message.reply_text(f"💰 ইউজার <code>{target_uid}</code>-এর অ্যাকাউন্টে কত টাকা যোগ করবেন লিখুন (যেমন: 100):", parse_mode=ParseMode.HTML)
+        await query.message.reply_text(f"💰 ইউজার <code>{target_uid}</code>-কে কত টাকা যোগ করবেন লিখুন:", parse_mode=ParseMode.HTML)
         return
 
     if data.startswith("adm_usr_dedbal_"):
         target_uid = int(data.split("_")[3])
         set_user_state(user_id, "ADMIN_WAITING_DEDBAL_AMT", {"target_uid": target_uid})
-        await query.message.reply_text(f"💸 ইউজার <code>{target_uid}</code>-এর অ্যাকাউন্ট থেকে কত টাকা কাটবেন লিখুন (যেমন: 50):", parse_mode=ParseMode.HTML)
+        await query.message.reply_text(f"💸 ইউজার <code>{target_uid}</code>-এর কত টাকা কাটবেন লিখুন:", parse_mode=ParseMode.HTML)
         return
 
-    # ==================== 6. DEPOSITS & ORDERS FULFILLMENT ====================
     if data == "adm_pending_deposits":
         conn = get_db()
         c = conn.cursor()
@@ -3832,21 +4236,8 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             await query.message.reply_text("✅ বর্তমানে কোনো পেন্ডিং ডিপোজিট নেই।")
             return
         for d in deps:
-            kb = InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton("✅ Approve", callback_data=f"adm_dep_approve_{d['id']}"),
-                    InlineKeyboardButton("❌ Reject", callback_data=f"adm_dep_reject_{d['id']}"),
-                ]
-            ])
-            await query.message.reply_text(
-                f"💳 <b>Deposit Request #{d['id']}</b>\n"
-                f"👤 ইউজার: {d['uname']} (ID: <code>{d['user_id']}</code>)\n"
-                f"💰 পরিমাণ: {d['amount']:.2f} BDT\n"
-                f"📱 মেথড: {d['method']}\n"
-                f"🔢 TrxID: <code>{d['trx_id']}</code>",
-                parse_mode=ParseMode.HTML,
-                reply_markup=kb,
-            )
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Approve", callback_data=f"adm_dep_approve_{d['id']}"), InlineKeyboardButton("❌ Reject", callback_data=f"adm_dep_reject_{d['id']}")]])
+            await query.message.reply_text(f"💳 <b>Deposit #{d['id']}</b>\n👤 {d['uname']} (<code>{d['user_id']}</code>)\n💰 {d['amount']:.2f} BDT ({d['method']})\n🔢 TrxID: <code>{d['trx_id']}</code>", parse_mode=ParseMode.HTML, reply_markup=kb)
         return
 
     if data.startswith("adm_dep_"):
@@ -3859,21 +4250,16 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         dep = c.fetchone()
         if not dep:
             conn.close()
-            await query.message.reply_text("❌ ডিপোজিট পাওয়া যায়নি।")
             return
-
         if action == "approve":
             c.execute("UPDATE deposits SET status = 'approved' WHERE id = ?", (dep_id,))
             c.execute("UPDATE users SET balance_bdt = balance_bdt + ? WHERE user_id = ?", (dep["amount"], dep["user_id"]))
             conn.commit()
             conn.close()
-            await query.edit_message_text(f"✅ ডিপোজিট #{dep_id} অনুমোদিত হয়েছে ({dep['amount']} BDT যুক্ত হয়েছে)।")
+            add_notification(dep["user_id"], "✅ Deposit Approved", f"+{dep['amount']:.2f} BDT added to your wallet!")
+            await query.edit_message_text(f"✅ ডিপোজিট #{dep_id} অনুমোদিত হয়েছে।")
             try:
-                await context.bot.send_message(
-                    chat_id=dep["user_id"],
-                    text=f"🎉 <b>ডিপোজিট সফল!</b>\nআপনার অ্যাকাউন্টে {dep['amount']:.2f} BDT যুক্ত হয়েছে।",
-                    parse_mode=ParseMode.HTML,
-                )
+                await context.bot.send_message(chat_id=dep["user_id"], text=f"🎉 <b>ডিপোজিট সফল!</b>\nআপনার অ্যাকাউন্টে {dep['amount']:.2f} BDT যুক্ত হয়েছে।", parse_mode=ParseMode.HTML)
             except Exception:
                 pass
         elif action == "reject":
@@ -3881,14 +4267,6 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             conn.commit()
             conn.close()
             await query.edit_message_text(f"❌ ডিপোজিট #{dep_id} বাতিল করা হয়েছে।")
-            try:
-                await context.bot.send_message(
-                    chat_id=dep["user_id"],
-                    text=f"❌ আপনার {dep['amount']:.2f} BDT ডিপোজিট রিকোয়েস্ট বাতিল করা হয়েছে।",
-                    parse_mode=ParseMode.HTML,
-                )
-            except Exception:
-                pass
         return
 
     if data == "adm_pending_orders":
@@ -3905,23 +4283,14 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
                 [InlineKeyboardButton(f"🚀 Deliver Order #{o['id']}", callback_data=f"adm_fulfill_{o['id']}")],
                 [InlineKeyboardButton(f"❌ Cancel & Refund #{o['id']}", callback_data=f"adm_refund_{o['id']}")]
             ])
-            await query.message.reply_text(
-                f"🛡️ <b>Pending Order #{o['id']}</b>\n"
-                f"🧾 Receipt: <code>{o['receipt_no']}</code>\n"
-                f"👤 ইউজার: {o['uname']} (ID: <code>{o['user_id']}</code>)\n"
-                f"📦 প্রোডাক্ট: {o['product_name']}\n"
-                f"🔢 পরিমাণ: {o['quantity']} টি\n"
-                f"💰 পরিশোধিত: {o['total_bdt']:.2f} BDT",
-                parse_mode=ParseMode.HTML,
-                reply_markup=kb,
-            )
+            await query.message.reply_text(f"🛡️ <b>Pending Order #{o['id']}</b>\n👤 {o['uname']} (<code>{o['user_id']}</code>)\n📦 {o['product_name']} (x{o['quantity']})\n💰 {o['total_bdt']:.2f} BDT", parse_mode=ParseMode.HTML, reply_markup=kb)
         return
 
     if data.startswith("adm_fulfill_"):
         order_id = int(data.split("_")[2])
         conn = get_db()
         c = conn.cursor()
-        c.execute("SELECT category_name, product_name FROM orders WHERE id = ?", (order_id,))
+        c.execute("SELECT category_name FROM orders WHERE id = ?", (order_id,))
         o_row = c.fetchone()
         conn.close()
         cat_n = (o_row["category_name"] if o_row else "").lower()
@@ -3951,107 +4320,38 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             c.execute("UPDATE orders SET status = 'refunded' WHERE id = ?", (order_id,))
             c.execute("UPDATE users SET balance_bdt = balance_bdt + ? WHERE user_id = ?", (o["total_bdt"], o["user_id"]))
             conn.commit()
-            conn.close()
-            await query.edit_message_text(f"❌ Order #{order_id} বাতিল করা হয়েছে এবং {o['total_bdt']:.2f} BDT ইউজারের অ্যাকাউন্টে রিফান্ড করা হয়েছে।")
-            try:
-                await context.bot.send_message(
-                    chat_id=o["user_id"],
-                    text=f"⚠️ আপনার Order #{order_id} বাতিল করা হয়েছে এবং {o['total_bdt']:.2f} BDT ব্যালেন্সে রিফান্ড করা হয়েছে।",
-                )
-            except Exception:
-                pass
-        else:
-            conn.close()
-            await query.message.reply_text("অর্ডার পাওয়া যায়নি।")
-        return
-
-    # Batch Stock Alert Broadcast Menu
-    if data == "adm_bcast_stock_menu":
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("""
-        SELECT p.name as prod_name, s.name as sub_name, p.price_bdt, COUNT(st.id) as cnt
-        FROM products p
-        JOIN subcategories s ON p.subcategory_id = s.id
-        JOIN stock st ON p.id = st.product_id AND st.is_sold = 0
-        GROUP BY p.id, s.name, p.name, p.price_bdt
-        HAVING COUNT(st.id) > 0
-        """)
-        rows = c.fetchall()
+            await query.edit_message_text(f"❌ Order #{order_id} বাতিল ও রিফান্ড করা হয়েছে।")
         conn.close()
-
-        if not rows:
-            await query.message.reply_text("⚠️ বর্তমানে কোনো স্টকে নতুন প্রোডাক্ট নেই। আগে স্টক যোগ করুন।")
-            return
-
-        lines = ["🔔 <b>NEW STOCK ALERT!</b> 🔔", "────────────────────────"]
-        for r in rows:
-            lines.append(f"• <b>{r['sub_name']} {r['prod_name']}</b> — {r['cnt']} টি স্টকে আছে (দাম: {format_price(r['price_bdt'])} Tk)")
-        lines.append("────────────────────────")
-        lines.append("🛍️ দ্রুত কেনাকাটা করতে নিচে /start দিয়ে শপ ওপেন করুন!")
-        alert_preview = "\n".join(lines)
-
-        set_user_state(user_id, "ADMIN_CONFIRM_BCAST_TEXT", {"msg": alert_preview})
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🚀 Send This Alert to All Users", callback_data="adm_bcast_execute_now")],
-            [InlineKeyboardButton("< Cancel", callback_data="adm_root")],
-        ])
-        await query.message.reply_text(f"📢 <b>ইউজারদের কাছে এই নোটিশটি যাবে:</b>\n\n{alert_preview}", parse_mode=ParseMode.HTML, reply_markup=kb)
         return
 
-    if data == "adm_bcast_execute_now":
-        state, sdata = get_user_state(user_id)
-        alert_text = sdata.get("msg", "")
-        set_user_state(user_id, None)
-
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("SELECT user_id FROM users")
-        all_u = [r["user_id"] for r in c.fetchall()]
-        conn.close()
-
-        sent = 0
-        for uid in all_u:
-            try:
-                await context.bot.send_message(chat_id=uid, text=alert_text, parse_mode=ParseMode.HTML)
-                sent += 1
-            except Exception:
-                pass
-        await query.message.reply_text(f"✅ সফলভাবে <b>{sent}</b> জন ইউজারের কাছে Stock Alert পৌঁছে দেওয়া হয়েছে!", parse_mode=ParseMode.HTML)
-        return
-
-    # Statistics
     if data == "adm_statistics":
         conn = get_db()
         c = conn.cursor()
-        c.execute("SELECT COUNT(*) as total_users, SUM(balance_bdt) as total_bal FROM users")
+        c.execute("SELECT COUNT(*) as total_users, COALESCE(SUM(balance_bdt), 0) as total_bal FROM users")
         u_stat = c.fetchone()
-        c.execute("SELECT COUNT(*) as total_orders, SUM(total_bdt) as total_rev FROM orders WHERE status = 'completed'")
+        c.execute("SELECT COUNT(*) as total_orders, COALESCE(SUM(total_bdt), 0) as total_rev FROM orders WHERE status = 'completed'")
         o_stat = c.fetchone()
         conn.close()
 
-        rev = o_stat["total_rev"] or 0.0
-        bal = u_stat["total_bal"] or 0.0
         stat_text = (
             f"📊 <b>শপ সার্বিক পরিসংখ্যান</b>\n"
             f"─────────────────────────────\n"
-            f"👥 মোট রেজিস্টার্ড ইউজার: <b>{u_stat['total_users']}</b> জন\n"
+            f"👥 মোট ইউজার: <b>{u_stat['total_users']}</b> জন\n"
             f"🛍️ মোট সফল অর্ডার: <b>{o_stat['total_orders']}</b> টি\n"
-            f"💰 মোট বিক্রয় আয়: <b>{rev:.2f} BDT</b>\n"
-            f"💳 ইউজারদের কাছে বর্তমান মোট ব্যালেন্স: <b>{bal:.2f} BDT</b>"
+            f"💰 মোট বিক্রয় আয়: <b>{o_stat['total_rev']:.2f} BDT</b>\n"
+            f"💳 ইউজার ব্যালেন্স: <b>{u_stat['total_bal']:.2f} BDT</b>"
         )
         await query.message.reply_text(stat_text, parse_mode=ParseMode.HTML)
         return
 
 # ------------------------------------------------------------------------------
-# 10. TEXT, PHOTO & DOCUMENT ROUTER (STATE MACHINE)
+# 11. TEXT, PHOTO & DOCUMENT ROUTER (STATE MACHINE)
 # ------------------------------------------------------------------------------
 async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     text = update.message.text.strip()
     state, sdata = get_user_state(user.id)
 
-    # Main Persistent Reply Keyboard Routing
     if text == "🛍️ Buy Products":
         await buy_products_menu_handler(update, context)
         return
@@ -4072,64 +4372,15 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             await admin_panel_menu_handler(update, context)
         return
 
-    # 1. User Deposit Flow: Instant Auto Payment Handler
-    if state == "WAITING_DEP_AMOUNT_INSTANT":
-        min_ins = float(get_setting("min_deposit_instant", "100.0"))
-        try:
-            amt = float(text)
-            if amt < min_ins:
-                await update.message.reply_text(
-                    f"❌ <b>ইনস্ট্যান্ট পেমেন্টে সর্বনিম্ন ডিপোজিট হলো {min_ins:.0f} টাকা।</b>\n"
-                    f"{min_ins:.0f} বা তার বেশি টাকার পরিমাণ লিখুন:",
-                    parse_mode=ParseMode.HTML,
-                )
-                return
-        except ValueError:
-            await update.message.reply_text("দয়া করে সঠিক সংখ্যায় টাকার পরিমাণ লিখুন (যেমন: 100):")
-            return
-
-        bot_info = await context.bot.get_me()
-        await update.message.reply_text("⏳ আপনার সিকিউর পেমেন্ট লিংক তৈরি করা হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...")
-        charge_res = create_paymently_charge(amt, user.id, user.full_name, bot_info.username)
-
-        if charge_res and charge_res.get("status") and charge_res.get("payment_url"):
-            pay_url = charge_res["payment_url"]
-            inv_id = charge_res.get("invoice_id", "")
-            set_user_state(user.id, None)
-
-            txt = (
-                f"💳 <b>ইনস্ট্যান্ট অটো পেমেন্ট (bKash / Nagad)</b>\n"
-                f"─────────────────────────────\n"
-                f"💰 <b>ডিপোজিট পরিমাণ:</b> <b>{amt:.2f} BDT</b>\n"
-                f"🧾 <b>ইনভয়েস আইডি:</b> <code>{inv_id}</code>\n\n"
-                f"📌 নিচের <b>Pay Now</b> বাটনে চাপ দিয়ে বিকাশ বা নগদে পেমেন্ট সম্পন্ন করুন।\n"
-                f"পেমেন্ট শেষ হওয়ামাত্র কোনো TrxID দেওয়া ছাড়াই একা একা ব্যালেন্স যুক্ত হয়ে যাবে!\n\n"
-                f"<i>(পেমেন্ট শেষে অটো যোগ না হলে 'Check Payment Status' বাটনে চাপ দিন)</i>"
-            )
-            kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("💳 Pay Now (বিকাশ / নগদ)", url=pay_url)],
-                [InlineKeyboardButton("🔄 Check Payment Status", callback_data=f"usr_checkpay_{inv_id}_{amt}")],
-                [InlineKeyboardButton("< Cancel", callback_data="usr_root_cats")]
-            ])
-            await update.message.reply_text(txt, parse_mode=ParseMode.HTML, reply_markup=kb)
-        else:
-            await update.message.reply_text("⚠️ গেটওয়ে সার্ভারে সাময়িক সমস্যা হচ্ছে। দয়া করে Manual Send Money অপশনটি ব্যবহার করুন।")
-        return
-
-    # 2. User Deposit Flow: Manual Send Money Handler
     if state == "WAITING_DEP_AMOUNT_MANUAL":
         min_man = float(get_setting("min_deposit_manual", "20.0"))
         try:
             amt = float(text)
             if amt < min_man:
-                await update.message.reply_text(
-                    f"❌ <b>ম্যানুয়াল সেন্ড মানিতে সর্বনিম্ন ডিপোজিট হলো {min_man:.0f} টাকা।</b>\n"
-                    f"{min_man:.0f} বা তার বেশি টাকার পরিমাণ লিখুন:",
-                    parse_mode=ParseMode.HTML,
-                )
+                await update.message.reply_text(f"❌ সর্বনিম্ন ডিপোজিট হলো <b>{min_man:.0f} টাকা</b>। আবার লিখুন:", parse_mode=ParseMode.HTML)
                 return
         except ValueError:
-            await update.message.reply_text("দয়া করে সঠিক সংখ্যায় টাকার পরিমাণ লিখুন (যেমন: 20 বা 50):")
+            await update.message.reply_text("দয়া করে সঠিক সংখ্যায় টাকার পরিমাণ লিখুন:")
             return
 
         set_user_state(user.id, "WAITING_DEP_TRX", {"amount": amt})
@@ -4138,8 +4389,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             [InlineKeyboardButton("💎 Binance", callback_data="usr_dep_method_Binance")],
         ])
         await update.message.reply_text(
-            f"✅ আপনি <b>{amt:.2f} BDT</b> ম্যানুয়াল ডিপোজিট করতে চেয়েছেন।\n\n"
-            f"নিচের কোন মাধ্যমে সেন্ড মানি করবেন সিলেক্ট করুন:",
+            f"✅ আপনি <b>{amt:.2f} BDT</b> ডিপোজিট করতে চেয়েছেন।\n\nনিচের কোন মাধ্যমে সেন্ড মানি করবেন সিলেক্ট করুন:",
             parse_mode=ParseMode.HTML,
             reply_markup=kb,
         )
@@ -4162,33 +4412,17 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         conn.close()
 
         set_user_state(user.id, None)
+        add_notification(user.id, "💳 Deposit Submitted", f"{method} {amount:.2f} BDT (TrxID: {trx}) is pending approval.")
         await update.message.reply_text(
-            f"✅ <b>ডিপোজিট রিকোয়েস্ট সাবমিটেড!</b>\n\n"
-            f"আইডি: #{dep_id}\n"
-            f"মেথড: {method}\n"
-            f"পরিমাণ: {amount:.2f} BDT\n"
-            f"TrxID: <code>{trx}</code>\n\n"
-            f"এডমিন ভেরিফিকেশনের পর ব্যালেন্স যোগ হবে।",
+            f"✅ <b>ডিপোজিট রিকোয়েস্ট সাবমিটেড!</b>\n\nআইডি: #{dep_id} | মেথড: {method}\nপরিমাণ: {amount:.2f} BDT | TrxID: <code>{trx}</code>",
             parse_mode=ParseMode.HTML,
         )
 
-        adm_kb = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("✅ Approve", callback_data=f"adm_dep_approve_{dep_id}"),
-                InlineKeyboardButton("❌ Reject", callback_data=f"adm_dep_reject_{dep_id}"),
-            ]
-        ])
+        adm_kb = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Approve", callback_data=f"adm_dep_approve_{dep_id}"), InlineKeyboardButton("❌ Reject", callback_data=f"adm_dep_reject_{dep_id}")]])
         try:
             await context.bot.send_message(
                 chat_id=SUPER_ADMIN_ID,
-                text=(
-                    f"🔔 <b>নতুন ডিপোজিট রিকোয়েস্ট!</b>\n\n"
-                    f"আইডি: #{dep_id}\n"
-                    f"👤 ইউজার: {user.full_name} (ID: <code>{user.id}</code>)\n"
-                    f"📱 মেথড: {method}\n"
-                    f"💰 পরিমাণ: {amount:.2f} BDT\n"
-                    f"🔢 TrxID: <code>{trx}</code>"
-                ),
+                text=f"🔔 <b>নতুন ডিপোজিট রিকোয়েস্ট #{dep_id}</b>\n👤 {user.full_name} (<code>{user.id}</code>)\n📱 {method} | 💰 {amount:.2f} BDT\n🔢 TrxID: <code>{trx}</code>",
                 parse_mode=ParseMode.HTML,
                 reply_markup=adm_kb,
             )
@@ -4196,7 +4430,6 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             pass
         return
 
-    # 2. 2FA Secret Key Generator
     if state == "WAITING_2FA_KEY":
         secret = text.replace(" ", "").strip()
         try:
@@ -4204,55 +4437,30 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             code_2fa = totp.now()
             time_remaining = 30 - (int(time.time()) % 30)
             set_user_state(user.id, None)
-            res_text = (
-                f"🔑 <b>2FA Live Code</b>\n\n"
-                f"🔢 কোড: <code>{code_2fa}</code> (ক্লিক করে কপি করুন)\n"
-                f"⏳ মেয়াদ বাকি: <b>{time_remaining} সেকেন্ড</b>\n\n"
-                f"📌 <i>প্রতি ৩০ সেকেন্ড পর পর কোড পরিবর্তিত হবে।</i>"
+            await update.message.reply_text(
+                f"🔑 <b>2FA Live Code</b>\n\n🔢 কোড: <code>{code_2fa}</code>\n⏳ মেয়াদ বাকি: <b>{time_remaining} সেকেন্ড</b>",
+                parse_mode=ParseMode.HTML,
             )
-            await update.message.reply_text(res_text, parse_mode=ParseMode.HTML)
         except Exception:
             await update.message.reply_text("❌ অবৈধ 2FA Secret Key! দয়া করে সঠিক কি দিন।")
         return
 
-    # Interactive Calculator Custom Quantity
     if state == "WAITING_CALC_CUSTOM_QTY":
         try:
             qty = int(text)
             if qty <= 0:
                 raise ValueError
         except ValueError:
-            await update.message.reply_text("দয়া করে সঠিক সংখ্যা লিখুন (যেমন: 5 বা 20):")
+            await update.message.reply_text("দয়া করে সঠিক সংখ্যা লিখুন:")
             return
         prod_id = sdata.get("prod_id")
         set_user_state(user.id, None)
         await render_purchase_summary(update.message, prod_id, quantity=qty, edit=False)
         return
 
-    # 3. Custom Quantity
-    if state == "WAITING_CUSTOM_QTY":
-        try:
-            qty = int(text)
-            if qty <= 0:
-                raise ValueError
-        except ValueError:
-            await update.message.reply_text("দয়া করে সঠিক সংখ্যা লিখুন (যেমন: 15):")
-            return
-        prod_id = sdata.get("prod_id")
-        set_user_state(user.id, None)
-        class MockQuery:
-            def __init__(self, msg, u):
-                self.message = msg
-                self.from_user = u
-                self.bot = context.bot
-        await process_order(MockQuery(update.message, user), prod_id, qty)
-        return
-
-    # 4. Admin Action States
     if not is_admin(user.id):
         return
 
-    # Stock Text Upload
     if state == "ADMIN_WAITING_STOCK_INPUT":
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         prod_id = sdata.get("prod_id")
@@ -4266,10 +4474,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             total_now = c.fetchone()["cnt"]
             conn.close()
             set_user_state(user.id, None)
-            await update.message.reply_text(
-                f"✅ সফলভাবে <b>{len(lines)}</b> টি স্টক যুক্ত হয়েছে!\nবর্তমানে মোট স্টক: <b>{total_now}</b> টি।",
-                parse_mode=ParseMode.HTML,
-            )
+            await update.message.reply_text(f"✅ সফলভাবে <b>{len(lines)}</b> টি স্টক যুক্ত হয়েছে! মোট স্টক: <b>{total_now}</b> টি।", parse_mode=ParseMode.HTML)
         return
 
     if state == "ADMIN_WAITING_VPN_EMAIL":
@@ -4311,7 +4516,6 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             await update.message.reply_text("অর্ডার পাওয়া যায়নি।")
         return
 
-    # Manual Order Fulfillment
     if state == "ADMIN_WAITING_MANUAL_DELIVERY":
         order_id = sdata.get("order_id")
         conn = get_db()
@@ -4323,8 +4527,8 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             conn.commit()
             conn.close()
             set_user_state(user.id, None)
-            await update.message.reply_text(f"✅ Order #{order_id} সফলভাবে ইউজারের কাছে ডেলিভারি পাঠানো হয়েছে।")
-
+            add_notification(order["user_id"], "✅ Order Delivered!", f"Order #{order_id} ({order['product_name']}) has been delivered.")
+            await update.message.reply_text(f"✅ Order #{order_id} সফলভাবে কাস্টমারকে ডেলিভারি পাঠানো হয়েছে।")
             user_msg = format_credentials_card([text], order['product_name'], order['category_name'])
             if order["image_file_id"]:
                 try:
@@ -4335,7 +4539,6 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             await context.bot.send_message(chat_id=order["user_id"], text=user_msg, parse_mode=ParseMode.HTML)
         else:
             conn.close()
-            await update.message.reply_text("অর্ডার পাওয়া যায়নি।")
         return
 
     if state == "ADMIN_WAITING_WGRP_ID":
@@ -4362,34 +4565,33 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(f"✅ Transaction Channel Link সেভ হয়েছে: {text.strip()}")
         return
 
-    # Custom Transaction Multi-Step State Handlers
     if state == "ADMIN_WAITING_CUSTOM_TX_NAME":
         set_user_state(user.id, "ADMIN_WAITING_CUSTOM_TX_PROD", {"cname": text})
-        await update.message.reply_text("📦 <b>কাস্টম ট্রানজ্যাকশন (ধাপ ২/৪):</b>\nপ্রোডাক্টের নাম লিখুন (যেমন: <code>Rapid Proxy (100 MB)</code>):", parse_mode=ParseMode.HTML)
+        await update.message.reply_text("📦 <b>(ধাপ ২/৪):</b> প্রোডাক্টের নাম লিখুন:", parse_mode=ParseMode.HTML)
         return
 
     if state == "ADMIN_WAITING_CUSTOM_TX_PROD":
         sdata["pname"] = text
         set_user_state(user.id, "ADMIN_WAITING_CUSTOM_TX_QTY", sdata)
-        await update.message.reply_text("🔢 <b>কাস্টম ট্রানজ্যাকশন (ধাপ ৩/৪):</b>\nপরিমাণ (Quantity) লিখুন (যেমন: <code>5</code>):", parse_mode=ParseMode.HTML)
+        await update.message.reply_text("🔢 <b>(ধাপ ৩/৪):</b> পরিমাণ (Quantity) লিখুন:", parse_mode=ParseMode.HTML)
         return
 
     if state == "ADMIN_WAITING_CUSTOM_TX_QTY":
         try:
             qty = int(text.strip())
         except ValueError:
-            await update.message.reply_text("সঠিক সংখ্যায় পরিমাণ লিখুন (যেমন: 1, 5, 10):")
+            await update.message.reply_text("সঠিক সংখ্যা লিখুন:")
             return
         sdata["qty"] = qty
         set_user_state(user.id, "ADMIN_WAITING_CUSTOM_TX_PRICE", sdata)
-        await update.message.reply_text("💰 <b>কাস্টম ট্রানজ্যাকশন (ধাপ ৪/৪):</b>\nমোট মূল্য (BDT) লিখুন (যেমন: <code>60.00</code>):", parse_mode=ParseMode.HTML)
+        await update.message.reply_text("💰 <b>(ধাপ ৪/৪):</b> মোট মূল্য (BDT) লিখুন:", parse_mode=ParseMode.HTML)
         return
 
     if state == "ADMIN_WAITING_CUSTOM_TX_PRICE":
         try:
             price = float(text.strip())
         except ValueError:
-            await update.message.reply_text("সঠিক সংখ্যায় মূল্য লিখুন (যেমন: 60 বা 120.50):")
+            await update.message.reply_text("সঠিক সংখ্যা লিখুন:")
             return
         cname = sdata.get("cname", "Customer")
         pname = sdata.get("pname", "VPN")
@@ -4399,24 +4601,18 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         set_user_state(user.id, None)
         ok, err = await post_transaction_to_channel(context.bot, fake_receipt, cname, fake_uid, pname, qty, price)
         if ok:
-            await update.message.reply_text(f"✅ কাস্টম ট্রানজ্যাকশন (<code>{fake_receipt}</code>) সফলভাবে চ্যানেলে পাঠানো হয়েছে!", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(f"✅ কাস্টম ট্রানজ্যাকশন (<code>{fake_receipt}</code>) চ্যানেলে পাঠানো হয়েছে!", parse_mode=ParseMode.HTML)
         else:
-            await update.message.reply_text(
-                f"❌ <b>চ্যানেলে কাস্টম ট্রানজ্যাকশন পাঠানো যায়নি!</b>\n"
-                f"📌 <b>চ্যানেল আইডি:</b> <code>{get_transaction_channel_id()}</code>\n"
-                f"⚠️ <b>কারণ:</b> <code>{err}</code>",
-                parse_mode=ParseMode.HTML,
-            )
+            await update.message.reply_text(f"❌ পাঠানো যায়নি: <code>{err}</code>", parse_mode=ParseMode.HTML)
         return
 
-    # Broadcast Message & Optional Button Handler
     if state == "ADMIN_WAITING_BCAST_MSG":
         set_user_state(user.id, "ADMIN_WAITING_BCAST_BTN_CHOICE", {"msg_text": text, "photo_id": None})
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("➕ বাটন যুক্ত করুন (Add Button)", callback_data="adm_bcast_add_btn")],
-            [InlineKeyboardButton("🚀 বাটন ছাড়াই পাঠান (Send Now)", callback_data="adm_bcast_skip_btn")],
+            [InlineKeyboardButton("✅ হ্যাঁ (বাটন যোগ করব)", callback_data="adm_bcast_add_btn")],
+            [InlineKeyboardButton("❌ না (বাটন ছাড়াই পাঠাব)", callback_data="adm_bcast_skip_btn")],
         ])
-        await update.message.reply_text("👇 এই মেসেজের নিচে কি কোনো লিংক-বাটন যুক্ত করতে চান?", reply_markup=kb)
+        await update.message.reply_text("👇 আপনি কি মেসেজের নিচে লিংক-বাটন অ্যাড করতে চান?", reply_markup=kb)
         return
 
     if state == "ADMIN_WAITING_BCAST_BTN_COUNT":
@@ -4425,7 +4621,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             if cnt < 1 or cnt > 10:
                 raise ValueError()
         except Exception:
-            await update.message.reply_text("❌ দয়া করে ১ থেকে ১০-এর মধ্যে একটি সংখ্যা লিখুন:")
+            await update.message.reply_text("❌ ১ থেকে ১০-এর মধ্যে একটি সংখ্যা লিখুন:")
             return
         sdata["btn_count"] = cnt
         sdata["buttons"] = []
@@ -4439,8 +4635,8 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         sdata["cur_btn_name"] = text.strip()
         set_user_state(user.id, "ADMIN_WAITING_BCAST_BTN_URL", sdata)
         await update.message.reply_text(
-            f"✅ <b>[{idx}/{cnt}] বাটনের নাম গ্রহণ করা হয়েছে!</b>\n"
-            f"🔗 এবার এই বাটনের <b>লিংক (https://...)</b> দিন:",
+            f"✅ <b>[{idx}/{cnt}] বাটন গ্রহণ করা হয়েছে!</b>\n"
+            f"🔗 এবার এই বাটনের নিচে কোন <b>লিংক (https://...)</b> যাবে তা দিন:",
             parse_mode=ParseMode.HTML,
         )
         return
@@ -4459,7 +4655,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             set_user_state(user.id, "ADMIN_WAITING_BCAST_BTN_NAME", sdata)
             await update.message.reply_text(
                 f"✅ <b>[{len(btns)}/{cnt}]</b> বাটন সম্পন্ন হয়েছে!\n"
-                f"✏️ এবার <b>[বাটন {nxt}/{cnt}]</b>-এর <b>নাম</b> লিখে পাঠান:",
+                f"✏️ এবার <b>[{nxt}/{cnt}] বাটনের নাম</b> লিখে পাঠান:",
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -4467,63 +4663,30 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         set_user_state(user.id, None)
         return
 
-    # Admin Receipt Lookup Code Input
     if state == "ADMIN_WAITING_RECEIPT_CODE":
         set_user_state(user.id, None)
         rcode = text.strip().upper()
         if not rcode.startswith("RCP-") and len(rcode) == 10:
             rcode = f"RCP-{rcode}"
-        
         conn = get_db()
         c = conn.cursor()
-        c.execute("""
-        SELECT o.*, u.name as uname, u.username as u_username
-        FROM orders o
-        JOIN users u ON o.user_id = u.user_id
-        WHERE o.receipt_no = ? OR o.receipt_no LIKE ?
-        LIMIT 1
-        """, (rcode, f"%{rcode}%"))
+        c.execute("SELECT o.*, u.name as uname, u.username as u_username FROM orders o JOIN users u ON o.user_id = u.user_id WHERE o.receipt_no LIKE ? LIMIT 1", (f"%{rcode}%",))
         o = c.fetchone()
         conn.close()
-
         if not o:
-            await update.message.reply_text(f"❌ রিসিট কোড <code>{rcode}</code>-এর কোনো অর্ডার পাওয়া যায়নি।", parse_mode=ParseMode.HTML)
+            await update.message.reply_text("❌ রিসিট পাওয়া যায়নি।")
             return
-
         bot_info = await context.bot.get_me()
-        try:
-            pdf_bio = generate_pdf_receipt(
-                receipt_no=o["receipt_no"],
-                date_str=o["order_date"],
-                day_name=o["day_of_week"] or "N/A",
-                customer_name=o["uname"],
-                telegram_id=o["user_id"],
-                username=o["u_username"] or "",
-                item_desc=o["product_name"],
-                category_name=o["category_name"] or "DIGITAL",
-                qty=o["quantity"],
-                unit_price=o["unit_price"] or o["total_bdt"],
-                total_bdt=o["total_bdt"],
-                bot_username=bot_info.username,
-            )
-            caption = (
-                f"🧾 <b>Official Payment Receipt Found:</b> <code>{o['receipt_no']}</code>\n"
-                f"👤 কাস্টমার: {o['uname']} (ID: <code>{o['user_id']}</code>)\n"
-                f"📦 প্রোডাক্ট: {o['product_name']}\n"
-                f"🔢 পরিমাণ: {o['quantity']} টি | মূল্য: {o['total_bdt']:.2f} BDT\n"
-                f"📅 তারিখ: {o['order_date']}"
-            )
-            await update.message.reply_document(
-                document=InputFile(pdf_bio, filename=f"Receipt_{o['receipt_no']}.pdf"),
-                caption=caption,
-                parse_mode=ParseMode.HTML,
-            )
-        except Exception as e:
-            logger.error(f"Error generating receipt for admin: {e}")
-            await update.message.reply_text(f"❌ রিসিট তৈরি করতে সমস্যা হয়েছে: {e}")
+        pdf_bio = generate_pdf_receipt(
+            receipt_no=o["receipt_no"], date_str=o["order_date"], day_name=o["day_of_week"] or "N/A",
+            customer_name=o["uname"], telegram_id=o["user_id"], username=o["u_username"] or "",
+            item_desc=o["product_name"], category_name=o["category_name"] or "DIGITAL",
+            qty=o["quantity"], unit_price=o["unit_price"] or o["total_bdt"], total_bdt=o["total_bdt"],
+            bot_username=bot_info.username,
+        )
+        await update.message.reply_document(document=InputFile(pdf_bio, filename=f"Receipt_{o['receipt_no']}.pdf"), caption=f"🧾 <code>{o['receipt_no']}</code>", parse_mode=ParseMode.HTML)
         return
 
-    # Rename Subcategory / Brand
     if state == "ADMIN_WAITING_REN_SUB":
         sub_id = sdata.get("sub_id")
         conn = get_db()
@@ -4532,10 +4695,9 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         conn.commit()
         conn.close()
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ ব্র্যান্ডের নাম সফলভাবে পরিবর্তন হয়েছে: <b>{text}</b>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(f"✅ ব্র্যান্ডের নাম পরিবর্তন হয়েছে: <b>{text}</b>", parse_mode=ParseMode.HTML)
         return
 
-    # Rename Category
     if state == "ADMIN_WAITING_REN_CAT":
         cat_id = sdata.get("cat_id")
         conn = get_db()
@@ -4544,10 +4706,9 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         conn.commit()
         conn.close()
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ ক্যাটাগরির নাম সফলভাবে পরিবর্তন হয়েছে: <b>{text}</b>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(f"✅ ক্যাটাগরির নাম পরিবর্তন হয়েছে: <b>{text}</b>", parse_mode=ParseMode.HTML)
         return
 
-    # Add Category
     if state == "ADMIN_WAITING_NEW_CAT_NAME":
         conn = get_db()
         c = conn.cursor()
@@ -4555,10 +4716,9 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         conn.commit()
         conn.close()
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ নতুন ক্যাটাগরি <b>{text}</b> তৈরি সম্পন্ন হয়েছে!", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(f"✅ নতুন ক্যাটাগরি <b>{text}</b> তৈরি হয়েছে!", parse_mode=ParseMode.HTML)
         return
 
-    # Add Subcategory / Brand
     if state == "ADMIN_WAITING_NEW_SUB_NAME":
         cat_id = sdata.get("cat_id")
         conn = get_db()
@@ -4567,55 +4727,34 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         conn.commit()
         conn.close()
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ নতুন ব্র্যান্ড/সেকশন <b>{text}</b> সফলভাবে তৈরি হয়েছে!", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(f"✅ নতুন ব্র্যান্ড <b>{text}</b> তৈরি হয়েছে!", parse_mode=ParseMode.HTML)
         return
 
-    # Add Variant Name -> Prompt Price
     if state == "ADMIN_WAITING_ADDPROD_NAME":
         sdata["name"] = text
         set_user_state(user.id, "ADMIN_WAITING_ADDPROD_PRICE", sdata)
-        await update.message.reply_text(
-            f"মেয়াদ/প্যাকেজের নাম: <b>{text}</b>\n\n"
-            f"এবার এর প্রতি পিসের BDT দাম লিখুন (যেমন: 0.87 বা 0.65 বা 15 — ১ টাকার নিচের দশমিক সংখ্যাও দিতে পারবেন):",
-            parse_mode=ParseMode.HTML,
-        )
+        await update.message.reply_text(f"এবার <b>{text}</b>-এর BDT দাম লিখুন:", parse_mode=ParseMode.HTML)
         return
 
     if state == "ADMIN_WAITING_ADDPROD_PRICE":
         try:
             price_bdt = float(text)
         except ValueError:
-            await update.message.reply_text("দয়া করে সঠিক সংখ্যা লিখুন (যেমন: 25):")
+            await update.message.reply_text("সঠিক সংখ্যা লিখুন:")
             return
         sub_id = sdata.get("sub_id")
         p_name = sdata.get("name")
         rate = float(get_setting("usdt_rate", "125.0"))
         price_usdt = price_bdt / rate if rate > 0 else 0.0
-
         conn = get_db()
         c = conn.cursor()
-        c.execute("SELECT c.name as cat_name FROM subcategories s JOIN categories c ON s.category_id = c.id WHERE s.id = ?", (sub_id,))
-        row = c.fetchone()
-        is_vpn = bool(row and "VPN" in row["cat_name"].upper())
-        is_on_demand = 1 if is_vpn else 0
-
-        c.execute(
-            "INSERT INTO products (subcategory_id, name, price_bdt, price_usdt, is_on_demand) VALUES (?, ?, ?, ?, ?)",
-            (sub_id, p_name, price_bdt, price_usdt, is_on_demand),
-        )
+        c.execute("INSERT INTO products (subcategory_id, name, price_bdt, price_usdt, is_on_demand) VALUES (?, ?, ?, ?, 0)", (sub_id, p_name, price_bdt, price_usdt))
         conn.commit()
         conn.close()
-
         set_user_state(user.id, None)
-        await update.message.reply_text(
-            f"🎉 <b>নতুন ভ্যারিয়েন্ট সফলভাবে তৈরি হয়েছে!</b>\n\n"
-            f"📦 নাম: {p_name}\n"
-            f"💰 দাম: {price_bdt:.2f} BDT ({price_usdt:.4f} USDT)",
-            parse_mode=ParseMode.HTML,
-        )
+        await update.message.reply_text(f"✅ নতুন ভ্যারিয়েন্ট <b>{p_name}</b> ({price_bdt:.2f} BDT) যুক্ত হয়েছে!", parse_mode=ParseMode.HTML)
         return
 
-    # Edit Description
     if state == "ADMIN_WAITING_DESC":
         prod_id = sdata.get("prod_id")
         conn = get_db()
@@ -4624,10 +4763,9 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         conn.commit()
         conn.close()
         set_user_state(user.id, None)
-        await update.message.reply_text("✅ এই প্রোডাক্টটির কাস্টম বিবরণ সফলভাবে সেভ করা হয়েছে!")
+        await update.message.reply_text("✅ কাস্টম বিবরণ সেভ হয়েছে!")
         return
 
-    # Edit Price
     if state == "ADMIN_WAITING_PRICE":
         try:
             p_bdt = float(text)
@@ -4640,12 +4778,11 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             conn.commit()
             conn.close()
             set_user_state(user.id, None)
-            await update.message.reply_text(f"✅ নতুন দাম সফলভাবে সেট হয়েছে: {p_bdt:.2f} BDT ({p_usdt:.4f} USDT)")
+            await update.message.reply_text(f"✅ নতুন দাম সেট হয়েছে: {p_bdt:.2f} BDT")
         except ValueError:
-            await update.message.reply_text("দয়া করে সঠিক সংখ্যা লিখুন:")
+            await update.message.reply_text("সঠিক সংখ্যা লিখুন:")
         return
 
-    # Rename Variant
     if state == "ADMIN_WAITING_NAME":
         prod_id = sdata.get("prod_id")
         conn = get_db()
@@ -4654,50 +4791,35 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         conn.commit()
         conn.close()
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ ভ্যারিয়েন্টের নাম পরিবর্তন হয়েছে: {text}")
+        await update.message.reply_text(f"✅ নাম পরিবর্তন হয়েছে: {text}")
         return
 
-    # Edit Payment Settings
     if state == "ADMIN_WAITING_BKASH":
         set_setting("bkash_number", text)
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ নতুন বিকাশ নাম্বার সেট হয়েছে: <code>{text}</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text("✅ বিকাশ নাম্বার সেট হয়েছে।")
         return
 
     if state == "ADMIN_WAITING_NAGAD":
         set_setting("nagad_number", text)
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ নতুন নগদ নাম্বার সেট হয়েছে: <code>{text}</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text("✅ নগদ নাম্বার সেট হয়েছে।")
         return
 
     if state == "ADMIN_WAITING_BINANCE":
         set_setting("binance_id", text)
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ নতুন বাইনান্স তথ্য সেট হয়েছে: <code>{text}</code>", parse_mode=ParseMode.HTML)
-        return
-
-    if state == "ADMIN_WAITING_MINDEP_INSTANT":
-        try:
-            new_min = float(text)
-            if new_min < 0:
-                raise ValueError
-            set_setting("min_deposit_instant", str(new_min))
-            set_user_state(user.id, None)
-            await update.message.reply_text(f"✅ ইনস্ট্যান্ট অটো পেমেন্টে সর্বনিম্ন ডিপোজিট সীমা সেট হয়েছে: <b>{new_min:.0f} BDT</b>", parse_mode=ParseMode.HTML)
-        except ValueError:
-            await update.message.reply_text("দয়া করে সঠিক সংখ্যা লিখুন (যেমন: 100):")
+        await update.message.reply_text("✅ বাইনান্স তথ্য সেট হয়েছে।")
         return
 
     if state == "ADMIN_WAITING_MINDEP_MANUAL":
         try:
             new_min = float(text)
-            if new_min < 0:
-                raise ValueError
             set_setting("min_deposit_manual", str(new_min))
             set_user_state(user.id, None)
-            await update.message.reply_text(f"✅ ম্যানুয়াল সেন্ড মানিতে সর্বনিম্ন ডিপোজিট সীমা সেট হয়েছে: <b>{new_min:.0f} BDT</b>", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(f"✅ সর্বনিম্ন ডিপোজিট সেট হয়েছে: {new_min:.0f} BDT")
         except ValueError:
-            await update.message.reply_text("দয়া করে সঠিক সংখ্যা লিখুন (যেমন: 20):")
+            await update.message.reply_text("সঠিক সংখ্যা লিখুন:")
         return
 
     if state == "ADMIN_WAITING_RATE":
@@ -4705,17 +4827,15 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             new_rate = float(text)
             set_setting("usdt_rate", str(new_rate))
             set_user_state(user.id, None)
-            await update.message.reply_text(f"✅ নতুন ডলার রেট সেট হয়েছে: 1 USDT = {new_rate} BDT")
+            await update.message.reply_text(f"✅ নতুন রেট: {new_rate}")
         except ValueError:
-            await update.message.reply_text("দয়া করে সঠিক সংখ্যা লিখুন:")
+            await update.message.reply_text("সঠিক সংখ্যা লিখুন:")
         return
 
-    # Balance Add / Deduct
     if state == "ADMIN_WAITING_ADDBAL_AMT":
         try:
             amt = float(text)
         except ValueError:
-            await update.message.reply_text("দয়া করে সঠিক সংখ্যা লিখুন:")
             return
         t_id = sdata.get("target_uid")
         conn = get_db()
@@ -4724,18 +4844,13 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         conn.commit()
         conn.close()
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ ইউজার <code>{t_id}</code>-এর অ্যাকাউন্টে <b>{amt:.2f} BDT</b> যোগ করা হয়েছে!", parse_mode=ParseMode.HTML)
-        try:
-            await context.bot.send_message(chat_id=t_id, text=f"🎉 আপনার অ্যাকাউন্টে {amt:.2f} BDT এডমিন কর্তৃক যোগ করা হয়েছে!")
-        except Exception:
-            pass
+        await update.message.reply_text(f"✅ <code>{t_id}</code>-কে {amt:.2f} BDT যোগ করা হয়েছে!", parse_mode=ParseMode.HTML)
         return
 
     if state == "ADMIN_WAITING_DEDBAL_AMT":
         try:
             amt = float(text)
         except ValueError:
-            await update.message.reply_text("দয়া করে সঠিক সংখ্যা লিখুন:")
             return
         t_id = sdata.get("target_uid")
         conn = get_db()
@@ -4744,7 +4859,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         conn.commit()
         conn.close()
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ ইউজার <code>{t_id}</code>-এর অ্যাকাউন্ট থেকে <b>{amt:.2f} BDT</b> কেটে নেওয়া হয়েছে!", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(f"✅ <code>{t_id}</code> থেকে {amt:.2f} BDT কাটা হয়েছে!", parse_mode=ParseMode.HTML)
         return
 
 async def photo_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4753,18 +4868,27 @@ async def photo_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     state, sdata = get_user_state(user.id)
+    if state == "ADMIN_WAITING_BCAST_MSG":
+        photo_file_id = update.message.photo[-1].file_id
+        caption = update.message.caption or ""
+        set_user_state(user.id, "ADMIN_WAITING_BCAST_BTN_CHOICE", {"msg_text": caption, "photo_id": photo_file_id})
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ হ্যাঁ (বাটন যোগ করব)", callback_data="adm_bcast_add_btn")],
+            [InlineKeyboardButton("❌ না (বাটন ছাড়াই পাঠাব)", callback_data="adm_bcast_skip_btn")],
+        ])
+        await update.message.reply_text("👇 আপনি কি ছবির নিচে লিংক-বাটন অ্যাড করতে চান?", reply_markup=kb)
+        return
+
     if state == "ADMIN_WAITING_PHOTO_UPLOAD":
         photo_file_id = update.message.photo[-1].file_id
         prod_id = sdata.get("prod_id")
-
         conn = get_db()
         c = conn.cursor()
         c.execute("UPDATE products SET image_file_id = ? WHERE id = ?", (photo_file_id, prod_id))
         conn.commit()
         conn.close()
-
         set_user_state(user.id, None)
-        await update.message.reply_text("✅ এই প্রোডাক্টটির জন্য নতুন ফটো সফলভাবে সেভ করা হয়েছে! কাস্টমার এখন কেনার সময় এই ছবিটি দেখতে পাবে।")
+        await update.message.reply_text("✅ নতুন ফটো সফলভাবে সেভ হয়েছে!")
 
 async def document_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -4775,7 +4899,7 @@ async def document_message_handler(update: Update, context: ContextTypes.DEFAULT
     if state == "ADMIN_WAITING_STOCK_INPUT":
         doc = update.message.document
         if not doc.file_name.endswith(".xlsx"):
-            await update.message.reply_text("❌ দয়া করে একটি সঠিক <code>.xlsx</code> এক্সেল ফাইল আপলোড করুন।", parse_mode=ParseMode.HTML)
+            await update.message.reply_text("❌ দয়া করে <code>.xlsx</code> এক্সেল ফাইল আপলোড করুন।", parse_mode=ParseMode.HTML)
             return
 
         tg_file = await context.bot.get_file(doc.file_id)
@@ -4788,7 +4912,7 @@ async def document_message_handler(update: Update, context: ContextTypes.DEFAULT
 
         prod_id = sdata.get("prod_id")
         if not items:
-            await update.message.reply_text("❌ এক্সেল ফাইলে কোনো স্টক ডেটা পাওয়া যায়নি।")
+            await update.message.reply_text("❌ এক্সেল ফাইলে কোনো ডেটা পাওয়া যায়নি।")
             return
 
         conn = get_db()
@@ -4802,14 +4926,12 @@ async def document_message_handler(update: Update, context: ContextTypes.DEFAULT
 
         set_user_state(user.id, None)
         await update.message.reply_text(
-            f"🎉 <b>এক্সেল স্টক আপলোড সম্পন্ন!</b>\n\n"
-            f"📊 নতুন যুক্ত হয়েছে: <b>{len(items)}</b> টি অ্যাকাউন্ট/আইটেম\n"
-            f"📦 স্টকে বর্তমান মোট সংখ্যা: <b>{total_now}</b> টি।",
+            f"🎉 <b>এক্সেল স্টক আপলোড সম্পন্ন!</b>\n📊 নতুন যুক্ত: <b>{len(items)}</b> টি | মোট স্টক: <b>{total_now}</b> টি।",
             parse_mode=ParseMode.HTML,
         )
 
 # ------------------------------------------------------------------------------
-# 11. APPLICATION INITIALIZATION & RUNNER
+# 12. APPLICATION INITIALIZATION & RUNNER
 # ------------------------------------------------------------------------------
 _PERIODIC_TX_TASK = None
 
@@ -4829,9 +4951,7 @@ async def post_stop(application):
         except asyncio.CancelledError:
             pass
 
-
 async def send_periodic_channel_transactions(application):
-    """Periodically broadcasts simulated sales to the proof channel for social proof."""
     try:
         await asyncio.sleep(10)
     except asyncio.CancelledError:
@@ -4853,7 +4973,7 @@ async def send_periodic_channel_transactions(application):
                 if row:
                     c_name = random.choice(CUSTOMER_SAMPLE_NAMES)
                     fake_uid = random.randint(7100000000, 7999999999)
-                    qty = random.choice([1, 1, 1, 2, 2, 4, 5, 10])
+                    qty = random.choice([1, 1, 2, 4, 5, 10])
                     p_name = f"{row['sub_name']} ({row['prod_name']})"
                     total_p = row['price_bdt'] * qty
                     fake_receipt = f"RCP-{secrets.token_hex(5).upper()}"
@@ -4861,14 +4981,12 @@ async def send_periodic_channel_transactions(application):
             except Exception as e:
                 logger.error(f"Auto periodic sales loop error: {e}")
 
-        # Sleep between 5 to 7 minutes before sending next transaction
         try:
             await asyncio.sleep(random.randint(300, 420))
         except asyncio.CancelledError:
             break
 
 async def send_auto_delete_welcome_group(bot, chat_id, user):
-    """Sends greeting in welcome group and automatically deletes after 30 seconds."""
     user_id = user.id
     if user_id in _RECENTLY_WELCOMED:
         return
@@ -4877,15 +4995,14 @@ async def send_auto_delete_welcome_group(bot, chat_id, user):
     user_link = f'<a href="tg://user?id={user.id}">{user.full_name or "মেম্বার"}</a>'
     welcome_text = (
         f"🌸 <b>আসসালামু আলাইকুম</b>, {user_link}! ✨\n\n"
-        f"আমাদের কমিউনিটি গ্রুপে আপনাকে স্বাগতম। 🎉\n"
-        f"📌 গ্রুপের নিয়ম-কানুন মেনে চলুন এবং নিয়মিত ডিজিটাল সার্ভিসেস আপডেট উপভোগ করুন।"
+        f"আমাদের কমিউনিটি গ্রুপে আপনাকে স্বাগতম। 🎉"
     )
     try:
         sent_msg = await bot.send_message(chat_id=chat_id, text=welcome_text, parse_mode=ParseMode.HTML)
         await asyncio.sleep(30)
         await bot.delete_message(chat_id=chat_id, message_id=sent_msg.message_id)
-    except Exception as e:
-        logger.error(f"Welcome group send/delete error (chat_id={chat_id}): {e}")
+    except Exception:
+        pass
     finally:
         await asyncio.sleep(60)
         _RECENTLY_WELCOMED.discard(user_id)
@@ -4910,7 +5027,6 @@ async def handle_group_member_updated(update: Update, context: ContextTypes.DEFA
             if not new_m.user.is_bot:
                 asyncio.create_task(send_auto_delete_welcome_group(context.bot, chat_id, new_m.user))
 
-
 async def id_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     msg = update.effective_message
@@ -4918,21 +5034,17 @@ async def id_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     title = chat.title or chat.full_name or "Chat"
     await msg.reply_text(
-        f"🆔 <b>Chat Info:</b>\n"
-        f"📌 <b>Name:</b> {title}\n"
-        f"🔹 <b>Chat ID:</b> <code>{chat.id}</code>\n"
-        f"📂 <b>Type:</b> {chat.type}",
+        f"🆔 <b>Chat Info:</b>\n📌 <b>Name:</b> {title}\n🔹 <b>Chat ID:</b> <code>{chat.id}</code>\n📂 <b>Type:</b> {chat.type}",
         parse_mode=ParseMode.HTML,
     )
 
 def main():
     print("=" * 60)
-    print("Starting Render Web Service Health Check Server...")
+    print("Starting Render Web Service + Embedded Mini App Server...")
     threading.Thread(target=start_health_server, daemon=True).start()
     print("Initializing Database...")
     init_db()
     print("Database Initialized Successfully.")
-    print("Starting Telegram Bot Application...")
     print(f"Configured Super Admin ID: {SUPER_ADMIN_ID}")
     print("=" * 60)
 
@@ -4948,11 +5060,9 @@ def main():
     app.add_error_handler(global_error_handler)
     _GLOBAL_BOT_APP = app
 
-    # Group Welcome Event Handlers
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_group_members))
     app.add_handler(ChatMemberHandler(handle_group_member_updated, ChatMemberHandler.CHAT_MEMBER))
 
-    # Handlers Registration
     app.add_handler(CommandHandler("start", start_handler))
     app.add_handler(CommandHandler("id", id_command_handler))
     app.add_handler(MessageHandler(filters.ChatType.CHANNEL & filters.Regex(r"^/id"), id_command_handler))
