@@ -1,0 +1,48 @@
+<!-- ... existing code ... -->
+  <script>
+    const tg = window.Telegram ? window.Telegram.WebApp : null;
+    if (tg) { tg.ready(); tg.expand(); }
+    const initData = tg ? tg.initData : "";
+
+    // Automatically resolve backend URL (works in sandboxed previews & Render deployment)
+    const API_BASE = (window.location.protocol === "blob:" || !window.location.origin || window.location.origin === "null")
+      ? "https://auto-bot-y054.onrender.com"
+      : window.location.origin;
+
+    let APP = {
+      user: {}, categories: [], products: [], settings: {},
+      currency: localStorage.getItem("cn_curr") || "BDT",
+      theme: localStorage.getItem("cn_theme") || "light",
+      selectedCat: "all",
+      favorites: JSON.parse(localStorage.getItem("cn_favs") || "[]"),
+      activeProduct: null,
+      discountPct: 0,
+      appliedCoupon: ""
+    };
+
+    if (APP.theme === "dark") document.body.classList.add("dark");
+
+    async function api(path, body = null) {
+      const fullUrl = path.startsWith("http") ? path : (API_BASE + path);
+      const opts = {
+        method: body ? "POST" : "GET",
+        headers: { "Content-Type": "application/json", "X-Telegram-Init-Data": initData }
+      };
+      if (body) opts.body = JSON.stringify(body);
+      const res = await fetch(fullUrl, opts);
+      return await res.json();
+    }
+<!-- ... existing code ... -->
+    function prodImgUrl(p) {
+      if (!p.image_file_id) return "";
+      if (p.image_file_id.startsWith("http") || p.image_file_id.startsWith("data:")) return p.image_file_id;
+      return API_BASE + "/api/tg_photo?file_id=" + encodeURIComponent(p.image_file_id);
+    }
+<!-- ... existing code ... -->
+            if (APP.settings.popup_image) {
+              const src = APP.settings.popup_image.startsWith("http") || APP.settings.popup_image.startsWith("data:")
+                ? APP.settings.popup_image
+                : API_BASE + "/api/tg_photo?file_id=" + encodeURIComponent(APP.settings.popup_image);
+              iw.innerHTML = `<img src="${src}" style="width:100%;max-height:170px;object-fit:cover;border-radius:12px" />`;
+            } else iw.innerHTML = "";
+<!-- ... existing code ... -->
