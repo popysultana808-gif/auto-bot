@@ -1,48 +1,114 @@
-<!-- ... existing code ... -->
-  <script>
-    const tg = window.Telegram ? window.Telegram.WebApp : null;
-    if (tg) { tg.ready(); tg.expand(); }
-    const initData = tg ? tg.initData : "";
+# ... existing code ...
+from typing import Optional, List, Dict, Any
 
-    // Automatically resolve backend URL (works in sandboxed previews & Render deployment)
-    const API_BASE = (window.location.protocol === "blob:" || !window.location.origin || window.location.origin === "null")
-      ? "https://auto-bot-y054.onrender.com"
-      : window.location.origin;
+def _http_post_json(url: str, data: dict, timeout: int = 15) -> dict:
+    encoded = urllib.parse.urlencode(data).encode("utf-8")
+    req = urllib.request.Request(url, data=encoded, headers={"User-Agent": "CyberNestBot/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
 
-    let APP = {
-      user: {}, categories: [], products: [], settings: {},
-      currency: localStorage.getItem("cn_curr") || "BDT",
-      theme: localStorage.getItem("cn_theme") || "light",
-      selectedCat: "all",
-      favorites: JSON.parse(localStorage.getItem("cn_favs") || "[]"),
-      activeProduct: null,
-      discountPct: 0,
-      appliedCoupon: ""
-    };
+def _http_get_bytes(url: str, timeout: int = 10):
+    req = urllib.request.Request(url, headers={"User-Agent": "CyberNestBot/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read(), resp.headers.get("Content-Type", "image/jpeg")
 
-    if (APP.theme === "dark") document.body.classList.add("dark");
+import openpyxl
+# ... existing code ...
+def fetch_outlook_otp(account_str: str) -> dict:
+    parts = [p.strip() for p in account_str.split("|") if p.strip()]
+    if len(parts) < 4:
+        return {"ok": False, "error": "Format must be: email|password|refresh_token|client_id"}
+    mail_addr, _, refresh_token, client_id = parts[0], parts[1], parts[2], parts[3]
+    try:
+        token_url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+        tdata = _http_post_json(token_url, {
+            "client_id": client_id,
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token",
+            "scope": "https://outlook.office.com/IMAP.AccessAsUser.All offline_access"
+        }, timeout=15)
+        access_token = tdata.get("access_token")
+        if not access_token:
+            return {"ok": False, "error": tdata.get("error_description", "Token refresh failed")}
+# ... existing code ...
+        if path == "/api/tg_photo":
+            qs = urllib.parse.parse_qs(parsed.query)
+            fid = qs.get("file_id", [""])[0]
+            if not fid:
+                self.send_response(404); self.end_headers(); return
+            try:
+                raw_info, _ = _http_get_bytes(f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={fid}", timeout=8)
+                r1 = json.loads(raw_info.decode("utf-8"))
+                fpath = r1["result"]["file_path"]
+                img_bytes, ctype = _http_get_bytes(f"https://api.telegram.org/file/bot{BOT_TOKEN}/{fpath}", timeout=10)
+                self.send_response(200)
+                self.send_header("Content-type", ctype)
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.end_headers()
+                self.wfile.write(img_bytes)
+            except Exception:
+                self.send_response(404); self.end_headers()
+            return
+# ... existing code ...
+            c.execute("SELECT COUNT(*) as cnt, COALESCE(SUM(total_bdt), 0) as spent FROM orders WHERE user_id = ? AND status != 'refunded'", (uid,))
+            ostat = dict(c.fetchone())
+            c.execute("SELECT COUNT(*) as cnt FROM notifications WHERE user_id = ? AND is_read = 0", (uid,))
+            unread_n = c.fetchone()["cnt"]
+            c.execute("SELECT key, value FROM settings")
+            sdict = {r["key"]: r["value"] for r in c.fetchall()}
+            conn.close()
+            bot_uname = ""
+            try:
+                if _GLOBAL_BOT_APP and _GLOBAL_BOT_APP.bot:
+                    bot_uname = _GLOBAL_BOT_APP.bot.username or ""
+            except Exception:
+                pass
+            sdict["bot_username"] = bot_uname
+            return self._send_json({
+                "user": {
+                    "user_id": uid,
+                    "full_name": db_u.get("name", "Customer"),
+                    "username": db_u.get("username", ""),
+                    "balance_bdt": db_u.get("balance_bdt", 0.0),
+                    "is_admin": is_admin(uid),
+                    "total_orders": ostat["cnt"],
+                    "total_spent": ostat["spent"],
+                    "referrals": 0,
+                },
+                "categories": cats,
+                "products": prods,
+                "settings": sdict,
+                "unread_notifs": unread_n,
+            })
+# ... existing code ...
+    # Key-Value Settings Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )
+    """)
 
-    async function api(path, body = null) {
-      const fullUrl = path.startsWith("http") ? path : (API_BASE + path);
-      const opts = {
-        method: body ? "POST" : "GET",
-        headers: { "Content-Type": "application/json", "X-Telegram-Init-Data": initData }
-      };
-      if (body) opts.body = JSON.stringify(body);
-      const res = await fetch(fullUrl, opts);
-      return await res.json();
-    }
-<!-- ... existing code ... -->
-    function prodImgUrl(p) {
-      if (!p.image_file_id) return "";
-      if (p.image_file_id.startsWith("http") || p.image_file_id.startsWith("data:")) return p.image_file_id;
-      return API_BASE + "/api/tg_photo?file_id=" + encodeURIComponent(p.image_file_id);
-    }
-<!-- ... existing code ... -->
-            if (APP.settings.popup_image) {
-              const src = APP.settings.popup_image.startsWith("http") || APP.settings.popup_image.startsWith("data:")
-                ? APP.settings.popup_image
-                : API_BASE + "/api/tg_photo?file_id=" + encodeURIComponent(APP.settings.popup_image);
-              iw.innerHTML = `<img src="${src}" style="width:100%;max-height:170px;object-fit:cover;border-radius:12px" />`;
-            } else iw.innerHTML = "";
-<!-- ... existing code ... -->
+    # Notifications Table (for Mini App Bell Icon)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id BIGINT,
+        title TEXT,
+        message TEXT,
+        is_read INTEGER DEFAULT 0,
+        created_at TEXT
+    )
+    """)
+
+    # Coupons Table (for Mini App Discount Codes)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS coupons (
+        code TEXT PRIMARY KEY,
+        discount_pct REAL DEFAULT 0.0,
+        is_active INTEGER DEFAULT 1
+    )
+    """)
+
+    # Ensure columns exist safely with IF NOT EXISTS
+# ... existing code ...
