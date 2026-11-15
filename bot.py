@@ -277,8 +277,15 @@ def _build_live_store_context(user_id: Optional[int] = None) -> Dict[str, Any]:
 _AI_CHAT_HISTORY: Dict[int, List[Dict[str, str]]] = {}
 
 def _call_gemini_if_configured(question: str, ctx: Dict[str, Any], user_id: Optional[int] = None) -> Optional[str]:
+    db_ai_key = get_setting("ai_api_key", "").strip()
     raw_gemini = os.getenv("GEMINI_API_KEY", "").strip()
     groq_key = os.getenv("GROQ_API_KEY", "").strip()
+
+    if db_ai_key:
+        if db_ai_key.startswith("gsk_"):
+            groq_key = db_ai_key
+        elif db_ai_key.startswith("AIza"):
+            raw_gemini = db_ai_key
 
     # Smart auto-detection: if user put gsk_ key inside GEMINI_API_KEY, use it for Groq
     if not groq_key and raw_gemini.startswith("gsk_"):
@@ -1592,6 +1599,53 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                         conn.commit()
                     conn.close()
                     return self._send_json({"ok": True})
+
+                # 6.6 AI API Key Settings & Live Connection Test (Syncs Bot + Website automatically)
+                if path == "/api/admin/ai_settings":
+                    act = str(body.get("action", "save"))
+                    new_key = str(body.get("ai_api_key", "")).strip()
+                    if act == "save" and new_key:
+                        set_setting("ai_api_key", new_key)
+                    elif act == "clear":
+                        set_setting("ai_api_key", "")
+                        conn.close()
+                        return self._send_json({"ok": True, "message": "AI Key cleared."})
+                    conn.close()
+                    test_key = new_key or get_setting("ai_api_key", "").strip() or os.getenv("GROQ_API_KEY", "").strip() or os.getenv("GEMINI_API_KEY", "").strip()
+                    if not test_key:
+                        return self._send_json({"ok": False, "error": "No API Key found. Paste a Groq (gsk_...) or Gemini (AIza...) key."})
+                    if test_key.startswith("gsk_"):
+                        try:
+                            tp = json.dumps({
+                                "model": "llama-3.3-70b-versatile",
+                                "messages": [{"role": "user", "content": "Say 'AI Connected Successfully!' in Bangla in 1 short sentence."}],
+                                "max_tokens": 60,
+                            }).encode("utf-8")
+                            tr = urllib.request.Request(
+                                "https://api.groq.com/openai/v1/chat/completions",
+                                data=tp,
+                                headers={"Content-Type": "application/json", "Authorization": f"Bearer {test_key}", "User-Agent": "CyberNestBot/2.0"},
+                            )
+                            with urllib.request.urlopen(tr, timeout=10) as resp:
+                                td = json.loads(resp.read().decode("utf-8"))
+                            return self._send_json({"ok": True, "provider": "GroqCloud", "reply": td["choices"][0]["message"]["content"].strip()})
+                        except Exception as e:
+                            return self._send_json({"ok": False, "error": f"Groq Error: {e}"})
+                    elif test_key.startswith("AIza"):
+                        try:
+                            tp = json.dumps({"contents": [{"role": "user", "parts": [{"text": "Say 'AI Connected Successfully!' in Bangla in 1 short sentence."}]}]}).encode("utf-8")
+                            tr = urllib.request.Request(
+                                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={test_key}",
+                                data=tp,
+                                headers={"Content-Type": "application/json", "User-Agent": "CyberNestBot/2.0"},
+                            )
+                            with urllib.request.urlopen(tr, timeout=10) as resp:
+                                td = json.loads(resp.read().decode("utf-8"))
+                            return self._send_json({"ok": True, "provider": "Google Gemini", "reply": td["candidates"][0]["content"]["parts"][0]["text"].strip()})
+                        except Exception as e:
+                            return self._send_json({"ok": False, "error": f"Gemini Error: {e}"})
+                    else:
+                        return self._send_json({"ok": False, "error": "Invalid Key format. Groq keys start with gsk_ and Gemini keys start with AIza."})
 
                 # 7. Product & Catalog Management (Edit / Create / Delete Category, Brand, Plan)
                 if path == "/api/admin/product_update":
