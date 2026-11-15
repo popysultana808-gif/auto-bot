@@ -1,7 +1,11 @@
 # ==============================================================================
-# CyberNest Digital Mart — Full-Featured Telegram Auto-Shop Bot + Mini App
-# Single-File Architecture: Python (python-telegram-bot v21+), SQLite / PostgreSQL,
-# OpenPyXL, ReportLab, PyOTP, and Embedded Telegram WebApp (Mini App)
+# CyberNest Digital Mart — Full-Featured Telegram Auto-Shop Bot + Mini App API
+# Two-File Architecture (Part 1: bot.py)
+# Companion File: webapp.html (Served dynamically at /app)
+# Tech Stack: Python (python-telegram-bot v21+), SQLite / Neon PostgreSQL,
+# OpenPyXL (.xlsx Stock & Delivery), ReportLab (QR + Logo PDF Receipts),
+# PyOTP (2FA Live Code), IMAP4_SSL (Outlook/Hotmail OTP), Smart AI Assistant,
+# and Complete REST API Backend for webapp.html
 # ==============================================================================
 
 import os
@@ -46,6 +50,7 @@ from telegram import (
     ReplyKeyboardMarkup,
     KeyboardButton,
     InputFile,
+    WebAppInfo,
 )
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -79,8 +84,11 @@ WELCOME_GROUP_LINK = os.getenv("WELCOME_GROUP_LINK", "https://t.me/+jzGqcGVgiYRm
 TRANSACTION_CHANNEL_ID = os.getenv("TRANSACTION_CHANNEL_ID", "@Yourcybernestmart")
 TRANSACTION_CHANNEL_LINK = os.getenv("TRANSACTION_CHANNEL_LINK", "https://t.me/Yourcybernestmart")
 
+WEBAPP_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "webapp.html")
+
 _AUTO_SALES_ACTIVE = True
 _RECENTLY_WELCOMED = set()
+_USER_PHOTO_CACHE: Dict[int, Tuple[bytes, str, float]] = {}
 
 CUSTOMER_SAMPLE_NAMES = [
     "7x_TALHA", "Arif Hasan", "Tanvir Ahmed", "Sakib Al Hasan", "Rahim Uddin",
@@ -121,12 +129,12 @@ def get_bot(query=None):
 
 def _http_post_json(url: str, data: dict, timeout: int = 15) -> dict:
     encoded = urllib.parse.urlencode(data).encode("utf-8")
-    req = urllib.request.Request(url, data=encoded, headers={"User-Agent": "CyberNestBot/1.0"})
+    req = urllib.request.Request(url, data=encoded, headers={"User-Agent": "CyberNestBot/2.0"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 def _http_get_bytes(url: str, timeout: int = 10):
-    req = urllib.request.Request(url, headers={"User-Agent": "CyberNestBot/1.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": "CyberNestBot/2.0"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read(), resp.headers.get("Content-Type", "image/jpeg")
 
@@ -143,6 +151,21 @@ def add_notification(user_id: int, title: str, message: str):
         conn.close()
     except Exception as e:
         logger.warning(f"add_notification error: {e}")
+
+def get_vip_badge_info(total_spent: float) -> Dict[str, Any]:
+    """Calculates VIP Membership Badge based on user's lifetime spending."""
+    spent = float(total_spent or 0.0)
+    if spent >= 2000:
+        return {"tier": "Gold VIP", "icon": "🥇", "badge": "🥇 Gold VIP", "color": "#f59e0b", "next_tier": "MAX", "progress": 100}
+    elif spent >= 500:
+        prog = min(100, int(((spent - 500) / 1500) * 100))
+        return {"tier": "Silver VIP", "icon": "🥈", "badge": "🥈 Silver VIP", "color": "#94a3b8", "next_tier": "Gold VIP (৳2000)", "progress": prog}
+    elif spent >= 100:
+        prog = min(100, int(((spent - 100) / 400) * 100))
+        return {"tier": "Bronze VIP", "icon": "🥉", "badge": "🥉 Bronze VIP", "color": "#d97706", "next_tier": "Silver VIP (৳500)", "progress": prog}
+    else:
+        prog = min(100, int((spent / 100) * 100))
+        return {"tier": "Member", "icon": "⭐", "badge": "⭐ Member", "color": "#6366f1", "next_tier": "Bronze VIP (৳100)", "progress": prog}
 
 def verify_tg_init_data(init_data: str) -> Optional[dict]:
     if not init_data:
@@ -214,1034 +237,165 @@ def fetch_outlook_otp(account_str: str) -> dict:
         return {"ok": False, "error": str(e)}
 
 # ------------------------------------------------------------------------------
-# 2. EMBEDDED TELEGRAM MINI APP HTML (NO SEPARATE webapp.html NEEDED)
+# 2. SMART LIVE DATABASE-BACKED AI SUPPORT ENGINE (For Bot & WebApp)
 # ------------------------------------------------------------------------------
-EMBEDDED_WEBAPP_HTML = r"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>CyberNest Market</title>
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <style>
-    :root {
-      --bg: #f6f7fb;
-      --card: #ffffff;
-      --text: #111827;
-      --muted: #6b7280;
-      --border: #e5e7eb;
-      --accent: #ff6b00;
-      --accent-soft: #fff3e8;
-      --green: #10b981;
-      --green-soft: #ecfdf5;
-      --red: #ef4444;
-      --red-soft: #fef2f2;
-      --shadow: 0 6px 20px rgba(17, 24, 39, 0.06);
-    }
-    body.dark {
-      --bg: #0b0f19;
-      --card: #131a2a;
-      --text: #f3f4f6;
-      --muted: #9ca3af;
-      --border: #1f2937;
-      --accent: #ff7a1a;
-      --accent-soft: rgba(255, 107, 0, 0.14);
-      --green-soft: rgba(16, 185, 129, 0.14);
-      --red-soft: rgba(239, 68, 68, 0.14);
-      --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-    }
-    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    body {
-      margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: var(--bg); color: var(--text); padding-bottom: 92px;
-      transition: background 0.25s, color 0.25s;
-    }
-    #splash {
-      position: fixed; inset: 0; background: linear-gradient(135deg, #0b0f19 0%, #1a103d 100%);
-      color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center;
-      z-index: 9999; transition: opacity 0.45s ease;
-    }
-    #splash.hide { opacity: 0; pointer-events: none; }
-    .loader-ring {
-      width: 56px; height: 56px; border-radius: 50%;
-      border: 4px solid rgba(255,255,255,0.15); border-top-color: #ff6b00;
-      animation: spin 0.9s linear infinite; margin-bottom: 14px;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    .topbar {
-      position: sticky; top: 0; z-index: 50; background: var(--card);
-      border-bottom: 1px solid var(--border); padding: 10px 14px;
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    }
-    .user-mini { display: flex; align-items: center; gap: 10px; min-width: 0; }
-    .avatar {
-      width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, #ff6b00, #7c3aed);
-      color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-    }
-    .user-info { min-width: 0; }
-    .user-info small { display: block; font-size: 11px; color: var(--muted); }
-    .user-info b { display: block; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .top-actions { display: flex; align-items: center; gap: 8px; }
-    .bal-pill {
-      background: linear-gradient(135deg, #ff7a1a, #ff5500); color: #fff;
-      padding: 6px 12px; border-radius: 999px; font-weight: 700; font-size: 13px;
-      display: flex; align-items: center; gap: 6px; cursor: pointer; border: none;
-    }
-    .icon-btn {
-      width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border);
-      background: var(--bg); color: var(--text); display: flex; align-items: center; justify-content: center;
-      cursor: pointer; position: relative; font-size: 16px;
-    }
-    .badge-dot {
-      position: absolute; top: 5px; right: 6px; width: 8px; height: 8px;
-      border-radius: 50%; background: var(--red); display: none;
-    }
-
-    .container { padding: 14px; max-width: 600px; margin: 0 auto; }
-
-    .search-wrap {
-      background: var(--card); border: 1.5px solid var(--accent); border-radius: 14px;
-      padding: 8px 12px; display: flex; align-items: center; gap: 8px; box-shadow: var(--shadow);
-      margin-bottom: 14px;
-    }
-    .search-wrap input {
-      border: none; outline: none; background: transparent; color: var(--text);
-      font-size: 14px; width: 100%;
-    }
-
-    .hero-banner {
-      background: linear-gradient(135deg, #2e0249 0%, #570a57 50%, #ff6b00 100%);
-      color: #fff; border-radius: 16px; padding: 16px; margin-bottom: 16px;
-      box-shadow: var(--shadow); position: relative; overflow: hidden;
-    }
-    .hero-banner h3 { margin: 4px 0 6px; font-size: 18px; }
-    .hero-banner p { margin: 0; font-size: 12px; opacity: 0.9; line-height: 1.4; }
-    .hero-tag {
-      display: inline-block; background: rgba(255,255,255,0.2); padding: 3px 9px;
-      border-radius: 999px; font-size: 11px; font-weight: 600;
-    }
-
-    .cat-row {
-      display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 14px;
-      scrollbar-width: none;
-    }
-    .cat-row::-webkit-scrollbar { display: none; }
-    .cat-pill {
-      flex-shrink: 0; background: var(--card); border: 1px solid var(--border);
-      border-radius: 14px; padding: 10px 14px; font-size: 12px; font-weight: 600;
-      cursor: pointer; display: flex; align-items: center; gap: 6px; color: var(--text);
-    }
-    .cat-pill.active {
-      background: var(--accent); color: #fff; border-color: var(--accent);
-    }
-
-    .sec-title {
-      display: flex; align-items: center; justify-content: space-between;
-      margin: 12px 0 10px; font-weight: 700; font-size: 14px;
-    }
-
-    .top-card {
-      background: var(--card); border: 1px solid var(--border); border-radius: 14px;
-      padding: 10px 12px; display: flex; align-items: center; justify-content: space-between;
-      gap: 10px; margin-bottom: 14px; box-shadow: var(--shadow); cursor: pointer;
-    }
-    .top-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
-    .prod-thumb {
-      width: 48px; height: 48px; border-radius: 12px; object-fit: cover;
-      background: var(--accent-soft); display: flex; align-items: center; justify-content: center;
-      font-size: 22px; flex-shrink: 0;
-    }
-
-    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-    .p-card {
-      background: var(--card); border: 1px solid var(--border); border-radius: 16px;
-      padding: 10px; box-shadow: var(--shadow); display: flex; flex-direction: column;
-      justify-content: space-between; position: relative;
-    }
-    .p-img-box {
-      height: 92px; border-radius: 12px; background: var(--bg);
-      display: flex; align-items: center; justify-content: center; overflow: hidden;
-      margin-bottom: 8px; position: relative;
-    }
-    .p-img-box img { width: 100%; height: 100%; object-fit: cover; }
-    .fav-btn {
-      position: absolute; top: 6px; right: 6px; width: 28px; height: 28px;
-      border-radius: 50%; border: none; background: rgba(255,255,255,0.9);
-      cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;
-    }
-    .p-brand { font-size: 11px; color: var(--muted); font-weight: 600; }
-    .p-name { font-size: 13px; font-weight: 700; margin: 2px 0 6px; }
-    .p-price { font-size: 15px; font-weight: 800; color: var(--text); margin-bottom: 4px; }
-    .p-meta { display: flex; align-items: center; justify-content: space-between; font-size: 11px; margin-bottom: 8px; }
-    .st-in { color: var(--green); font-weight: 700; }
-    .st-out { color: var(--red); font-weight: 700; }
-    .btn-primary {
-      width: 100%; border: none; border-radius: 10px; padding: 9px 12px;
-      background: linear-gradient(135deg, #ff7a1a, #ff5500); color: #fff;
-      font-weight: 700; font-size: 13px; cursor: pointer;
-    }
-    .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
-    .btn-outline {
-      border: 1px solid var(--border); background: var(--card); color: var(--text);
-      border-radius: 10px; padding: 8px 12px; font-weight: 600; font-size: 12px; cursor: pointer;
-    }
-
-    .bottom-nav {
-      position: fixed; bottom: 0; left: 0; right: 0; height: 68px;
-      background: var(--card); border-top: 1px solid var(--border);
-      display: flex; align-items: center; justify-content: space-around; z-index: 60;
-      padding-bottom: env(safe-area-inset-bottom);
-    }
-    .nav-item {
-      display: flex; flex-direction: column; align-items: center; gap: 3px;
-      font-size: 11px; color: var(--muted); cursor: pointer; border: none; background: transparent;
-    }
-    .nav-item.active { color: var(--accent); font-weight: 700; }
-    .nav-center {
-      width: 52px; height: 52px; border-radius: 16px; margin-top: -22px;
-      background: linear-gradient(135deg, #ff7a1a, #ff5500); color: #fff;
-      display: flex; align-items: center; justify-content: center; font-size: 22px;
-      box-shadow: 0 8px 20px rgba(255, 107, 0, 0.35); border: 3px solid var(--bg);
-    }
-
-    .card {
-      background: var(--card); border: 1px solid var(--border); border-radius: 16px;
-      padding: 14px; margin-bottom: 12px; box-shadow: var(--shadow);
-    }
-    .input, textarea, select {
-      width: 100%; padding: 10px 12px; border-radius: 10px;
-      border: 1px solid var(--border); background: var(--bg); color: var(--text);
-      font-size: 13px; outline: none; margin-top: 6px; margin-bottom: 10px;
-    }
-    .qty-box {
-      display: flex; align-items: center; justify-content: space-between;
-      background: var(--bg); border-radius: 12px; padding: 6px 12px; margin: 8px 0;
-    }
-    .qty-btn {
-      width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--border);
-      background: var(--card); color: var(--text); font-size: 18px; font-weight: 700; cursor: pointer;
-    }
-    .quick-qtys { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
-    .q-pill {
-      padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border);
-      background: var(--card); color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer;
-    }
-    .q-pill.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-
-    .modal {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100;
-      display: none; align-items: flex-end; justify-content: center;
-    }
-    .modal.open { display: flex; }
-    .modal.center { align-items: center; padding: 16px; }
-    .sheet {
-      background: var(--card); width: 100%; max-width: 600px; max-height: 90vh;
-      overflow-y: auto; border-radius: 22px 22px 0 0; padding: 16px;
-      animation: slideUp 0.25s ease;
-    }
-    .modal.center .sheet { border-radius: 20px; max-width: 400px; }
-    @keyframes slideUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-
-    .row-between { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-    .pill-tabs { display: flex; gap: 8px; margin-bottom: 12px; overflow-x: auto; }
-    .tab-btn {
-      flex: 1; white-space: nowrap; padding: 9px 12px; border-radius: 10px;
-      border: 1px solid var(--border); background: var(--card); color: var(--text);
-      font-size: 12px; font-weight: 700; cursor: pointer;
-    }
-    .tab-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-    .copy-box {
-      background: var(--bg); border: 1px dashed var(--accent); border-radius: 10px;
-      padding: 10px; font-family: monospace; font-size: 13px; word-break: break-all;
-      display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0;
-    }
-    .hidden { display: none !important; }
-  </style>
-</head>
-<body>
-  <div id="splash">
-    <div class="loader-ring"></div>
-    <h2 style="margin:0">CyberNest Market</h2>
-    <small style="opacity:.75;margin-top:4px">Loading your digital store...</small>
-  </div>
-
-  <div class="topbar">
-    <div class="user-mini">
-      <div class="avatar" id="uAvatar">C</div>
-      <div class="user-info">
-        <small>Welcome back,</small>
-        <b id="uName">Loading...</b>
-      </div>
-    </div>
-    <div class="top-actions">
-      <button class="bal-pill" onclick="switchPage('deposit')">
-        <span>💳</span> <span id="uBal">৳0.00</span> <span>+</span>
-      </button>
-      <button class="icon-btn" onclick="openNotifs()">
-        🔔 <span class="badge-dot" id="notifDot"></span>
-      </button>
-    </div>
-  </div>
-
-  <!-- PAGE: HOME -->
-  <div id="page-home" class="container">
-    <div class="search-wrap">
-      <span>🔍</span>
-      <input id="searchInput" type="text" placeholder="Search VPN, Proxy, Mail..." oninput="renderProducts()" />
-    </div>
-
-    <div class="hero-banner">
-      <span class="hero-tag">⚡ 24/7 Automated Store</span>
-      <h3 id="bannerTitle">CyberNest Digital Mart</h3>
-      <p id="bannerSub">Fastest VPN, Proxy & Mail delivery with bKash, Nagad & Binance.</p>
-    </div>
-
-    <div class="cat-row" id="catRow"></div>
-    <div id="topSellingWrap"></div>
-
-    <div class="sec-title">
-      <span id="prodSecTitle">🛍️ All Products</span>
-      <small id="prodCount" style="color:var(--muted)"></small>
-    </div>
-    <div class="grid" id="prodGrid"></div>
-  </div>
-
-  <!-- PAGE: DEPOSIT -->
-  <div id="page-deposit" class="container hidden">
-    <div class="card">
-      <h3 style="margin-top:0">💳 Manual Deposit</h3>
-      <p style="font-size:12px;color:var(--muted)">Send Money to any number below, then submit Amount & TrxID.</p>
-      <div id="depMethodsList"></div>
-      <label style="font-size:12px;font-weight:700">Payment Method</label>
-      <select id="depMethod" class="input">
-        <option value="bKash">bKash</option>
-        <option value="Nagad">Nagad</option>
-        <option value="Binance">Binance (USDT)</option>
-      </select>
-      <label style="font-size:12px;font-weight:700">Amount (BDT)</label>
-      <input id="depAmount" type="number" class="input" placeholder="e.g. 100" />
-      <label style="font-size:12px;font-weight:700">Transaction ID (TrxID)</label>
-      <input id="depTrx" type="text" class="input" placeholder="Paste TrxID here" />
-      <button class="btn-primary" onclick="submitDeposit()">✅ Submit Deposit Request</button>
-    </div>
-  </div>
-
-  <!-- PAGE: TOOLS -->
-  <div id="page-tools" class="container hidden">
-    <div class="pill-tabs">
-      <button class="tab-btn active" id="tBtnOutlook" onclick="switchTool('outlook')">✉️ Outlook / Hotmail Code</button>
-      <button class="tab-btn" id="tBtn2fa" onclick="switchTool('2fa')">🔑 2FA Live Code</button>
-    </div>
-
-    <div id="tool-outlook" class="card">
-      <h3 style="margin-top:0">✉️ Outlook / Hotmail Code</h3>
-      <p style="font-size:12px;color:var(--muted)">Paste <code>email|password|refresh_token|client_id</code> below:</p>
-      <textarea id="outlookInput" rows="4" placeholder="email|password|refresh_token|client_id"></textarea>
-      <div class="row-between" style="margin-bottom:10px">
-        <button class="btn-outline" style="flex:1" onclick="pasteTo('outlookInput')">📋 Paste</button>
-        <button class="btn-outline" style="flex:1" onclick="clearTool('outlook')">❌ Clear</button>
-      </div>
-      <button class="btn-primary" onclick="getOutlookCode()">🔄 Get Code</button>
-      <div id="outlookResult" class="hidden" style="margin-top:12px"></div>
-    </div>
-
-    <div id="tool-2fa" class="card hidden">
-      <h3 style="margin-top:0">🔑 2FA Authenticator</h3>
-      <p style="font-size:12px;color:var(--muted)">Paste your 2FA Secret Key to generate live 6-digit OTP:</p>
-      <input id="tfaInput" type="text" class="input" placeholder="e.g. JBSWY3DPEHPK3PXP" />
-      <div class="row-between" style="margin-bottom:10px">
-        <button class="btn-outline" style="flex:1" onclick="pasteTo('tfaInput')">📋 Paste</button>
-        <button class="btn-outline" style="flex:1" onclick="clearTool('2fa')">❌ Clear</button>
-      </div>
-      <button class="btn-primary" onclick="get2faCode()">🔑 Generate 2FA Code</button>
-      <div id="tfaResult" class="hidden" style="margin-top:12px"></div>
-    </div>
-  </div>
-
-  <!-- PAGE: PROFILE -->
-  <div id="page-profile" class="container hidden">
-    <div class="card">
-      <div class="row-between">
-        <div>
-          <b id="profName" style="font-size:16px">User</b>
-          <div id="profMeta" style="font-size:12px;color:var(--muted)">ID: ---</div>
-        </div>
-        <div style="display:flex;gap:6px">
-          <button class="btn-outline" id="themeBtn" onclick="toggleTheme()">🌙 Dark</button>
-          <button class="btn-outline" id="currBtn" onclick="toggleCurrency()">🇧🇩 BDT</button>
-        </div>
-      </div>
-      <div class="grid" style="grid-template-columns:repeat(3,1fr);margin-top:12px;text-align:center">
-        <div class="card" style="margin:0;padding:10px"><b id="stOrders">0</b><div style="font-size:11px;color:var(--muted)">Orders</div></div>
-        <div class="card" style="margin:0;padding:10px"><b id="stSpent">৳0</b><div style="font-size:11px;color:var(--muted)">Spent</div></div>
-        <div class="card" style="margin:0;padding:10px"><b id="stRef">0</b><div style="font-size:11px;color:var(--muted)">Referrals</div></div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="row-between">
-        <b>🛒 Purchase History</b>
-        <button class="btn-outline" onclick="loadHistory()">🔄 Refresh</button>
-      </div>
-      <div id="historyList" style="margin-top:10px;font-size:13px"></div>
-    </div>
-
-    <div class="card">
-      <b>👥 Referral Link</b>
-      <div class="copy-box" style="margin-top:8px">
-        <span id="refLink" style="font-size:12px">Loading...</span>
-        <button class="btn-outline" onclick="copyText(document.getElementById('refLink').innerText)">Copy</button>
-      </div>
-    </div>
-
-    <div class="card row-between">
-      <div><b>💬 Live Support</b><div style="font-size:12px;color:var(--muted)">Need help with an order?</div></div>
-      <button class="btn-primary" style="width:auto" onclick="openSupport()">Message Admin</button>
-    </div>
-  </div>
-
-  <!-- PAGE: ADMIN PANEL -->
-  <div id="page-admin" class="container hidden">
-    <div class="card">
-      <h3 style="margin:0">👑 Web Admin Dashboard</h3>
-      <small style="color:var(--muted)">Full live sync with Telegram Bot & Database</small>
-      <div class="grid" style="grid-template-columns:repeat(3,1fr);margin-top:10px;text-align:center">
-        <div class="card" style="margin:0;padding:8px"><b id="admUsers">0</b><div style="font-size:11px;color:var(--muted)">Users</div></div>
-        <div class="card" style="margin:0;padding:8px"><b id="admPendDep">0</b><div style="font-size:11px;color:var(--muted)">Pend. Dep</div></div>
-        <div class="card" style="margin:0;padding:8px"><b id="admPendOrd">0</b><div style="font-size:11px;color:var(--muted)">Pend. Ord</div></div>
-      </div>
-    </div>
-
-    <div class="pill-tabs">
-      <button class="tab-btn active" onclick="switchAdmTab('orders', this)">📦 Orders</button>
-      <button class="tab-btn" onclick="switchAdmTab('deposits', this)">💳 Deposits</button>
-      <button class="tab-btn" onclick="switchAdmTab('products', this)">🏷️ Products/Stock</button>
-      <button class="tab-btn" onclick="switchAdmTab('popup', this)">🎁 Popup & Coupon</button>
-    </div>
-
-    <div id="adm-tab-orders"></div>
-    <div id="adm-tab-deposits" class="hidden"></div>
-    <div id="adm-tab-products" class="hidden"></div>
-    <div id="adm-tab-popup" class="hidden"></div>
-  </div>
-
-  <!-- Bottom Navigation -->
-  <div class="bottom-nav">
-    <button class="nav-item active" id="nav-home" onclick="switchPage('home')"><span>🏠</span>Home</button>
-    <button class="nav-item" id="nav-tools" onclick="switchPage('tools')"><span>🔐</span>Tools</button>
-    <button class="nav-item" id="nav-deposit" onclick="switchPage('deposit')">
-      <div class="nav-center">💳</div>Deposit
-    </button>
-    <button class="nav-item" id="nav-profile" onclick="switchPage('profile')"><span>👤</span>Profile</button>
-    <button class="nav-item hidden" id="nav-admin" onclick="switchPage('admin')"><span>👑</span>Admin</button>
-  </div>
-
-  <!-- Product Purchase Modal -->
-  <div class="modal" id="buyModal">
-    <div class="sheet">
-      <div class="row-between" style="margin-bottom:10px">
-        <b id="mBrand" style="color:var(--accent);font-size:12px">CATEGORY</b>
-        <button class="btn-outline" onclick="closeModal('buyModal')">✕</button>
-      </div>
-      <div id="mImgWrap" style="height:130px;border-radius:14px;overflow:hidden;background:var(--bg);display:flex;align-items:center;justify-content:center;margin-bottom:10px"></div>
-      <h3 id="mName" style="margin:0 0 4px">Product Name</h3>
-      <p id="mDesc" style="font-size:12px;color:var(--muted);margin:0 0 10px;line-height:1.45"></p>
-      <div class="row-between" style="margin-bottom:8px">
-        <span id="mPrice" style="font-size:20px;font-weight:800;color:var(--accent)">৳0</span>
-        <span id="mStockBadge" style="font-size:12px;font-weight:700"></span>
-      </div>
-
-      <label style="font-size:12px;font-weight:700">QUANTITY</label>
-      <div class="qty-box">
-        <button class="qty-btn" onclick="changeQty(-1)">−</button>
-        <input id="mQtyInput" type="number" value="1" min="1" style="width:70px;text-align:center;font-weight:800;font-size:16px;border:none;background:transparent;color:var(--text)" oninput="recalcOrder()" />
-        <button class="qty-btn" onclick="changeQty(1)">+</button>
-      </div>
-      <div class="quick-qtys">
-        <button class="q-pill" onclick="setQty(1)">1</button>
-        <button class="q-pill" onclick="setQty(5)">5</button>
-        <button class="q-pill" onclick="setQty(10)">10</button>
-        <button class="q-pill" onclick="setQty(25)">25</button>
-        <button class="q-pill" onclick="setQty(50)">50</button>
-        <button class="q-pill" onclick="setQty(100)">100</button>
-      </div>
-
-      <div class="row-between">
-        <input id="couponInput" class="input" style="margin:0;flex:1" placeholder="Promo / Coupon code (optional)" />
-        <button class="btn-outline" onclick="applyCoupon()">Apply</button>
-      </div>
-      <div id="couponMsg" style="font-size:11px;margin:4px 0 8px"></div>
-
-      <div class="card" style="background:var(--bg);box-shadow:none;margin-bottom:12px">
-        <div class="row-between" style="font-size:12px;margin-bottom:4px"><span>Total Payable</span><b id="mTotal" style="font-size:16px;color:var(--accent)">৳0</b></div>
-        <div class="row-between" style="font-size:12px"><span>Your Balance</span><b id="mYourBal">৳0</b></div>
-      </div>
-      <button class="btn-primary" id="mConfirmBtn" onclick="confirmOrder()">🛒 Confirm & Buy Now</button>
-    </div>
-  </div>
-
-  <!-- Welcome Offer Popup -->
-  <div class="modal center" id="offerModal">
-    <div class="sheet" style="text-align:center">
-      <div id="offerImgWrap" style="margin-bottom:10px"></div>
-      <h3 id="offerTitle" style="margin:4px 0 8px">Special Offer!</h3>
-      <p id="offerText" style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:14px"></p>
-      <button class="btn-primary" onclick="closeModal('offerModal')">🛍️ Start Shopping</button>
-    </div>
-  </div>
-
-  <!-- Notifications Modal -->
-  <div class="modal" id="notifModal">
-    <div class="sheet">
-      <div class="row-between" style="margin-bottom:10px">
-        <h3 style="margin:0">🔔 Notifications</h3>
-        <button class="btn-outline" onclick="closeModal('notifModal')">✕</button>
-      </div>
-      <div id="notifList"></div>
-    </div>
-  </div>
-
-  <script>
-    const tg = window.Telegram ? window.Telegram.WebApp : null;
-    if (tg) { tg.ready(); tg.expand(); }
-    const initData = tg ? tg.initData : "";
-
-    let APP = {
-      user: {}, categories: [], products: [], settings: {},
-      currency: localStorage.getItem("cn_curr") || "BDT",
-      theme: localStorage.getItem("cn_theme") || "light",
-      selectedCat: "all",
-      favorites: JSON.parse(localStorage.getItem("cn_favs") || "[]"),
-      activeProduct: null,
-      discountPct: 0,
-      appliedCoupon: ""
-    };
-
-    if (APP.theme === "dark") document.body.classList.add("dark");
-
-    async function api(path, body = null) {
-      const opts = {
-        method: body ? "POST" : "GET",
-        headers: { "Content-Type": "application/json", "X-Telegram-Init-Data": initData }
-      };
-      if (body) opts.body = JSON.stringify(body);
-      const res = await fetch(path, opts);
-      return await res.json();
-    }
-
-    function fmtPrice(bdt) {
-      if (APP.currency === "USDT") return "$" + (Number(bdt) / (APP.settings.usdt_rate || 125)).toFixed(3);
-      return "৳" + (Number(bdt) < 1 ? Number(bdt).toFixed(2) : Number(bdt).toFixed(2).replace(/\.00$/, ""));
-    }
-
-    function prodImgUrl(p) {
-      if (!p.image_file_id) return "";
-      if (p.image_file_id.startsWith("http") || p.image_file_id.startsWith("data:")) return p.image_file_id;
-      return "/api/tg_photo?file_id=" + encodeURIComponent(p.image_file_id);
-    }
-
-    function catIcon(catName) {
-      const n = (catName || "").toLowerCase();
-      if (n.includes("vpn")) return "🛡️";
-      if (n.includes("proxy")) return "🌐";
-      if (n.includes("recovery")) return "🔐";
-      if (n.includes("mail")) return "✉️";
-      return "📦";
-    }
-
-    async function boot() {
-      try {
-        const data = await api("/api/init");
-        if (data.error) {
-          document.getElementById("uName").innerText = "Open inside Telegram";
-        } else {
-          APP.user = data.user;
-          APP.categories = data.categories;
-          APP.products = data.products;
-          APP.settings = data.settings;
-
-          document.getElementById("uName").innerText = APP.user.full_name || "Customer";
-          document.getElementById("uAvatar").innerText = (APP.user.full_name || "C")[0].toUpperCase();
-          document.getElementById("uBal").innerText = fmtPrice(APP.user.balance_bdt || 0);
-          document.getElementById("profName").innerText = APP.user.full_name || "Customer";
-          document.getElementById("profMeta").innerText = `ID: ${APP.user.user_id} • @${APP.user.username || "user"}`;
-          document.getElementById("stOrders").innerText = APP.user.total_orders || 0;
-          document.getElementById("stSpent").innerText = fmtPrice(APP.user.total_spent || 0);
-          document.getElementById("stRef").innerText = APP.user.referrals || 0;
-          document.getElementById("refLink").innerText = `https://t.me/${APP.settings.bot_username || "bot"}?start=${APP.user.user_id}`;
-
-          document.getElementById("depMethodsList").innerHTML = `
-            <div class="copy-box"><span>📱 bKash: <b>${APP.settings.bkash_number || ""}</b></span><button class="btn-outline" onclick="copyText('${APP.settings.bkash_number || ""}')">Copy</button></div>
-            <div class="copy-box"><span>📱 Nagad: <b>${APP.settings.nagad_number || ""}</b></span><button class="btn-outline" onclick="copyText('${APP.settings.nagad_number || ""}')">Copy</button></div>
-            <div class="copy-box"><span>💎 Binance: <b>${APP.settings.binance_id || ""}</b></span><button class="btn-outline" onclick="copyText('${APP.settings.binance_id || ""}')">Copy</button></div>
-          `;
-
-          if (APP.user.is_admin) {
-            document.getElementById("nav-admin").classList.remove("hidden");
-          }
-          if (data.unread_notifs > 0) document.getElementById("notifDot").style.display = "block";
-
-          renderCategories();
-          renderTopSelling();
-          renderProducts();
-
-          if (APP.settings.popup_enabled === "1" && !sessionStorage.getItem("popup_shown")) {
-            sessionStorage.setItem("popup_shown", "1");
-            document.getElementById("offerTitle").innerText = APP.settings.popup_title || "Special Offer!";
-            document.getElementById("offerText").innerText = APP.settings.popup_text || "";
-            const iw = document.getElementById("offerImgWrap");
-            if (APP.settings.popup_image) {
-              const src = APP.settings.popup_image.startsWith("http") || APP.settings.popup_image.startsWith("data:")
-                ? APP.settings.popup_image
-                : "/api/tg_photo?file_id=" + encodeURIComponent(APP.settings.popup_image);
-              iw.innerHTML = `<img src="${src}" style="width:100%;max-height:170px;object-fit:cover;border-radius:12px" />`;
-            } else iw.innerHTML = "";
-            document.getElementById("offerModal").classList.add("open");
-          }
-        }
-      } catch (e) { console.error(e); }
-      setTimeout(() => document.getElementById("splash").classList.add("hide"), 350);
-    }
-
-    function renderCategories() {
-      const row = document.getElementById("catRow");
-      let html = `<button class="cat-pill ${APP.selectedCat === 'all' ? 'active' : ''}" onclick="selectCat('all')">📦 All Products</button>`;
-      APP.categories.forEach(c => {
-        html += `<button class="cat-pill ${APP.selectedCat == c.id ? 'active' : ''}" onclick="selectCat(${c.id})">${c.name}</button>`;
-      });
-      row.innerHTML = html;
-    }
-
-    function selectCat(cid) {
-      APP.selectedCat = cid;
-      renderCategories();
-      renderProducts();
-    }
-
-    function renderTopSelling() {
-      const wrap = document.getElementById("topSellingWrap");
-      if (!APP.products.length) return;
-      const top = [...APP.products].sort((a, b) => (b.sold_count || 0) - (a.sold_count || 0))[0];
-      if (!top) return;
-      const img = prodImgUrl(top);
-      wrap.innerHTML = `
-        <div class="sec-title"><span>🔥 TOP SELLING</span></div>
-        <div class="top-card" onclick="openBuy(${top.id})">
-          <div class="top-left">
-            <div class="prod-thumb">${img ? `<img src="${img}" style="width:100%;height:100%;object-fit:cover;border-radius:12px">` : catIcon(top.cat_name)}</div>
-            <div>
-              <b style="font-size:13px">${top.sub_name} — ${top.name}</b>
-              <div style="font-size:12px;color:var(--accent);font-weight:700">${fmtPrice(top.price_bdt)} <span style="color:var(--muted);font-weight:400">• ${top.sold_count || 0} sold</span></div>
-            </div>
-          </div>
-          <button class="btn-primary" style="width:auto;padding:8px 14px">🛒 Buy</button>
-        </div>
-      `;
-    }
-
-    function renderProducts() {
-      const q = (document.getElementById("searchInput").value || "").toLowerCase().trim();
-      const filtered = APP.products.filter(p => {
-        if (APP.selectedCat !== "all" && p.category_id != APP.selectedCat) return false;
-        if (q && !(p.name + " " + p.sub_name + " " + p.cat_name).toLowerCase().includes(q)) return false;
-        return true;
-      });
-      document.getElementById("prodCount").innerText = `${filtered.length} items`;
-      const grid = document.getElementById("prodGrid");
-      if (!filtered.length) {
-        grid.innerHTML = `<div style="grid-column:span 2;text-align:center;color:var(--muted);padding:30px">No matching products found.</div>`;
-        return;
-      }
-      grid.innerHTML = filtered.map(p => {
-        const img = prodImgUrl(p);
-        const isVpnOrProxy = p.cat_name.toLowerCase().includes("vpn") || p.cat_name.toLowerCase().includes("proxy");
-        const available = p.is_active && (p.in_stock > 0 || isVpnOrProxy);
-        const stockLabel = !p.is_active
-          ? `<span class="st-out">● Unavailable</span>`
-          : (p.in_stock > 0 ? `<span class="st-in">● In stock (${p.in_stock})</span>` : (isVpnOrProxy ? `<span class="st-in">● Available</span>` : `<span class="st-out">● Out of stock</span>`));
-        const isFav = APP.favorites.includes(p.id);
-        return `
-          <div class="p-card">
-            <div>
-              <div class="p-img-box">
-                ${img ? `<img src="${img}" />` : `<span style="font-size:34px">${catIcon(p.cat_name)}</span>`}
-                <button class="fav-btn" onclick="toggleFav(event, ${p.id})">${isFav ? "❤️" : "🤍"}</button>
-              </div>
-              <div class="p-brand">${p.sub_name}</div>
-              <div class="p-name">${p.name}</div>
-              <div class="p-price">${fmtPrice(p.price_bdt)}</div>
-              <div class="p-meta">${stockLabel} <span>🔥 ${p.sold_count || 0}</span></div>
-            </div>
-            <button class="btn-primary" ${available ? "" : "disabled"} onclick="openBuy(${p.id})">${available ? "🛒 Buy now" : "Out of stock"}</button>
-          </div>
-        `;
-      }).join("");
-    }
-
-    function toggleFav(e, pid) {
-      e.stopPropagation();
-      if (APP.favorites.includes(pid)) APP.favorites = APP.favorites.filter(x => x !== pid);
-      else APP.favorites.push(pid);
-      localStorage.setItem("cn_favs", JSON.stringify(APP.favorites));
-      renderProducts();
-    }
-
-    function openBuy(pid) {
-      const p = APP.products.find(x => x.id === pid);
-      if (!p) return;
-      APP.activeProduct = p;
-      APP.discountPct = 0;
-      APP.appliedCoupon = "";
-      document.getElementById("couponInput").value = "";
-      document.getElementById("couponMsg").innerText = "";
-      document.getElementById("mBrand").innerText = `${p.cat_name} • ${p.sub_name}`;
-      document.getElementById("mName").innerText = `${p.sub_name} — ${p.name}`;
-      document.getElementById("mDesc").innerText = p.description || "Fast & verified digital service with instant or rapid delivery.";
-      const img = prodImgUrl(p);
-      document.getElementById("mImgWrap").innerHTML = img ? `<img src="${img}" style="width:100%;height:100%;object-fit:cover">` : `<span style="font-size:48px">${catIcon(p.cat_name)}</span>`;
-      document.getElementById("mPrice").innerText = fmtPrice(p.price_bdt);
-      const isVpnOrProxy = p.cat_name.toLowerCase().includes("vpn") || p.cat_name.toLowerCase().includes("proxy");
-      document.getElementById("mStockBadge").innerHTML = p.in_stock > 0
-        ? `<span class="st-in">● ${p.in_stock} in stock</span>`
-        : (isVpnOrProxy ? `<span class="st-in">● Manual / On-Demand</span>` : `<span class="st-out">● Out of stock</span>`);
-      document.getElementById("mQtyInput").value = 1;
-      recalcOrder();
-      document.getElementById("buyModal").classList.add("open");
-    }
-
-    function changeQty(d) {
-      const inp = document.getElementById("mQtyInput");
-      inp.value = Math.max(1, (parseInt(inp.value) || 1) + d);
-      recalcOrder();
-    }
-    function setQty(q) {
-      document.getElementById("mQtyInput").value = q;
-      recalcOrder();
-    }
-    function recalcOrder() {
-      if (!APP.activeProduct) return;
-      const qty = Math.max(1, parseInt(document.getElementById("mQtyInput").value) || 1);
-      let total = APP.activeProduct.price_bdt * qty;
-      if (APP.discountPct > 0) total = total * (1 - APP.discountPct / 100);
-      document.getElementById("mTotal").innerText = fmtPrice(total);
-      const bal = APP.user.balance_bdt || 0;
-      document.getElementById("mYourBal").innerHTML = fmtPrice(bal) + (bal < total ? ` <span style="color:var(--red)">(Insufficient)</span>` : "");
-    }
-
-    async function applyCoupon() {
-      const code = document.getElementById("couponInput").value.trim();
-      if (!code) return;
-      const res = await api("/api/coupon/check", { code });
-      const msg = document.getElementById("couponMsg");
-      if (res.ok) {
-        APP.discountPct = res.discount_pct;
-        APP.appliedCoupon = code;
-        msg.innerHTML = `<span style="color:var(--green)">✅ ${res.discount_pct}% discount applied!</span>`;
-        recalcOrder();
-      } else {
-        APP.discountPct = 0; APP.appliedCoupon = "";
-        msg.innerHTML = `<span style="color:var(--red)">❌ ${res.error || "Invalid coupon"}</span>`;
-        recalcOrder();
-      }
-    }
-
-    async function confirmOrder() {
-      if (!APP.activeProduct) return;
-      const qty = Math.max(1, parseInt(document.getElementById("mQtyInput").value) || 1);
-      const btn = document.getElementById("mConfirmBtn");
-      btn.disabled = true; btn.innerText = "⏳ Processing...";
-      const res = await api("/api/order", { product_id: APP.activeProduct.id, quantity: qty, coupon: APP.appliedCoupon });
-      btn.disabled = false; btn.innerText = "🛒 Confirm & Buy Now";
-      if (res.ok) {
-        closeModal("buyModal");
-        if (tg && tg.showAlert) tg.showAlert(res.message);
-        boot();
-      } else {
-        if (tg && tg.showAlert) tg.showAlert("❌ " + (res.error || "Order failed"));
-      }
-    }
-
-    async function submitDeposit() {
-      const method = document.getElementById("depMethod").value;
-      const amount = parseFloat(document.getElementById("depAmount").value || 0);
-      const trx_id = document.getElementById("depTrx").value.trim();
-      if (!amount || !trx_id) return;
-      const res = await api("/api/deposit", { method, amount, trx_id });
-      if (res.ok) {
-        document.getElementById("depAmount").value = "";
-        document.getElementById("depTrx").value = "";
-        if (tg && tg.showAlert) tg.showAlert("✅ Deposit request submitted! Admin will approve shortly.");
-      }
-    }
-
-    function switchTool(t) {
-      document.getElementById("tool-outlook").classList.toggle("hidden", t !== "outlook");
-      document.getElementById("tool-2fa").classList.toggle("hidden", t !== "2fa");
-      document.getElementById("tBtnOutlook").classList.toggle("active", t === "outlook");
-      document.getElementById("tBtn2fa").classList.toggle("active", t === "2fa");
-    }
-
-    async function pasteTo(id) {
-      try { document.getElementById(id).value = await navigator.clipboard.readText(); }
-      catch (e) {}
-    }
-    function clearTool(t) {
-      if (t === "outlook") {
-        document.getElementById("outlookInput").value = "";
-        document.getElementById("outlookResult").classList.add("hidden");
-      } else {
-        document.getElementById("tfaInput").value = "";
-        document.getElementById("tfaResult").classList.add("hidden");
-      }
-    }
-    async function getOutlookCode() {
-      const raw = document.getElementById("outlookInput").value.trim();
-      if (!raw) return;
-      const box = document.getElementById("outlookResult");
-      box.classList.remove("hidden");
-      box.innerHTML = "⏳ Checking inbox...";
-      const res = await api("/api/tools/outlook", { account: raw });
-      if (res.ok) {
-        box.innerHTML = `
-          <div style="font-size:12px;color:var(--muted)">Subject: ${res.subject || "Inbox"}</div>
-          <div class="copy-box"><b>${res.code}</b><button class="btn-outline" onclick="copyText('${res.code}')">📋 Copy Code</button></div>
-        `;
-      } else {
-        box.innerHTML = `<span style="color:var(--red)">❌ ${res.error}</span>`;
-      }
-    }
-    async function get2faCode() {
-      const secret = document.getElementById("tfaInput").value.trim();
-      if (!secret) return;
-      const box = document.getElementById("tfaResult");
-      box.classList.remove("hidden");
-      const res = await api("/api/tools/2fa", { secret });
-      if (res.ok) {
-        box.innerHTML = `
-          <div class="copy-box"><b style="font-size:20px;letter-spacing:2px">${res.code}</b><button class="btn-outline" onclick="copyText('${res.code}')">📋 Copy Code</button></div>
-          <small style="color:var(--muted)">⏳ Valid for ${res.remaining}s</small>
-        `;
-      } else {
-        box.innerHTML = `<span style="color:var(--red)">❌ ${res.error}</span>`;
-      }
-    }
-
-    async function loadHistory() {
-      const res = await api("/api/orders/history");
-      const list = document.getElementById("historyList");
-      if (!res.orders || !res.orders.length) {
-        list.innerHTML = "<span style='color:var(--muted)'>No orders yet.</span>"; return;
-      }
-      list.innerHTML = res.orders.map(o => `
-        <div style="border-bottom:1px solid var(--border);padding:8px 0">
-          <div class="row-between"><b>${o.product_name} (x${o.quantity})</b><span>${fmtPrice(o.total_bdt)}</span></div>
-          <div class="row-between" style="font-size:11px;color:var(--muted);margin-top:2px">
-            <span>#${o.id} • ${o.created_at}</span>
-            <span style="color:${o.status === 'completed' ? 'var(--green)' : 'var(--accent)'};font-weight:700">${o.status.toUpperCase()}</span>
-          </div>
-          ${o.delivered_data ? `<div class="copy-box" style="margin-top:6px"><span style="font-size:11px">${o.delivered_data}</span><button class="btn-outline" onclick="copyText(\`${o.delivered_data.replace(/`/g, '')}\`)">Copy</button></div>` : ""}
-        </div>
-      `).join("");
-    }
-
-    async function openNotifs() {
-      document.getElementById("notifModal").classList.add("open");
-      document.getElementById("notifDot").style.display = "none";
-      const res = await api("/api/notifications");
-      const box = document.getElementById("notifList");
-      if (!res.items || !res.items.length) {
-        box.innerHTML = "<p style='color:var(--muted);text-align:center'>No notifications yet.</p>"; return;
-      }
-      box.innerHTML = res.items.map(n => `
-        <div class="card" style="padding:10px;margin-bottom:8px;box-shadow:none">
-          <b style="font-size:13px">${n.title}</b>
-          <div style="font-size:12px;color:var(--muted);margin:3px 0">${n.message}</div>
-          <small style="font-size:10px;color:var(--muted)">${n.created_at}</small>
-        </div>
-      `).join("");
-    }
-
-    async function loadAdmin() {
-      const res = await api("/api/admin/overview");
-      if (!res.ok) return;
-      document.getElementById("admUsers").innerText = res.stats.users;
-      document.getElementById("admPendDep").innerText = res.stats.pending_deposits;
-      document.getElementById("admPendOrd").innerText = res.stats.pending_orders;
-
-      document.getElementById("adm-tab-orders").innerHTML = res.pending_orders.length
-        ? res.pending_orders.map(o => `
-          <div class="card">
-            <b>Order #${o.id} — ${o.product_name} (x${o.quantity})</b>
-            <div style="font-size:12px;color:var(--muted)">User: ${o.user_id} • Paid: ${fmtPrice(o.total_bdt)}</div>
-            <input id="deliv_in_${o.id}" class="input" placeholder="Enter email:pass OR host:port:user:pass" />
-            <div class="row-between">
-              <button class="btn-primary" style="flex:1" onclick="admDeliver(${o.id})">🚀 Deliver</button>
-              <button class="btn-outline" style="color:var(--red)" onclick="admRefund(${o.id})">❌ Refund</button>
-            </div>
-          </div>
-        `).join("")
-        : `<div class="card">No pending manual orders.</div>`;
-
-      document.getElementById("adm-tab-deposits").innerHTML = res.pending_deposits.length
-        ? res.pending_deposits.map(d => `
-          <div class="card">
-            <b>Deposit #${d.id} — ${d.method} (${fmtPrice(d.amount)})</b>
-            <div style="font-size:12px;color:var(--muted)">User: ${d.user_id} • TrxID: <code>${d.trx_id}</code></div>
-            <div class="row-between" style="margin-top:8px">
-              <button class="btn-primary" style="flex:1" onclick="admDepAction(${d.id}, 'approve')">✅ Approve</button>
-              <button class="btn-outline" style="color:var(--red)" onclick="admDepAction(${d.id}, 'reject')">❌ Reject</button>
-            </div>
-          </div>
-        `).join("")
-        : `<div class="card">No pending deposits.</div>`;
-
-      document.getElementById("adm-tab-products").innerHTML = APP.products.map(p => `
-        <div class="card">
-          <div class="row-between">
-            <b>${p.sub_name} — ${p.name}</b>
-            <button class="btn-outline" onclick="admToggleProd(${p.id})">${p.is_active ? "🟢 Active" : "🔴 Inactive"}</button>
-          </div>
-          <div class="row-between" style="margin-top:6px">
-            <input id="adm_p_${p.id}" type="number" class="input" style="margin:0;width:110px" value="${p.price_bdt}" />
-            <button class="btn-outline" onclick="admSavePrice(${p.id})">💰 Save Price</button>
-          </div>
-          <input id="adm_img_${p.id}" class="input" placeholder="Paste Photo URL or Telegram file_id" value="${p.image_file_id || ""}" />
-          <textarea id="adm_stk_${p.id}" rows="2" placeholder="Paste stock lines (1 per line) to add"></textarea>
-          <div class="row-between">
-            <button class="btn-outline" onclick="admSavePhoto(${p.id})">🖼️ Save Photo</button>
-            <button class="btn-primary" style="width:auto" onclick="admAddStock(${p.id})">📥 Add Stock</button>
-          </div>
-        </div>
-      `).join("");
-
-      document.getElementById("adm-tab-popup").innerHTML = `
-        <div class="card">
-          <h4 style="margin:0 0 8px">🎁 Welcome Offer Popup</h4>
-          <select id="popEn" class="input">
-            <option value="1" ${APP.settings.popup_enabled === "1" ? "selected" : ""}>🟢 Enabled</option>
-            <option value="0" ${APP.settings.popup_enabled !== "1" ? "selected" : ""}>🔴 Disabled</option>
-          </select>
-          <input id="popTitle" class="input" placeholder="Popup Title" value="${APP.settings.popup_title || ""}" />
-          <textarea id="popText" rows="3" placeholder="Popup Message">${APP.settings.popup_text || ""}</textarea>
-          <input id="popImg" class="input" placeholder="Popup Image URL or file_id" value="${APP.settings.popup_image || ""}" />
-          <button class="btn-primary" onclick="admSavePopup()">💾 Save Popup</button>
-        </div>
-        <div class="card">
-          <h4 style="margin:0 0 8px">🎟️ Create Coupon Code</h4>
-          <input id="newCoupCode" class="input" placeholder="Code (e.g. CYBER10)" />
-          <input id="newCoupPct" type="number" class="input" placeholder="Discount % (e.g. 10)" />
-          <button class="btn-primary" onclick="admCreateCoupon()">➕ Add Coupon</button>
-        </div>
-      `;
-    }
-
-    function switchAdmTab(t, btn) {
-      ["orders", "deposits", "products", "popup"].forEach(x => {
-        document.getElementById("adm-tab-" + x).classList.toggle("hidden", x !== t);
-      });
-      document.querySelectorAll("#page-admin .tab-btn").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-    }
-    async function admDeliver(oid) {
-      const val = document.getElementById("deliv_in_" + oid).value.trim();
-      if (!val) return;
-      const r = await api("/api/admin/deliver_order", { order_id: oid, data: val });
-      if (r.ok) { loadAdmin(); }
-    }
-    async function admRefund(oid) {
-      const r = await api("/api/admin/refund_order", { order_id: oid });
-      if (r.ok) { loadAdmin(); }
-    }
-    async function admDepAction(did, action) {
-      const r = await api("/api/admin/deposit_action", { deposit_id: did, action });
-      if (r.ok) { loadAdmin(); }
-    }
-    async function admToggleProd(pid) {
-      await api("/api/admin/product_update", { product_id: pid, toggle_active: true });
-      await boot(); loadAdmin();
-    }
-    async function admSavePrice(pid) {
-      const price = parseFloat(document.getElementById("adm_p_" + pid).value);
-      await api("/api/admin/product_update", { product_id: pid, price_bdt: price });
-      await boot(); loadAdmin();
-    }
-    async function admSavePhoto(pid) {
-      const image_file_id = document.getElementById("adm_img_" + pid).value.trim();
-      await api("/api/admin/product_update", { product_id: pid, image_file_id });
-      await boot(); loadAdmin();
-    }
-    async function admAddStock(pid) {
-      const lines = document.getElementById("adm_stk_" + pid).value.trim();
-      if (!lines) return;
-      await api("/api/admin/add_stock", { product_id: pid, lines });
-      document.getElementById("adm_stk_" + pid).value = "";
-      await boot(); loadAdmin();
-    }
-    async function admSavePopup() {
-      await api("/api/admin/popup", {
-        enabled: document.getElementById("popEn").value,
-        title: document.getElementById("popTitle").value,
-        text: document.getElementById("popText").value,
-        image: document.getElementById("popImg").value
-      });
-      await boot();
-    }
-    async function admCreateCoupon() {
-      const code = document.getElementById("newCoupCode").value.trim().toUpperCase();
-      const pct = parseFloat(document.getElementById("newCoupPct").value || 0);
-      if (!code || !pct) return;
-      await api("/api/admin/coupon", { code, discount_pct: pct });
-    }
-
-    function switchPage(p) {
-      ["home", "deposit", "tools", "profile", "admin"].forEach(x => {
-        document.getElementById("page-" + x).classList.toggle("hidden", x !== p);
-        const nav = document.getElementById("nav-" + x);
-        if (nav) nav.classList.toggle("active", x === p);
-      });
-      if (p === "profile") loadHistory();
-      if (p === "admin") loadAdmin();
-    }
-    function closeModal(id) { document.getElementById(id).classList.remove("open"); }
-    function toggleTheme() {
-      document.body.classList.toggle("dark");
-      APP.theme = document.body.classList.contains("dark") ? "dark" : "light";
-      localStorage.setItem("cn_theme", APP.theme);
-      document.getElementById("themeBtn").innerText = APP.theme === "dark" ? "☀️ Light" : "🌙 Dark";
-    }
-    function toggleCurrency() {
-      APP.currency = APP.currency === "BDT" ? "USDT" : "BDT";
-      localStorage.setItem("cn_curr", APP.currency);
-      document.getElementById("currBtn").innerText = APP.currency === "BDT" ? "🇧🇩 BDT" : "💲 USDT";
-      document.getElementById("uBal").innerText = fmtPrice(APP.user.balance_bdt || 0);
-      renderProducts(); renderTopSelling();
-    }
-    function copyText(txt) {
-      navigator.clipboard.writeText(txt).catch(() => {});
-    }
-    function openSupport() {
-      const u = (APP.settings.support_username || "@Talha_juba098").replace("@", "");
-      if (tg) tg.openTelegramLink("https://t.me/" + u);
-      else window.open("https://t.me/" + u, "_blank");
-    }
-
-    boot();
-  </script>
-</body>
-</html>"""
+def generate_smart_ai_reply(question: str, user_id: Optional[int] = None) -> str:
+    """Answers customer questions dynamically using live database prices, stock & payment info."""
+    q = (question or "").strip().lower()
+    conn = get_db()
+    c = conn.cursor()
+
+    c.execute("""
+        SELECT p.id, p.name, p.price_bdt, COALESCE(p.is_active, 1) as is_active,
+               s.name as sub_name, cat.name as cat_name,
+               (SELECT COUNT(*) FROM stock st WHERE st.product_id = p.id AND st.is_sold = 0) as in_stock
+        FROM products p
+        JOIN subcategories s ON p.subcategory_id = s.id
+        JOIN categories cat ON s.category_id = cat.id
+        ORDER BY cat.position ASC, s.position ASC, p.id ASC
+    """)
+    prods = [dict(r) for r in c.fetchall()]
+
+    bkash = get_setting("bkash_number", "N/A")
+    nagad = get_setting("nagad_number", "N/A")
+    binance = get_setting("binance_id", "N/A")
+    min_dep = get_setting("min_deposit_manual", "20")
+    usdt_rate = get_setting("usdt_rate", "125")
+    support_un = get_setting("support_username", "@Talha_juba098")
+
+    user_bal = 0.0
+    if user_id:
+        c.execute("SELECT balance_bdt FROM users WHERE user_id = ?", (user_id,))
+        urow = c.fetchone()
+        if urow:
+            user_bal = float(urow["balance_bdt"] or 0.0)
+    conn.close()
+
+    # Deposit / Payment queries
+    if any(k in q for k in ["deposit", "payment", "bkash", "nagad", "binance", "ডিপোজিট", "বিকাশ", "নগদ", "বাইনান্স", "পেমেন্ট", "টাকা অ্যাড", "রিচার্জ"]):
+        return (
+            f"💳 <b>লাইভ পেমেন্ট ও ডিপোজিট তথ্য:</b>\n"
+            f"────────────────────────\n"
+            f"📱 <b>bKash:</b> <code>{bkash}</code>\n"
+            f"📱 <b>Nagad:</b> <code>{nagad}</code>\n"
+            f"💎 <b>Binance:</b> <code>{binance}</code>\n\n"
+            f"📌 <b>সর্বনিম্ন ডিপোজিট:</b> ৳{format_price(float(min_dep))} BDT\n"
+            f"💱 <b>USDT রেট:</b> 1 USDT = ৳{usdt_rate} BDT\n"
+            f"💰 <b>আপনার বর্তমান ব্যালেন্স:</b> ৳{user_bal:.2f} BDT\n\n"
+            f"✅ <i>বটের 💳 Deposit বাটনে অথবা মিনি অ্যাপের ক্যালকুলেটরে গিয়ে Send Money করে TrxID সাবমিট করলেই ব্যালেন্স যুক্ত হয়ে যাবে!</i>"
+        )
+
+    # VPN price / packages query
+    if any(k in q for k in ["vpn", "nord", "express", "surfshark", "ip vanish", "ipvanish", "turbo", "hma", "panda", "proton", "ভিপিএন"]):
+        vpn_items = [p for p in prods if "vpn" in p["cat_name"].lower() and p["is_active"]]
+        grouped: Dict[str, List[str]] = {}
+        for p in vpn_items:
+            grouped.setdefault(p["sub_name"], []).append(f"{p['name']}: ৳{format_price(p['price_bdt'])}")
+        lines = ["🛡️ <b>লাইভ প্রিমিয়াম VPN প্রাইস লিস্ট:</b>", "────────────────────────"]
+        for brand, plans in grouped.items():
+            lines.append(f"🔹 <b>{brand}:</b> " + " | ".join(plans))
+        lines.append("\n⚡ <i>সব VPN ১০০% ভেরিফায়েড ও ওয়ারেন্টি যুক্ত। অর্ডার করার ১৫-৩০ মিনিটের মধ্যে ইনবক্সে ডেলিভারি পাবেন।</i>")
+        return "\n".join(lines)
+
+    # Proxy price / packages query
+    if any(k in q for k in ["proxy", "9 proxy", "9proxy", "rapid", "711", "প্রক্সি"]):
+        proxy_items = [p for p in prods if "proxy" in p["cat_name"].lower() and p["is_active"]]
+        grouped_p: Dict[str, List[str]] = {}
+        for p in proxy_items:
+            grouped_p.setdefault(p["sub_name"], []).append(f"{p['name']}: ৳{format_price(p['price_bdt'])}")
+        lines = ["🌐 <b>লাইভ রেসিডেনশিয়াল Proxy প্যাকেজসমূহ:</b>", "────────────────────────"]
+        for brand, plans in grouped_p.items():
+            lines.append(f"🔸 <b>{brand}:</b> " + " | ".join(plans))
+        lines.append("\n✅ <i>সব প্রক্সি হাই-স্পিড ও Ready to Order! কিনলে ইনবক্সে One-Tap Copy ফরম্যাটে ও PDF রিসিটসহ পাবেন।</i>")
+        return "\n".join(lines)
+
+    # Mail / Hotmail / Outlook stock & price query
+    if any(k in q for k in ["mail", "hotmail", "outlook", "recovery", "মেইল", "হটমেইল", "আউটলুক", "স্টক", "stock"]):
+        mail_items = [p for p in prods if "mail" in p["cat_name"].lower() and p["is_active"]]
+        lines = ["✉️ <b>লাইভ Mail প্রাইস ও স্টক আপডেট:</b>", "────────────────────────"]
+        for p in mail_items:
+            st_txt = f"🟢 In Stock ({p['in_stock']} pcs)" if p["in_stock"] > 0 else "🔴 Out of Stock"
+            lines.append(f"📧 <b>{p['sub_name']} ({p['name']}):</b> ৳{format_price(p['price_bdt'])} — {st_txt}")
+        lines.append("\n⚡ <i>মেইল কেনার সাথে সাথেই ইনস্ট্যান্ট ডেলিভারি এবং .xlsx এক্সেল ব্যাকআপ ফাইল পাবেন!</i>")
+        return "\n".join(lines)
+
+    # 2FA / OTP / Code query
+    if any(k in q for k in ["2fa", "otp", "code", "কোড", "ওটিপি", "ভেরিফিকেশন"]):
+        return (
+            "🔐 <b>ফ্রি 2FA ও Mail OTP টুলস:</b>\n"
+            "────────────────────────\n"
+            "১. বটের <b>🔐 Get Code</b> মেনুতে অথবা ওয়েব অ্যাপের <b>Tools</b> ট্যাবে যান।\n"
+            "২. <b>Outlook / Hotmail OTP:</b> আপনার <code>email|password|refresh_token|client_id</code> পেস্ট করলেই সরাসরি ইনবক্স থেকে সর্বশেষ OTP কোড দেখিয়ে দেবে।\n"
+            "৩. <b>2FA Live Code:</b> যেকোনো Secret Key পেস্ট করলেই লাইভ ৬-ডিজিট কোড ও টাইমার পাবেন।"
+        )
+
+    # Referral query
+    if any(k in q for k in ["refer", "referral", "রেফার", "রেফারেল", "আয়", "earn"]):
+        return (
+            "👥 <b>রেফারেল ও আর্নিং প্রোগ্রাম:</b>\n"
+            "────────────────────────\n"
+            "• আপনার প্রোফাইল বা ওয়েব অ্যাপের <b>Referral & Earnings</b> পেজ থেকে আপনার রেফারেল লিংক কপি করে বন্ধুদের শেয়ার করুন।\n"
+            "• আপনার লিংকে কেউ জয়েন করলে আপনার রেফারেল কাউন্টার ও লিস্টে সাথে সাথে তার নাম, ইউজারনেম ও আইডি যুক্ত হয়ে যাবে!"
+        )
+
+    # Full price list or general greeting
+    lines = [
+        "🤖 <b>CyberNest AI Support Assistant</b>",
+        "────────────────────────",
+        "আসসালামু আলাইকুম! আমি বটের লাইভ ডাটাবেসের সাথে যুক্ত। আমাদের স্টোরের সংক্ষিপ্ত লাইভ তথ্য নিচে দেওয়া হলো:\n",
+    ]
+    vpn_cnt = len([p for p in prods if "vpn" in p["cat_name"].lower() and p["is_active"]])
+    prx_cnt = len([p for p in prods if "proxy" in p["cat_name"].lower() and p["is_active"]])
+    mail_stock = sum(int(p["in_stock"] or 0) for p in prods if "mail" in p["cat_name"].lower())
+
+    lines.append(f"🛡️ <b>প্রিমিয়াম VPN প্ল্যান:</b> {vpn_cnt} টি (৳১৫ থেকে শুরু)")
+    lines.append(f"🌐 <b>প্রিমিয়াম Proxy প্ল্যান:</b> {prx_cnt} টি (৳১০ থেকে শুরু)")
+    lines.append(f"✉️ <b>রেডি Mail স্টক:</b> {mail_stock} পিস (৳০.৬৫ থেকে শুরু)")
+    lines.append(f"💳 <b>পেমেন্ট মেথড:</b> bKash, Nagad ও Binance (Min: ৳{format_price(float(min_dep))})")
+    lines.append(f"💰 <b>আপনার ব্যালেন্স:</b> ৳{user_bal:.2f} BDT\n")
+    lines.append(f"💡 <i>আপনি নির্দিষ্ট করে <b>\"VPN Price\"</b>, <b>\"Proxy Price\"</b>, <b>\"Mail Stock\"</b> বা <b>\"How to Deposit\"</b> লিখে প্রশ্ন করতে পারেন, অথবা সরাসরি এডমিন সাপোর্টে যোগাযোগ করুন: {support_un}</i>")
+    return "\n".join(lines)
 
 # ------------------------------------------------------------------------------
-# 3. RENDER WEB SERVICE & MINI APP API SERVER
+# 3. RENDER WEB SERVICE & MINI APP API SERVER (Serves external webapp.html)
 # ------------------------------------------------------------------------------
+def load_webapp_html_bytes() -> bytes:
+    """Loads webapp.html from disk so edits take effect immediately without embedding."""
+    candidates = [
+        WEBAPP_FILE_PATH,
+        os.path.join(os.getcwd(), "webapp.html"),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                with open(path, "rb") as f:
+                    return f.read()
+            except Exception as e:
+                logger.error(f"Failed reading webapp.html from {path}: {e}")
+    fallback = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>CyberNest Market</title></head>
+    <body style="background:#0b0f19;color:#fff;font-family:sans-serif;text-align:center;padding:40px">
+    <h2>⚠️ webapp.html not found!</h2>
+    <p>Please keep <code>webapp.html</code> in the same folder as <code>bot.py</code> on GitHub/Render.</p>
+    </body></html>"""
+    return fallback.encode("utf-8")
+
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def _send_json(self, obj, code_num=200):
         body = json.dumps(obj, ensure_ascii=False, default=str).encode("utf-8")
         self.send_response(code_num)
         self.send_header("Content-type", "application/json; charset=utf-8")
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Telegram-Init-Data")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.end_headers()
         self.wfile.write(body)
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Telegram-Init-Data")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.end_headers()
 
     def _get_auth_user(self):
         init_data = self.headers.get("X-Telegram-Init-Data", "")
@@ -1259,14 +413,17 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
-        if path == "/app" or path == "/app/":
-            content = EMBEDDED_WEBAPP_HTML.encode("utf-8")
+        # Serve webapp.html on /app or /webapp.html
+        if path in ("/app", "/app/", "/webapp.html"):
+            content = load_webapp_html_bytes()
             self.send_response(200)
             self.send_header("Content-type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
             self.end_headers()
             self.wfile.write(content)
             return
 
+        # Serve Product / Banner Photo from Telegram file_id
         if path == "/api/tg_photo":
             qs = urllib.parse.parse_qs(parsed.query)
             fid = qs.get("file_id", [""])[0]
@@ -1289,15 +446,66 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
+        # NEW API: Load User's Real Telegram Profile Picture (/api/user_photo)
+        if path == "/api/user_photo":
+            qs = urllib.parse.parse_qs(parsed.query)
+            uid_str = qs.get("user_id", [""])[0]
+            if not uid_str.isdigit():
+                self.send_response(404)
+                self.end_headers()
+                return
+            uid_int = int(uid_str)
+            now_ts = time.time()
+            cached = _USER_PHOTO_CACHE.get(uid_int)
+            if cached and (now_ts - cached[2] < 3600):
+                self.send_response(200)
+                self.send_header("Content-type", cached[1])
+                self.send_header("Cache-Control", "public, max-age=3600")
+                self.end_headers()
+                self.wfile.write(cached[0])
+                return
+            try:
+                raw_photos, _ = _http_get_bytes(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/getUserProfilePhotos?user_id={uid_int}&limit=1",
+                    timeout=8,
+                )
+                pdata = json.loads(raw_photos.decode("utf-8"))
+                photos_list = pdata.get("result", {}).get("photos", [])
+                if not photos_list:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                best_fid = photos_list[0][-1]["file_id"]
+                raw_finfo, _ = _http_get_bytes(f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={best_fid}", timeout=8)
+                fpath = json.loads(raw_finfo.decode("utf-8"))["result"]["file_path"]
+                img_bytes, ctype = _http_get_bytes(f"https://api.telegram.org/file/bot{BOT_TOKEN}/{fpath}", timeout=10)
+                _USER_PHOTO_CACHE[uid_int] = (img_bytes, ctype, now_ts)
+                self.send_response(200)
+                self.send_header("Content-type", ctype)
+                self.send_header("Cache-Control", "public, max-age=3600")
+                self.end_headers()
+                self.wfile.write(img_bytes)
+            except Exception:
+                self.send_response(404)
+                self.end_headers()
+            return
+
+        # Full Store & User Init API (/api/init)
         if path == "/api/init":
             uid, tg_u = self._get_auth_user()
             if not uid:
                 return self._send_json({"error": "Unauthorized"}, 401)
-            db_u = get_or_create_user(uid, tg_u.get("first_name", "Customer"), tg_u.get("username", ""))
+            full_n = f"{tg_u.get('first_name', '')} {tg_u.get('last_name', '')}".strip() or "Customer"
+            db_u = get_or_create_user(uid, full_n, tg_u.get("username", ""))
             conn = get_db()
             c = conn.cursor()
-            c.execute("SELECT id, name FROM categories ORDER BY position ASC, id ASC")
+
+            c.execute("SELECT id, name, icon, position FROM categories ORDER BY position ASC, id ASC")
             cats = [dict(r) for r in c.fetchall()]
+
+            c.execute("SELECT id, category_id, name, position FROM subcategories ORDER BY position ASC, id ASC")
+            subs = [dict(r) for r in c.fetchall()]
+
             c.execute("""
                 SELECT p.id, p.name, p.price_bdt, p.price_usdt, p.image_file_id, p.description,
                        COALESCE(p.is_active, 1) as is_active, s.id as sub_id, s.name as sub_name,
@@ -1310,13 +518,26 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 ORDER BY cat.position ASC, s.position ASC, p.id ASC
             """)
             prods = [dict(r) for r in c.fetchall()]
+
             c.execute("SELECT COUNT(*) as cnt, COALESCE(SUM(total_bdt), 0) as spent FROM orders WHERE user_id = ? AND status != 'refunded'", (uid,))
             ostat = dict(c.fetchone())
+
+            c.execute("SELECT COUNT(*) as cnt FROM orders WHERE user_id = ? AND status = 'refunded'", (uid,))
+            cancelled_cnt = c.fetchone()["cnt"]
+
+            c.execute("SELECT user_id, name, username, joined_date FROM users WHERE referred_by = ? ORDER BY user_id DESC", (uid,))
+            ref_users = [dict(r) for r in c.fetchall()]
+
             c.execute("SELECT COUNT(*) as cnt FROM notifications WHERE user_id = ? AND is_read = 0", (uid,))
             unread_n = c.fetchone()["cnt"]
+
+            c.execute("SELECT id, title, subtitle, badge_text, image_url, target_sub_id, target_cat_id, bg_gradient FROM ad_banners WHERE is_active = 1 ORDER BY position ASC, id DESC")
+            banners = [dict(r) for r in c.fetchall()]
+
             c.execute("SELECT key, value FROM settings")
             sdict = {r["key"]: r["value"] for r in c.fetchall()}
             conn.close()
+
             bot_uname = ""
             try:
                 if _GLOBAL_BOT_APP and _GLOBAL_BOT_APP.bot:
@@ -1324,20 +545,41 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             except Exception:
                 pass
             sdict["bot_username"] = bot_uname
+            sdict["auto_sales_active"] = "1" if _AUTO_SALES_ACTIVE else "0"
+            sdict["welcome_group_id"] = get_welcome_group_id()
+            sdict["welcome_group_link"] = get_welcome_group_link()
+            sdict["transaction_channel_id"] = get_transaction_channel_id()
+            sdict["transaction_channel_link"] = get_transaction_channel_link()
+
+            vip_info = get_vip_badge_info(ostat["spent"])
+            tg_photo_url = tg_u.get("photo_url") or f"/api/user_photo?user_id={uid}"
+
             return self._send_json({
                 "user": {
                     "user_id": uid,
-                    "full_name": db_u.get("name", "Customer"),
+                    "full_name": db_u.get("name", full_n),
                     "username": db_u.get("username", ""),
-                    "balance_bdt": db_u.get("balance_bdt", 0.0),
+                    "photo_url": tg_photo_url,
+                    "balance_bdt": float(db_u.get("balance_bdt", 0.0)),
+                    "joined_date": db_u.get("joined_date", "N/A"),
+                    "referred_by": db_u.get("referred_by"),
+                    "referral_earnings": float(db_u.get("referral_earnings", 0.0) or 0.0),
+                    "pending_referral_tk": float(db_u.get("pending_referral_tk", 0.0) or 0.0),
+                    "language": db_u.get("language", "EN") or "EN",
                     "is_admin": is_admin(uid),
                     "total_orders": ostat["cnt"],
-                    "total_spent": ostat["spent"],
-                    "referrals": 0,
+                    "total_spent": float(ostat["spent"] or 0.0),
+                    "cancelled_orders": cancelled_cnt,
+                    "referrals": len(ref_users),
+                    "referral_list": ref_users,
+                    "vip": vip_info,
                 },
                 "categories": cats,
+                "subcategories": subs,
                 "products": prods,
+                "banners": banners,
                 "settings": sdict,
+                "menu_layout": get_menu_layout(),
                 "unread_notifs": unread_n,
             })
 
@@ -1347,7 +589,16 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 return self._send_json({"error": "Unauthorized"}, 401)
             conn = get_db()
             c = conn.cursor()
-            c.execute("SELECT id, receipt_no, product_name, quantity, total_bdt, status, delivered_data, order_date as created_at FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 30", (uid,))
+            c.execute("""
+                SELECT o.id, o.receipt_no, o.product_id, o.product_name, o.category_name,
+                       o.quantity, o.unit_price, o.total_bdt, o.status, o.delivered_data,
+                       o.order_date as created_at, o.day_of_week,
+                       p.subcategory_id as sub_id
+                FROM orders o
+                LEFT JOIN products p ON o.product_id = p.id
+                WHERE o.user_id = ?
+                ORDER BY o.id DESC LIMIT 40
+            """, (uid,))
             rows = [dict(r) for r in c.fetchall()]
             conn.close()
             return self._send_json({"orders": rows})
@@ -1358,7 +609,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 return self._send_json({"error": "Unauthorized"}, 401)
             conn = get_db()
             c = conn.cursor()
-            c.execute("SELECT id, title, message, created_at FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 25", (uid,))
+            c.execute("SELECT id, title, message, is_read, created_at FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 30", (uid,))
             items = [dict(r) for r in c.fetchall()]
             c.execute("UPDATE notifications SET is_read = 1 WHERE user_id = ?", (uid,))
             conn.commit()
@@ -1371,26 +622,58 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 return self._send_json({"error": "Forbidden"}, 403)
             conn = get_db()
             c = conn.cursor()
-            c.execute("SELECT COUNT(*) as cnt FROM users")
-            u_cnt = c.fetchone()["cnt"]
-            c.execute("SELECT * FROM deposits WHERE status = 'pending' ORDER BY id DESC")
+            c.execute("SELECT COUNT(*) as cnt, COALESCE(SUM(balance_bdt), 0) as total_bal FROM users")
+            u_row = c.fetchone()
+            u_cnt = u_row["cnt"]
+            total_bal = float(u_row["total_bal"] or 0.0)
+
+            c.execute("SELECT COUNT(*) as cnt, COALESCE(SUM(total_bdt), 0) as rev FROM orders WHERE status = 'completed'")
+            o_row = c.fetchone()
+            comp_orders = o_row["cnt"]
+            total_rev = float(o_row["rev"] or 0.0)
+
+            c.execute("SELECT d.*, u.name as user_name, u.username as user_username FROM deposits d LEFT JOIN users u ON d.user_id = u.user_id WHERE d.status = 'pending' ORDER BY d.id DESC")
             p_deps = [dict(r) for r in c.fetchall()]
-            c.execute("SELECT * FROM orders WHERE status = 'pending_delivery' ORDER BY id DESC")
+
+            c.execute("SELECT o.*, u.name as user_name, u.username as user_username FROM orders o LEFT JOIN users u ON o.user_id = u.user_id WHERE o.status = 'pending_delivery' ORDER BY o.id DESC")
             p_ords = [dict(r) for r in c.fetchall()]
+
+            c.execute("SELECT user_id, name, username, balance_bdt, joined_date, referred_by FROM users ORDER BY user_id DESC LIMIT 60")
+            users_list = [dict(r) for r in c.fetchall()]
+
+            c.execute("SELECT code, discount_pct, is_active FROM coupons ORDER BY code ASC")
+            coupons_list = [dict(r) for r in c.fetchall()]
+
+            c.execute("SELECT * FROM ad_banners ORDER BY position ASC, id DESC")
+            banners_list = [dict(r) for r in c.fetchall()]
             conn.close()
+
             return self._send_json({
                 "ok": True,
-                "stats": {"users": u_cnt, "pending_deposits": len(p_deps), "pending_orders": len(p_ords)},
+                "stats": {
+                    "users": u_cnt,
+                    "total_balance": total_bal,
+                    "completed_orders": comp_orders,
+                    "total_revenue": total_rev,
+                    "pending_deposits": len(p_deps),
+                    "pending_orders": len(p_ords),
+                    "auto_sales_active": _AUTO_SALES_ACTIVE,
+                },
                 "pending_deposits": p_deps,
                 "pending_orders": p_ords,
+                "users": users_list,
+                "coupons": coupons_list,
+                "banners": banners_list,
+                "menu_layout": get_menu_layout(),
             })
 
         self.send_response(200)
         self.send_header("Content-type", "text/plain; charset=utf-8")
         self.end_headers()
-        self.wfile.write(b"CyberNest Bot is running and healthy!")
+        self.wfile.write(b"CyberNest Bot & Mini App API Server is running and healthy!")
 
     def do_POST(self):
+        global _AUTO_SALES_ACTIVE
         path = urllib.parse.urlparse(self.path).path
         if path.startswith("/api/"):
             content_length = int(self.headers.get("Content-Length", 0))
@@ -1403,6 +686,31 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             if not uid:
                 return self._send_json({"ok": False, "error": "Unauthorized"}, 401)
 
+            # Notification add (e.g. "Deposit started" when calculator opens)
+            if path == "/api/notifications/add":
+                title = str(body.get("title", "🔔 Notification")).strip()
+                msg = str(body.get("message", "")).strip()
+                if msg:
+                    add_notification(uid, title, msg)
+                return self._send_json({"ok": True})
+
+            # Save User Language preference
+            if path == "/api/user/preferences":
+                lang = str(body.get("language", "EN")).strip().upper()
+                conn = get_db()
+                c = conn.cursor()
+                c.execute("UPDATE users SET language = ? WHERE user_id = ?", (lang, uid))
+                conn.commit()
+                conn.close()
+                return self._send_json({"ok": True, "language": lang})
+
+            # Live AI Support Chatbot Endpoint
+            if path == "/api/ai_support":
+                question = str(body.get("question", "")).strip()
+                ans = generate_smart_ai_reply(question, user_id=uid)
+                return self._send_json({"ok": True, "reply": ans})
+
+            # Coupon Verification
             if path == "/api/coupon/check":
                 code_str = str(body.get("code", "")).strip().upper()
                 conn = get_db()
@@ -1414,6 +722,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     return self._send_json({"ok": True, "discount_pct": row["discount_pct"]})
                 return self._send_json({"ok": False, "error": "Invalid or expired coupon"})
 
+            # 2FA Live OTP Generator
             if path == "/api/tools/2fa":
                 sec = str(body.get("secret", "")).replace(" ", "").upper()
                 try:
@@ -1423,16 +732,102 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 except Exception:
                     return self._send_json({"ok": False, "error": "Invalid 2FA Secret Key"})
 
+            # Outlook / Hotmail IMAP OTP Reader
             if path == "/api/tools/outlook":
                 res = fetch_outlook_otp(str(body.get("account", "")))
                 return self._send_json(res)
 
+            # NEW API: Resend Purchased Product to Telegram Inbox (/api/order/resend_product)
+            if path == "/api/order/resend_product":
+                oid = int(body.get("order_id", 0))
+                conn = get_db()
+                c = conn.cursor()
+                c.execute("SELECT * FROM orders WHERE id = ? AND user_id = ?", (oid, uid))
+                o = c.fetchone()
+                conn.close()
+                if not o:
+                    return self._send_json({"ok": False, "error": "Order not found"})
+                if not o["delivered_data"]:
+                    return self._send_json({"ok": False, "error": "This order is still pending delivery."})
+
+                raw_deliv = o["delivered_data"]
+                try:
+                    items = json.loads(raw_deliv) if raw_deliv.startswith("[") else [ln for ln in raw_deliv.splitlines() if ln.strip()]
+                except Exception:
+                    items = [ln for ln in raw_deliv.splitlines() if ln.strip()]
+
+                if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
+                    card_msg = format_credentials_card(items, o["product_name"], o["category_name"] or "Service")
+                    asyncio.run_coroutine_threadsafe(
+                        _GLOBAL_BOT_APP.bot.send_message(
+                            chat_id=uid,
+                            text=f"📦 <b>Re-sent Order #{o['id']} ({o['receipt_no']})</b>\n\n{card_msg}",
+                            parse_mode=ParseMode.HTML,
+                        ),
+                        _GLOBAL_EVENT_LOOP,
+                    )
+                    if len(items) > 1 or "MAIL" in (o["category_name"] or "").upper():
+                        try:
+                            excel_bio = generate_excel_delivery(items, o["product_name"], o["receipt_no"])
+                            asyncio.run_coroutine_threadsafe(
+                                _GLOBAL_BOT_APP.bot.send_document(
+                                    chat_id=uid,
+                                    document=InputFile(excel_bio, filename=f"{o['receipt_no']}_Credentials.xlsx"),
+                                    caption=f"📂 <b>Excel Backup:</b> <code>{o['receipt_no']}</code>",
+                                    parse_mode=ParseMode.HTML,
+                                ),
+                                _GLOBAL_EVENT_LOOP,
+                            )
+                        except Exception:
+                            pass
+                return self._send_json({"ok": True, "message": "📦 প্রোডাক্টটি আপনার টেলিগ্রাম ইনবক্সে আবার পাঠানো হয়েছে!"})
+
+            # NEW API: Resend Official PDF Receipt to Telegram Inbox (/api/order/resend_pdf)
+            if path == "/api/order/resend_pdf":
+                oid = int(body.get("order_id", 0))
+                conn = get_db()
+                c = conn.cursor()
+                c.execute("SELECT o.*, u.name as uname, u.username as u_username FROM orders o LEFT JOIN users u ON o.user_id = u.user_id WHERE o.id = ? AND o.user_id = ?", (oid, uid))
+                o = c.fetchone()
+                conn.close()
+                if not o:
+                    return self._send_json({"ok": False, "error": "Order not found"})
+
+                if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
+                    bot_uname = _GLOBAL_BOT_APP.bot.username or "bot"
+                    pdf_bio = generate_pdf_receipt(
+                        receipt_no=o["receipt_no"],
+                        date_str=o["order_date"],
+                        day_name=o["day_of_week"] or "N/A",
+                        customer_name=o["uname"] or tg_u.get("first_name", "Customer"),
+                        telegram_id=uid,
+                        username=o["u_username"] or tg_u.get("username", ""),
+                        item_desc=o["product_name"],
+                        category_name=o["category_name"] or "DIGITAL",
+                        qty=o["quantity"],
+                        unit_price=o["unit_price"] or o["total_bdt"],
+                        total_bdt=o["total_bdt"],
+                        bot_username=bot_uname,
+                    )
+                    asyncio.run_coroutine_threadsafe(
+                        _GLOBAL_BOT_APP.bot.send_document(
+                            chat_id=uid,
+                            document=InputFile(pdf_bio, filename=f"Receipt_{o['receipt_no']}.pdf"),
+                            caption=f"🧾 <b>Official Payment Receipt:</b> <code>{o['receipt_no']}</code>",
+                            parse_mode=ParseMode.HTML,
+                        ),
+                        _GLOBAL_EVENT_LOOP,
+                    )
+                return self._send_json({"ok": True, "message": "🧾 অফিশিয়াল PDF রিসিট আপনার টেলিগ্রাম ইনবক্সে পাঠানো হয়েছে!"})
+
+            # Deposit Request Submission
             if path == "/api/deposit":
                 method = str(body.get("method", "bKash"))
                 amount = float(body.get("amount", 0))
                 trx_id = str(body.get("trx_id", "")).strip()
-                if amount <= 0 or not trx_id:
-                    return self._send_json({"ok": False, "error": "Invalid amount or TrxID"})
+                min_dep = float(get_setting("min_deposit_manual", "20.0"))
+                if amount < min_dep or not trx_id:
+                    return self._send_json({"ok": False, "error": f"Minimum deposit is ৳{min_dep:.0f} BDT and valid TrxID is required."})
                 conn = get_db()
                 c = conn.cursor()
                 now_str = datetime.datetime.now().strftime("%Y-%m-%d %I:%M %p")
@@ -1443,7 +838,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 dep_id = c.lastrowid
                 conn.commit()
                 conn.close()
-                add_notification(uid, "💳 Deposit Submitted", f"{method} {amount:.2f} BDT (TrxID: {trx_id}) is pending approval.")
+                add_notification(uid, "💳 Deposit Submitted", f"{method} ৳{amount:.2f} BDT (TrxID: {trx_id}) is pending admin verification.")
                 if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
                     kb = InlineKeyboardMarkup([[
                         InlineKeyboardButton(f"✅ Approve #{dep_id}", callback_data=f"adm_dep_approve_{dep_id}"),
@@ -1452,7 +847,13 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     asyncio.run_coroutine_threadsafe(
                         _GLOBAL_BOT_APP.bot.send_message(
                             chat_id=SUPER_ADMIN_ID,
-                            text=f"🔔 <b>Mini App Deposit Request #{dep_id}</b>\n👤 User: <code>{uid}</code>\n💳 Method: {method}\n💰 Amount: <b>{amount:.2f} BDT</b>\n🔑 TrxID: <code>{trx_id}</code>",
+                            text=(
+                                f"🔔 <b>Mini App Deposit Request #{dep_id}</b>\n"
+                                f"👤 User: {tg_u.get('first_name', 'User')} (<code>{uid}</code>)\n"
+                                f"💳 Method: <b>{method}</b>\n"
+                                f"💰 Amount: <b>{amount:.2f} BDT</b>\n"
+                                f"🔑 TrxID: <code>{trx_id}</code>"
+                            ),
                             parse_mode=ParseMode.HTML,
                             reply_markup=kb,
                         ),
@@ -1460,6 +861,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     )
                 return self._send_json({"ok": True})
 
+            # Order Placement from Mini App (with Full Bot Inbox Delivery + PDF Receipt + Excel + Channel Post)
             if path == "/api/order":
                 pid = int(body.get("product_id", 0))
                 qty = max(1, int(body.get("quantity", 1)))
@@ -1484,11 +886,15 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     if crow:
                         disc = float(crow["discount_pct"])
                 total_bdt = prod["price_bdt"] * qty * (1 - disc / 100.0)
-                c.execute("SELECT balance_bdt FROM users WHERE user_id = ?", (uid,))
-                bal = c.fetchone()["balance_bdt"]
+                c.execute("SELECT balance_bdt, name, username FROM users WHERE user_id = ?", (uid,))
+                urow = c.fetchone()
+                bal = float(urow["balance_bdt"] or 0.0)
+                u_fullname = urow["name"] or tg_u.get("first_name", "Customer")
+                u_username = urow["username"] or tg_u.get("username", "")
+
                 if bal < total_bdt:
                     conn.close()
-                    return self._send_json({"ok": False, "error": f"Insufficient balance! Need {total_bdt:.2f} BDT"})
+                    return self._send_json({"ok": False, "error": f"Insufficient balance! Need ৳{total_bdt:.2f} BDT"})
 
                 c.execute("SELECT id, content FROM stock WHERE product_id = ? AND is_sold = 0 LIMIT ?", (pid, qty))
                 srows = c.fetchall()
@@ -1497,8 +903,10 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     conn.close()
                     return self._send_json({"ok": False, "error": "Out of stock! Please check back later."})
 
-                now_str = datetime.datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
-                day_name = datetime.datetime.now().strftime("%A")
+                now = datetime.datetime.now()
+                now_str = now.strftime("%Y-%m-%d %I:%M:%S %p")
+                days_bn = {"Monday": "সোমবার", "Tuesday": "মঙ্গলবার", "Wednesday": "বুধবার", "Thursday": "বৃহস্পতিবার", "Friday": "শুক্রবার", "Saturday": "শনিবার", "Sunday": "রবিবার"}
+                day_name = days_bn.get(now.strftime("%A"), now.strftime("%A"))
                 receipt_no = f"RCP-{secrets.token_hex(5).upper()}"
                 full_name = f"{prod['sub_name']} ({prod['name']})"
                 c.execute("UPDATE users SET balance_bdt = balance_bdt - ? WHERE user_id = ?", (total_bdt, uid))
@@ -1510,17 +918,88 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                         f"UPDATE stock SET is_sold = 1, sold_to = ?, sold_at = ? WHERE id IN ({','.join(['?']*len(sids))})",
                         [uid, now_str] + sids,
                     )
+                    delivered_json = json.dumps(items)
                     c.execute("""
                         INSERT INTO orders (receipt_no, user_id, product_id, product_name, category_name, quantity, unit_price, total_bdt, total_usdt, status, delivered_data, order_date, day_of_week)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?)
-                    """, (receipt_no, uid, pid, full_name, prod["cat_name"], qty, prod["price_bdt"], total_bdt, total_bdt / 125.0, "\n".join(items), now_str, day_name))
+                    """, (receipt_no, uid, pid, full_name, prod["cat_name"], qty, prod["price_bdt"], total_bdt, total_bdt / 125.0, delivered_json, now_str, day_name))
                     conn.commit()
                     conn.close()
-                    add_notification(uid, "✅ Order Delivered!", f"{full_name} (x{qty}) delivered to your Telegram inbox.")
+                    add_notification(uid, "✅ Order Delivered!", f"{full_name} (x{qty}) — Receipt {receipt_no} delivered to your Telegram inbox.")
+
                     if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
-                        msg_card = format_credentials_card(items, full_name, prod["cat_name"])
-                        asyncio.run_coroutine_threadsafe(_GLOBAL_BOT_APP.bot.send_message(chat_id=uid, text=msg_card, parse_mode=ParseMode.HTML), _GLOBAL_EVENT_LOOP)
-                    return self._send_json({"ok": True, "message": "✅ Order Completed! Credentials sent to your Telegram inbox & Profile History."})
+                        async def _deliver_web_auto():
+                            bot_inst = _GLOBAL_BOT_APP.bot
+                            bot_info = await bot_inst.get_me()
+                            if qty == 1:
+                                msg_card = format_credentials_card(items, full_name, prod["cat_name"])
+                                await bot_inst.send_message(chat_id=uid, text=msg_card, parse_mode=ParseMode.HTML)
+                                if "MAIL" in prod["cat_name"].upper():
+                                    try:
+                                        ex_bio = generate_excel_delivery(items, full_name, receipt_no)
+                                        await bot_inst.send_document(
+                                            chat_id=uid,
+                                            document=InputFile(ex_bio, filename=f"{receipt_no}_{prod['name'].replace(' ', '_')}.xlsx"),
+                                            caption=f"📂 <b>Excel Data Backup:</b> <code>{receipt_no}</code>",
+                                            parse_mode=ParseMode.HTML,
+                                        )
+                                    except Exception:
+                                        pass
+                            else:
+                                bulk_msg = (
+                                    f"🎉 <b>আপনার অর্ডার সফলভাবে সম্পন্ন হয়েছে!</b>\n"
+                                    f"─────────────────────────────\n"
+                                    f"🧾 <b>Receipt:</b> <code>{receipt_no}</code>\n"
+                                    f"📦 <b>প্রোডাক্ট:</b> {full_name}\n"
+                                    f"🔢 <b>পরিমাণ:</b> {qty} টি | <b>মোট পরিশোধ:</b> {format_price(total_bdt)} BDT\n"
+                                    f"─────────────────────────────\n"
+                                    f"📂 <b>আপনার সবকটি {qty} টি অ্যাকাউন্ট/মেইল নিচের এক্সেল ফাইলে সুন্দরভাবে সাজিয়ে দেওয়া হলো।</b>"
+                                )
+                                await bot_inst.send_message(chat_id=uid, text=bulk_msg, parse_mode=ParseMode.HTML)
+                                try:
+                                    ex_bio = generate_excel_delivery(items, full_name, receipt_no)
+                                    await bot_inst.send_document(
+                                        chat_id=uid,
+                                        document=InputFile(ex_bio, filename=f"{receipt_no}_{prod['name'].replace(' ', '_')}.xlsx"),
+                                        caption=f"📂 <b>Accounts Excel File:</b> <code>{receipt_no}</code> ({qty} pcs)",
+                                        parse_mode=ParseMode.HTML,
+                                    )
+                                except Exception:
+                                    pass
+                            try:
+                                pdf_bio = generate_pdf_receipt(
+                                    receipt_no=receipt_no, date_str=now_str, day_name=day_name,
+                                    customer_name=u_fullname, telegram_id=uid, username=u_username,
+                                    item_desc=full_name, category_name=prod["cat_name"],
+                                    qty=qty, unit_price=prod["price_bdt"], total_bdt=total_bdt,
+                                    bot_username=bot_info.username,
+                                )
+                                await bot_inst.send_document(
+                                    chat_id=uid,
+                                    document=InputFile(pdf_bio, filename=f"Receipt_{receipt_no}.pdf"),
+                                    caption=f"🧾 <b>Official Payment Receipt:</b> <code>{receipt_no}</code>",
+                                    parse_mode=ParseMode.HTML,
+                                )
+                            except Exception:
+                                pass
+                            try:
+                                await bot_inst.send_message(
+                                    chat_id=SUPER_ADMIN_ID,
+                                    text=(
+                                        f"🔔 <b>Mini App প্রোডাক্ট সেল হয়েছে!</b>\n"
+                                        f"🧾 Receipt: <code>{receipt_no}</code>\n"
+                                        f"👤 কাস্টমার: {u_fullname} (ID: <code>{uid}</code>)\n"
+                                        f"📦 প্রোডাক্ট: {full_name}\n"
+                                        f"🔢 পরিমাণ: {qty} টি | মূল্য: {total_bdt:.2f} BDT"
+                                    ),
+                                    parse_mode=ParseMode.HTML,
+                                )
+                            except Exception:
+                                pass
+                            await post_transaction_to_channel(bot_inst, receipt_no, u_fullname, uid, full_name, qty, total_bdt)
+
+                        asyncio.run_coroutine_threadsafe(_deliver_web_auto(), _GLOBAL_EVENT_LOOP)
+                    return self._send_json({"ok": True, "message": "✅ অর্ডার সফল! আপনার টেলিগ্রাম ইনবক্সে One-Tap Copy নোট ও অফিশিয়াল PDF রিসিট পাঠানো হয়েছে।"})
                 else:
                     c.execute("""
                         INSERT INTO orders (receipt_no, user_id, product_id, product_name, category_name, quantity, unit_price, total_bdt, total_usdt, status, order_date, day_of_week)
@@ -1530,32 +1009,80 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     conn.commit()
                     conn.close()
                     add_notification(uid, "⏳ Manual Order Pending", f"Order #{oid} ({full_name}) is waiting for admin delivery.")
+
                     if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
-                        adm_kb = InlineKeyboardMarkup([
-                            [InlineKeyboardButton(f"🚀 Deliver Order #{oid}", callback_data=f"adm_fulfill_{oid}")],
-                            [InlineKeyboardButton("❌ Cancel & Refund", callback_data=f"adm_refund_{oid}")]
-                        ])
-                        asyncio.run_coroutine_threadsafe(
-                            _GLOBAL_BOT_APP.bot.send_message(
+                        async def _notify_web_manual():
+                            bot_inst = _GLOBAL_BOT_APP.bot
+                            bot_info = await bot_inst.get_me()
+                            confirm_msg = (
+                                f"🎉 <b>আপনার অর্ডারটি সফলভাবে গ্রহণ করা হয়েছে!</b>\n"
+                                f"─────────────────────────────\n"
+                                f"🧾 <b>অর্ডার নম্বর:</b> #{oid} (Receipt: <code>{receipt_no}</code>)\n"
+                                f"🛡️ <b>প্রোডাক্ট:</b> {full_name}\n"
+                                f"🔢 <b>পরিমাণ:</b> {qty} টি | <b>মোট পরিশোধ:</b> {format_price(total_bdt)} BDT\n"
+                                f"📅 <b>তারিখ:</b> {now_str} ({day_name})\n"
+                                f"─────────────────────────────\n"
+                                f"⏳ <b>ডেলিভারি সময়:</b> আগামী ১৫ থেকে ৩০ মিনিটের মধ্যে এডমিন আপনার ইনবক্সে সার্ভিসটি ডেলিভারি পাঠাবে।"
+                            )
+                            await bot_inst.send_message(chat_id=uid, text=confirm_msg, parse_mode=ParseMode.HTML)
+                            try:
+                                pdf_bio = generate_pdf_receipt(
+                                    receipt_no=receipt_no, date_str=now_str, day_name=day_name,
+                                    customer_name=u_fullname, telegram_id=uid, username=u_username,
+                                    item_desc=full_name, category_name=prod["cat_name"],
+                                    qty=qty, unit_price=prod["price_bdt"], total_bdt=total_bdt,
+                                    bot_username=bot_info.username,
+                                )
+                                await bot_inst.send_document(
+                                    chat_id=uid,
+                                    document=InputFile(pdf_bio, filename=f"Receipt_{receipt_no}.pdf"),
+                                    caption=f"🧾 <b>Official Payment Receipt:</b> <code>{receipt_no}</code>",
+                                    parse_mode=ParseMode.HTML,
+                                )
+                            except Exception:
+                                pass
+                            adm_kb = InlineKeyboardMarkup([
+                                [InlineKeyboardButton(f"🚀 Deliver Order #{oid}", callback_data=f"adm_fulfill_{oid}")],
+                                [InlineKeyboardButton(f"❌ Cancel & Refund #{oid}", callback_data=f"adm_refund_{oid}")]
+                            ])
+                            await bot_inst.send_message(
                                 chat_id=SUPER_ADMIN_ID,
-                                text=f"🔔 <b>Mini App Manual Order #{oid}</b>\n🛡️ {full_name} (x{qty})\n💰 Paid: {total_bdt:.2f} BDT\n👤 User: <code>{uid}</code>",
+                                text=(
+                                    f"🔔 <b>Mini App ম্যানুয়াল অর্ডার #{oid}</b>\n"
+                                    f"🧾 Receipt: <code>{receipt_no}</code>\n"
+                                    f"🛡️ {full_name} (x{qty})\n"
+                                    f"💰 Paid: {total_bdt:.2f} BDT\n"
+                                    f"👤 User: {u_fullname} (<code>{uid}</code>)"
+                                ),
                                 parse_mode=ParseMode.HTML,
                                 reply_markup=adm_kb,
-                            ),
-                            _GLOBAL_EVENT_LOOP
-                        )
-                    return self._send_json({"ok": True, "message": f"🎉 Order #{oid} placed! Admin will deliver it in 15-30 mins."})
+                            )
 
+                        asyncio.run_coroutine_threadsafe(_notify_web_manual(), _GLOBAL_EVENT_LOOP)
+                    return self._send_json({"ok": True, "message": f"🎉 অর্ডার #{oid} গ্রহণ করা হয়েছে! অফিশিয়াল PDF রিসিট আপনার ইনবক্সে পাঠানো হয়েছে এবং ১৫-৩০ মিনিটের মধ্যে ডেলিভারি পাবেন।"})
+
+            # ==================================================================
+            # SUPER ADMIN API ROUTES (/api/admin/*) — Restricted to 8919985167
+            # ==================================================================
             if path.startswith("/api/admin/"):
                 if not is_admin(uid):
                     return self._send_json({"ok": False, "error": "Forbidden"}, 403)
                 conn = get_db()
                 c = conn.cursor()
 
+                # 1. Manual Order Delivery (Supports separate VPN email/pass or Proxy string + PDF receipt)
                 if path == "/api/admin/deliver_order":
                     oid = int(body.get("order_id", 0))
                     ddata = str(body.get("data", "")).strip()
-                    c.execute("SELECT * FROM orders WHERE id = ?", (oid,))
+                    vpn_email = str(body.get("vpn_email", "")).strip()
+                    vpn_pass = str(body.get("vpn_pass", "")).strip()
+                    if vpn_email and vpn_pass:
+                        ddata = f"{vpn_email}:{vpn_pass}"
+                    if not ddata:
+                        conn.close()
+                        return self._send_json({"ok": False, "error": "Credentials required"})
+
+                    c.execute("SELECT o.*, u.name as uname, u.username as u_username, p.image_file_id FROM orders o LEFT JOIN users u ON o.user_id = u.user_id LEFT JOIN products p ON o.product_id = p.id WHERE o.id = ?", (oid,))
                     o = c.fetchone()
                     if not o:
                         conn.close()
@@ -1564,11 +1091,41 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     conn.commit()
                     conn.close()
                     add_notification(o["user_id"], "✅ Order Delivered!", f"Order #{oid} ({o['product_name']}) has been delivered!")
+
                     if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
-                        card = format_credentials_card([ddata], o["product_name"], o["category_name"])
-                        asyncio.run_coroutine_threadsafe(_GLOBAL_BOT_APP.bot.send_message(chat_id=o["user_id"], text=card, parse_mode=ParseMode.HTML), _GLOBAL_EVENT_LOOP)
+                        async def _send_manual_deliv():
+                            bot_inst = _GLOBAL_BOT_APP.bot
+                            bot_info = await bot_inst.get_me()
+                            card = format_credentials_card([ddata], o["product_name"], o["category_name"] or "Service")
+                            if o["image_file_id"]:
+                                try:
+                                    await bot_inst.send_photo(chat_id=o["user_id"], photo=o["image_file_id"], caption=card, parse_mode=ParseMode.HTML)
+                                except Exception:
+                                    await bot_inst.send_message(chat_id=o["user_id"], text=card, parse_mode=ParseMode.HTML)
+                            else:
+                                await bot_inst.send_message(chat_id=o["user_id"], text=card, parse_mode=ParseMode.HTML)
+                            try:
+                                pdf_bio = generate_pdf_receipt(
+                                    receipt_no=o["receipt_no"], date_str=o["order_date"], day_name=o["day_of_week"] or "N/A",
+                                    customer_name=o["uname"] or "Customer", telegram_id=o["user_id"], username=o["u_username"] or "",
+                                    item_desc=o["product_name"], category_name=o["category_name"] or "DIGITAL",
+                                    qty=o["quantity"], unit_price=o["unit_price"] or o["total_bdt"], total_bdt=o["total_bdt"],
+                                    bot_username=bot_info.username,
+                                )
+                                await bot_inst.send_document(
+                                    chat_id=o["user_id"],
+                                    document=InputFile(pdf_bio, filename=f"Receipt_{o['receipt_no']}.pdf"),
+                                    caption=f"🧾 <b>Verified Payment Receipt:</b> <code>{o['receipt_no']}</code>",
+                                    parse_mode=ParseMode.HTML,
+                                )
+                            except Exception:
+                                pass
+                            await post_transaction_to_channel(bot_inst, o["receipt_no"], o["uname"] or "Customer", o["user_id"], o["product_name"], o["quantity"], o["total_bdt"])
+
+                        asyncio.run_coroutine_threadsafe(_send_manual_deliv(), _GLOBAL_EVENT_LOOP)
                     return self._send_json({"ok": True})
 
+                # 2. Refund Pending Order
                 if path == "/api/admin/refund_order":
                     oid = int(body.get("order_id", 0))
                     c.execute("SELECT * FROM orders WHERE id = ?", (oid,))
@@ -1578,9 +1135,19 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                         c.execute("UPDATE users SET balance_bdt = balance_bdt + ? WHERE user_id = ?", (o["total_bdt"], o["user_id"]))
                         conn.commit()
                         add_notification(o["user_id"], "❌ Order Refunded", f"Order #{oid} refunded: +{o['total_bdt']:.2f} BDT")
+                        if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
+                            asyncio.run_coroutine_threadsafe(
+                                _GLOBAL_BOT_APP.bot.send_message(
+                                    chat_id=o["user_id"],
+                                    text=f"❌ আপনার অর্ডার #{oid} বাতিল করা হয়েছে এবং <b>{o['total_bdt']:.2f} BDT</b> আপনার ওয়ালেটে রিফান্ড করা হয়েছে।",
+                                    parse_mode=ParseMode.HTML,
+                                ),
+                                _GLOBAL_EVENT_LOOP,
+                            )
                     conn.close()
                     return self._send_json({"ok": True})
 
+                # 3. Approve / Reject Deposit
                 if path == "/api/admin/deposit_action":
                     did = int(body.get("deposit_id", 0))
                     act = body.get("action")
@@ -1591,6 +1158,15 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                             c.execute("UPDATE deposits SET status = 'approved' WHERE id = ?", (did,))
                             c.execute("UPDATE users SET balance_bdt = balance_bdt + ? WHERE user_id = ?", (d["amount"], d["user_id"]))
                             add_notification(d["user_id"], "✅ Deposit Approved", f"+{d['amount']:.2f} BDT added to your wallet!")
+                            if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
+                                asyncio.run_coroutine_threadsafe(
+                                    _GLOBAL_BOT_APP.bot.send_message(
+                                        chat_id=d["user_id"],
+                                        text=f"🎉 <b>ডিপোজিট সফল!</b>\nআপনার অ্যাকাউন্টে <b>{d['amount']:.2f} BDT</b> যুক্ত হয়েছে।",
+                                        parse_mode=ParseMode.HTML,
+                                    ),
+                                    _GLOBAL_EVENT_LOOP,
+                                )
                         else:
                             c.execute("UPDATE deposits SET status = 'rejected' WHERE id = ?", (did,))
                             add_notification(d["user_id"], "❌ Deposit Rejected", f"Deposit #{did} ({d['amount']:.2f} BDT) was rejected.")
@@ -1598,28 +1174,304 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     conn.close()
                     return self._send_json({"ok": True})
 
+                # 4. NEW API: Receipt Checker & One-Click PDF Download (/api/admin/check_receipt)
+                if path == "/api/admin/check_receipt":
+                    rcode = str(body.get("receipt_no", "")).strip().upper()
+                    send_pdf = bool(body.get("send_pdf", False))
+                    if not rcode:
+                        conn.close()
+                        return self._send_json({"ok": False, "error": "Enter a Receipt Code (e.g. RCP-XXXXX)"})
+                    if not rcode.startswith("RCP-") and len(rcode) == 10:
+                        rcode = f"RCP-{rcode}"
+                    c.execute("""
+                        SELECT o.*, u.name as customer_name, u.username as customer_username
+                        FROM orders o
+                        LEFT JOIN users u ON o.user_id = u.user_id
+                        WHERE UPPER(o.receipt_no) LIKE ?
+                        ORDER BY o.id DESC LIMIT 1
+                    """, (f"%{rcode}%",))
+                    o = c.fetchone()
+                    conn.close()
+                    if not o:
+                        return self._send_json({"ok": False, "authentic": False, "error": "❌ নকল বা অবৈধ রিসিট! এই কোডের কোনো অর্ডার ডাটাবেসে নেই।"})
+
+                    order_dict = dict(o)
+                    if send_pdf and _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
+                        bot_uname = _GLOBAL_BOT_APP.bot.username or "bot"
+                        pdf_bio = generate_pdf_receipt(
+                            receipt_no=o["receipt_no"], date_str=o["order_date"], day_name=o["day_of_week"] or "N/A",
+                            customer_name=o["customer_name"] or "Customer", telegram_id=o["user_id"], username=o["customer_username"] or "",
+                            item_desc=o["product_name"], category_name=o["category_name"] or "DIGITAL",
+                            qty=o["quantity"], unit_price=o["unit_price"] or o["total_bdt"], total_bdt=o["total_bdt"],
+                            bot_username=bot_uname,
+                        )
+                        asyncio.run_coroutine_threadsafe(
+                            _GLOBAL_BOT_APP.bot.send_document(
+                                chat_id=uid,
+                                document=InputFile(pdf_bio, filename=f"Receipt_{o['receipt_no']}.pdf"),
+                                caption=f"🧾 <b>Verified Receipt PDF:</b> <code>{o['receipt_no']}</code>",
+                                parse_mode=ParseMode.HTML,
+                            ),
+                            _GLOBAL_EVENT_LOOP,
+                        )
+                    return self._send_json({"ok": True, "authentic": True, "order": order_dict})
+
+                # 5. NEW API: Rotating Ad Banners Management (/api/admin/banners)
+                if path == "/api/admin/banners":
+                    action = str(body.get("action", "add"))
+                    if action == "add":
+                        title = str(body.get("title", "")).strip() or "Special Promo"
+                        subtitle = str(body.get("subtitle", "")).strip()
+                        badge_text = str(body.get("badge_text", "🔥 HOT OFFER")).strip()
+                        image_url = str(body.get("image_url", "")).strip()
+                        target_sub_id = int(body.get("target_sub_id", 0) or 0)
+                        target_cat_id = int(body.get("target_cat_id", 0) or 0)
+                        bg_gradient = str(body.get("bg_gradient", "linear-gradient(135deg, #2e0249 0%, #570a57 50%, #ff6b00 100%)")).strip()
+                        c.execute("""
+                            INSERT INTO ad_banners (title, subtitle, badge_text, image_url, target_sub_id, target_cat_id, bg_gradient, is_active, position)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0)
+                        """, (title, subtitle, badge_text, image_url, target_sub_id, target_cat_id, bg_gradient))
+                        conn.commit()
+                    elif action == "delete":
+                        bid = int(body.get("banner_id", 0))
+                        c.execute("DELETE FROM ad_banners WHERE id = ?", (bid,))
+                        conn.commit()
+                    elif action == "toggle":
+                        bid = int(body.get("banner_id", 0))
+                        c.execute("UPDATE ad_banners SET is_active = CASE WHEN COALESCE(is_active,1)=1 THEN 0 ELSE 1 END WHERE id = ?", (bid,))
+                        conn.commit()
+                    c.execute("SELECT * FROM ad_banners ORDER BY position ASC, id DESC")
+                    blist = [dict(r) for r in c.fetchall()]
+                    conn.close()
+                    return self._send_json({"ok": True, "banners": blist})
+
+                # 6. NEW API: Step-by-Step Multi-Button Broadcast from WebApp (/api/admin/broadcast)
+                if path == "/api/admin/broadcast":
+                    msg_text = str(body.get("message", "")).strip()
+                    photo_id = str(body.get("photo", "")).strip() or None
+                    buttons = body.get("buttons", [])
+                    if not msg_text and not photo_id:
+                        conn.close()
+                        return self._send_json({"ok": False, "error": "Message or photo required"})
+
+                    c.execute("SELECT user_id FROM users")
+                    all_u = [r["user_id"] for r in c.fetchall()]
+                    conn.close()
+
+                    valid_btns = []
+                    if isinstance(buttons, list):
+                        for b in buttons[:10]:
+                            bt = str(b.get("text", "")).strip()
+                            bu = str(b.get("url", "")).strip()
+                            if bt and (bu.startswith("http://") or bu.startswith("https://") or bu.startswith("tg://")):
+                                valid_btns.append({"text": bt, "url": bu})
+
+                    if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
+                        async def _run_web_bcast():
+                            bot_inst = _GLOBAL_BOT_APP.bot
+                            rm = InlineKeyboardMarkup([[InlineKeyboardButton(b["text"], url=b["url"])] for b in valid_btns]) if valid_btns else None
+                            sent_c = 0
+                            for target_u in all_u:
+                                try:
+                                    if photo_id:
+                                        await bot_inst.send_photo(chat_id=target_u, photo=photo_id, caption=msg_text, parse_mode=ParseMode.HTML, reply_markup=rm)
+                                    else:
+                                        await bot_inst.send_message(chat_id=target_u, text=msg_text, parse_mode=ParseMode.HTML, reply_markup=rm)
+                                    sent_c += 1
+                                except Exception:
+                                    pass
+                            try:
+                                if photo_id:
+                                    await bot_inst.send_photo(chat_id=get_welcome_group_id(), photo=photo_id, caption=msg_text, parse_mode=ParseMode.HTML, reply_markup=rm)
+                                else:
+                                    await bot_inst.send_message(chat_id=get_welcome_group_id(), text=msg_text, parse_mode=ParseMode.HTML, reply_markup=rm)
+                            except Exception:
+                                pass
+                            try:
+                                await bot_inst.send_message(
+                                    chat_id=SUPER_ADMIN_ID,
+                                    text=f"✅ <b>Web Admin Broadcast Completed!</b>\n👥 Delivered to: <b>{sent_c}</b> users + Update Group.",
+                                    parse_mode=ParseMode.HTML,
+                                )
+                            except Exception:
+                                pass
+
+                        asyncio.run_coroutine_threadsafe(_run_web_bcast(), _GLOBAL_EVENT_LOOP)
+                    return self._send_json({"ok": True, "total_targets": len(all_u)})
+
+                # 7. Product & Catalog Management (Edit / Create / Delete Category, Brand, Plan)
                 if path == "/api/admin/product_update":
                     pid = int(body.get("product_id", 0))
                     if body.get("toggle_active"):
                         c.execute("UPDATE products SET is_active = CASE WHEN COALESCE(is_active,1)=1 THEN 0 ELSE 1 END WHERE id = ?", (pid,))
-                    if "price_bdt" in body:
+                    if "price_bdt" in body and body["price_bdt"] is not None:
                         pr = float(body["price_bdt"])
-                        c.execute("UPDATE products SET price_bdt = ?, price_usdt = ? WHERE id = ?", (pr, pr / 125.0, pid))
+                        rate = float(get_setting("usdt_rate", "125.0") or 125.0)
+                        c.execute("UPDATE products SET price_bdt = ?, price_usdt = ? WHERE id = ?", (pr, pr / rate, pid))
+                    if "name" in body and str(body["name"]).strip():
+                        c.execute("UPDATE products SET name = ? WHERE id = ?", (str(body["name"]).strip(), pid))
+                    if "description" in body:
+                        c.execute("UPDATE products SET description = ? WHERE id = ?", (str(body["description"]).strip(), pid))
                     if "image_file_id" in body:
-                        c.execute("UPDATE products SET image_file_id = ? WHERE id = ?", (str(body["image_file_id"]).strip() or None, pid))
+                        img_val = str(body["image_file_id"]).strip() or None
+                        c.execute("UPDATE products SET image_file_id = ? WHERE id = ?", (img_val, pid))
+                        if body.get("apply_to_brand"):
+                            c.execute("SELECT subcategory_id FROM products WHERE id = ?", (pid,))
+                            sr = c.fetchone()
+                            if sr:
+                                c.execute("UPDATE products SET image_file_id = ? WHERE subcategory_id = ?", (img_val, sr["subcategory_id"]))
                     conn.commit()
                     conn.close()
                     return self._send_json({"ok": True})
 
+                if path == "/api/admin/catalog_manage":
+                    act = str(body.get("action", ""))
+                    if act == "add_category":
+                        name = str(body.get("name", "")).strip()
+                        icon = str(body.get("icon", "🛍️")).strip() or "🛍️"
+                        if name:
+                            c.execute("INSERT INTO categories (name, icon) VALUES (?, ?)", (name, icon))
+                    elif act == "rename_category":
+                        cid = int(body.get("category_id", 0))
+                        name = str(body.get("name", "")).strip()
+                        if cid and name:
+                            c.execute("UPDATE categories SET name = ? WHERE id = ?", (name, cid))
+                    elif act == "delete_category":
+                        cid = int(body.get("category_id", 0))
+                        c.execute("DELETE FROM stock WHERE product_id IN (SELECT p.id FROM products p JOIN subcategories s ON p.subcategory_id = s.id WHERE s.category_id = ?)", (cid,))
+                        c.execute("DELETE FROM products WHERE subcategory_id IN (SELECT id FROM subcategories WHERE category_id = ?)", (cid,))
+                        c.execute("DELETE FROM subcategories WHERE category_id = ?", (cid,))
+                        c.execute("DELETE FROM categories WHERE id = ?", (cid,))
+                    elif act == "add_brand":
+                        cid = int(body.get("category_id", 0))
+                        name = str(body.get("name", "")).strip()
+                        if cid and name:
+                            c.execute("INSERT INTO subcategories (category_id, name) VALUES (?, ?)", (cid, name))
+                    elif act == "rename_brand":
+                        sid = int(body.get("sub_id", 0))
+                        name = str(body.get("name", "")).strip()
+                        if sid and name:
+                            c.execute("UPDATE subcategories SET name = ? WHERE id = ?", (name, sid))
+                    elif act == "delete_brand":
+                        sid = int(body.get("sub_id", 0))
+                        c.execute("DELETE FROM stock WHERE product_id IN (SELECT id FROM products WHERE subcategory_id = ?)", (sid,))
+                        c.execute("DELETE FROM products WHERE subcategory_id = ?", (sid,))
+                        c.execute("DELETE FROM subcategories WHERE id = ?", (sid,))
+                    elif act == "add_product":
+                        sid = int(body.get("sub_id", 0))
+                        name = str(body.get("name", "")).strip()
+                        price_bdt = float(body.get("price_bdt", 0))
+                        desc = str(body.get("description", "")).strip()
+                        rate = float(get_setting("usdt_rate", "125.0") or 125.0)
+                        if sid and name:
+                            c.execute(
+                                "INSERT INTO products (subcategory_id, name, price_bdt, price_usdt, description, is_on_demand, is_active) VALUES (?, ?, ?, ?, ?, 0, 1)",
+                                (sid, name, price_bdt, price_bdt / rate, desc),
+                            )
+                    elif act == "delete_product":
+                        pid = int(body.get("product_id", 0))
+                        c.execute("DELETE FROM stock WHERE product_id = ?", (pid,))
+                        c.execute("DELETE FROM products WHERE id = ?", (pid,))
+                    conn.commit()
+                    conn.close()
+                    return self._send_json({"ok": True})
+
+                # 8. Add Stock
                 if path == "/api/admin/add_stock":
                     pid = int(body.get("product_id", 0))
                     lines = [ln.strip() for ln in str(body.get("lines", "")).splitlines() if ln.strip()]
                     for ln in lines:
                         c.execute("INSERT INTO stock (product_id, content, is_sold) VALUES (?, ?, 0)", (pid, ln))
                     conn.commit()
+                    c.execute("SELECT COUNT(*) as cnt FROM stock WHERE product_id = ? AND is_sold = 0", (pid,))
+                    total_now = c.fetchone()["cnt"]
                     conn.close()
-                    return self._send_json({"ok": True, "added": len(lines)})
+                    return self._send_json({"ok": True, "added": len(lines), "total_stock": total_now})
 
+                # 9. Payment Settings Update
+                if path == "/api/admin/payment_settings":
+                    for k in ("bkash_number", "nagad_number", "binance_id", "min_deposit_manual", "usdt_rate", "support_username"):
+                        if k in body and body[k] is not None:
+                            set_setting(k, str(body[k]).strip())
+                    conn.close()
+                    return self._send_json({"ok": True})
+
+                # 10. User Management (Search + Add/Deduct Balance)
+                if path == "/api/admin/user_balance":
+                    target_uid = int(body.get("user_id", 0))
+                    action = str(body.get("action", "add"))
+                    amount = float(body.get("amount", 0))
+                    if not target_uid or amount <= 0:
+                        conn.close()
+                        return self._send_json({"ok": False, "error": "Valid user_id and amount required"})
+                    if action == "add":
+                        c.execute("UPDATE users SET balance_bdt = balance_bdt + ? WHERE user_id = ?", (amount, target_uid))
+                        add_notification(target_uid, "💰 Balance Added", f"Admin added +৳{amount:.2f} BDT to your wallet.")
+                    else:
+                        if conn.is_pg:
+                            c.execute("UPDATE users SET balance_bdt = GREATEST(0, balance_bdt - %s) WHERE user_id = %s", (amount, target_uid))
+                        else:
+                            c.execute("UPDATE users SET balance_bdt = MAX(0, balance_bdt - ?) WHERE user_id = ?", (amount, target_uid))
+                        add_notification(target_uid, "💸 Balance Deducted", f"Admin deducted -৳{amount:.2f} BDT from your wallet.")
+                    conn.commit()
+                    c.execute("SELECT user_id, name, username, balance_bdt FROM users WHERE user_id = ?", (target_uid,))
+                    updated_u = c.fetchone()
+                    conn.close()
+                    return self._send_json({"ok": True, "user": dict(updated_u) if updated_u else None})
+
+                # 11. Channel TX & Group Settings + 4-Step Custom Channel TX Post
+                if path == "/api/admin/channel_tx":
+                    act = str(body.get("action", ""))
+                    if act == "toggle_autosales":
+                        _AUTO_SALES_ACTIVE = not _AUTO_SALES_ACTIVE
+                        conn.close()
+                        return self._send_json({"ok": True, "auto_sales_active": _AUTO_SALES_ACTIVE})
+                    elif act == "save_gc_settings":
+                        for k in ("welcome_group_id", "welcome_group_link", "transaction_channel_id", "transaction_channel_link"):
+                            if k in body and body[k] is not None:
+                                set_setting(k, str(body[k]).strip())
+                        conn.close()
+                        return self._send_json({"ok": True})
+                    elif act == "custom_tx_post":
+                        cname = str(body.get("customer_name", "Customer")).strip()
+                        pname = str(body.get("product_name", "Premium VPN")).strip()
+                        qty = max(1, int(body.get("quantity", 1)))
+                        price = float(body.get("total_bdt", 50.0))
+                        fake_uid = random.randint(7100000000, 7999999999)
+                        fake_receipt = f"RCP-{secrets.token_hex(5).upper()}"
+                        conn.close()
+                        if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
+                            asyncio.run_coroutine_threadsafe(
+                                post_transaction_to_channel(_GLOBAL_BOT_APP.bot, fake_receipt, cname, fake_uid, pname, qty, price),
+                                _GLOBAL_EVENT_LOOP,
+                            )
+                        return self._send_json({"ok": True, "receipt_no": fake_receipt})
+                    conn.close()
+                    return self._send_json({"ok": False, "error": "Invalid action"})
+
+                # 12. Menu Layout & Factory Reset
+                if path == "/api/admin/menu_layout":
+                    if body.get("reset"):
+                        save_menu_layout([list(r) for r in DEFAULT_MENU_LAYOUT])
+                    elif "layout" in body and isinstance(body["layout"], list):
+                        save_menu_layout(body["layout"])
+                    conn.close()
+                    return self._send_json({"ok": True, "menu_layout": get_menu_layout()})
+
+                if path == "/api/admin/factory_reset":
+                    confirm_code = str(body.get("confirm", "")).strip()
+                    if confirm_code != "RESET":
+                        conn.close()
+                        return self._send_json({"ok": False, "error": "Type RESET to confirm"})
+                    c.execute("DELETE FROM orders")
+                    c.execute("DELETE FROM stock")
+                    c.execute("DELETE FROM deposits")
+                    c.execute("UPDATE users SET balance_bdt = 0")
+                    conn.commit()
+                    conn.close()
+                    return self._send_json({"ok": True})
+
+                # 13. Popup & Coupon Controls
                 if path == "/api/admin/popup":
                     set_setting("popup_enabled", str(body.get("enabled", "0")))
                     set_setting("popup_title", str(body.get("title", "")))
@@ -1629,7 +1481,13 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     return self._send_json({"ok": True})
 
                 if path == "/api/admin/coupon":
+                    act = str(body.get("action", "add"))
                     code_s = str(body.get("code", "")).strip().upper()
+                    if act == "delete" and code_s:
+                        c.execute("DELETE FROM coupons WHERE code = ?", (code_s,))
+                        conn.commit()
+                        conn.close()
+                        return self._send_json({"ok": True})
                     pct = float(body.get("discount_pct", 0))
                     if conn.is_pg:
                         c.execute("INSERT INTO coupons (code, discount_pct, is_active) VALUES (%s, %s, 1) ON CONFLICT (code) DO UPDATE SET discount_pct = EXCLUDED.discount_pct, is_active = 1", (code_s, pct))
@@ -1638,6 +1496,8 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     conn.commit()
                     conn.close()
                     return self._send_json({"ok": True})
+
+                conn.close()
 
             return self._send_json({"ok": False, "error": "Unknown route"}, 404)
 
@@ -1823,7 +1683,11 @@ def init_db():
         joined_date TEXT,
         is_admin INTEGER DEFAULT 0,
         current_state TEXT,
-        state_data TEXT
+        state_data TEXT,
+        referred_by BIGINT DEFAULT NULL,
+        referral_earnings REAL DEFAULT 0.0,
+        pending_referral_tk REAL DEFAULT 0.0,
+        language TEXT DEFAULT 'EN'
     )
     """)
 
@@ -1933,12 +1797,32 @@ def init_db():
     )
     """)
 
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS ad_banners (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        subtitle TEXT,
+        badge_text TEXT DEFAULT '⚡ SPECIAL OFFER',
+        image_url TEXT DEFAULT '',
+        target_sub_id INTEGER DEFAULT 0,
+        target_cat_id INTEGER DEFAULT 0,
+        bg_gradient TEXT DEFAULT 'linear-gradient(135deg, #2e0249 0%, #570a57 50%, #ff6b00 100%)',
+        is_active INTEGER DEFAULT 1,
+        position INTEGER DEFAULT 0
+    )
+    """)
+
+    # Safe Schema Migrations for Existing Databases
     if conn.is_pg:
         try:
             cursor.execute("ALTER TABLE categories ADD COLUMN IF NOT EXISTS position INTEGER DEFAULT 0")
             cursor.execute("ALTER TABLE subcategories ADD COLUMN IF NOT EXISTS position INTEGER DEFAULT 0")
             cursor.execute("ALTER TABLE stock ADD COLUMN IF NOT EXISTS stock_type TEXT DEFAULT 'account'")
             cursor.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS is_active INTEGER DEFAULT 1")
+            cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by BIGINT DEFAULT NULL")
+            cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_earnings REAL DEFAULT 0.0")
+            cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_referral_tk REAL DEFAULT 0.0")
+            cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'EN'")
         except Exception as e:
             logger.warning(f"Postgres column check notice: {e}")
     else:
@@ -1947,14 +1831,18 @@ def init_db():
                 cursor.execute(f"ALTER TABLE {tbl} ADD COLUMN position INTEGER DEFAULT 0")
             except Exception:
                 pass
-        try:
-            cursor.execute("ALTER TABLE stock ADD COLUMN stock_type TEXT DEFAULT 'account'")
-        except Exception:
-            pass
-        try:
-            cursor.execute("ALTER TABLE products ADD COLUMN is_active INTEGER DEFAULT 1")
-        except Exception:
-            pass
+        for col_sql in (
+            "ALTER TABLE stock ADD COLUMN stock_type TEXT DEFAULT 'account'",
+            "ALTER TABLE products ADD COLUMN is_active INTEGER DEFAULT 1",
+            "ALTER TABLE users ADD COLUMN referred_by BIGINT DEFAULT NULL",
+            "ALTER TABLE users ADD COLUMN referral_earnings REAL DEFAULT 0.0",
+            "ALTER TABLE users ADD COLUMN pending_referral_tk REAL DEFAULT 0.0",
+            "ALTER TABLE users ADD COLUMN language TEXT DEFAULT 'EN'",
+        ):
+            try:
+                cursor.execute(col_sql)
+            except Exception:
+                pass
 
     default_settings = {
         "shop_name": "CyberNest Market",
@@ -1991,6 +1879,24 @@ def init_db():
         seed_clean_store(conn)
 
     sync_vpn_catalog_v3(conn, cursor)
+
+    # Seed Default Rotating Ad Banners if empty
+    cursor.execute("SELECT COUNT(*) as cnt FROM ad_banners")
+    b_row = cursor.fetchone()
+    b_cnt = b_row["cnt"] if isinstance(b_row, dict) else b_row[0]
+    if b_cnt == 0:
+        default_banners = [
+            ("CyberNest Digital Mart", "Fastest VPN, Residential Proxy & Verified Mail Store — 24/7 Instant Delivery", "⚡ 24/7 AUTOMATED STORE", "", 0, 0, "linear-gradient(135deg, #2e0249 0%, #570a57 50%, #ff6b00 100%)"),
+            ("Premium High-Speed VPNs", "Nord, Express, Surfshark, Proton & More — 100% Verified with Warranty", "🛡️ PREMIUM VPN DEALS", "", 0, 0, "linear-gradient(135deg, #0f172a 0%, #1e3a8a 55%, #0ea5e9 100%)"),
+            ("Clean Residential Proxies", "Rapid Proxy, 9 Proxy & 711 Proxy — Select 100MB to 1GB Packages", "🌐 RESIDENTIAL PROXY", "", 0, 0, "linear-gradient(135deg, #064e3b 0%, #047857 55%, #10b981 100%)"),
+        ]
+        for idx, (bt, bsub, btag, bimg, bsubid, bcatid, bgrad) in enumerate(default_banners):
+            cursor.execute("""
+                INSERT INTO ad_banners (title, subtitle, badge_text, image_url, target_sub_id, target_cat_id, bg_gradient, is_active, position)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+            """, (bt, bsub, btag, bimg, bsubid, bcatid, bgrad, idx))
+        conn.commit()
+
     conn.close()
 
 def seed_clean_store(conn):
@@ -2031,7 +1937,7 @@ def seed_clean_store(conn):
     proxy_id = cat_map.get("🌐 Proxy")
     proxy_catalog = {
         "9 Proxy": [("100 MB", 12.0), ("200 MB", 23.0), ("500 MB", 60.0), ("1 GB", 110.0)],
-        "Rapid Proxy": [("100 MB", 12.0), ("200 MB", 25.0), ("500 MB", 60.0), ("1 GB", 115.0)],
+        "Rapid Proxy": [("100 MB", 15.0), ("200 MB", 25.0), ("500 MB", 60.0), ("1 GB", 115.0)],
         "711 Proxy": [("100 MB", 10.0), ("200 MB", 18.0), ("500 MB", 45.0)],
     }
     for pbrand, pvariants in proxy_catalog.items():
@@ -2101,29 +2007,51 @@ def set_setting(key: str, value: str):
     conn.commit()
     conn.close()
 
-def get_or_create_user(user_id: int, name: str, username: str):
+def get_or_create_user(user_id: int, name: str, username: str, referrer_id: Optional[int] = None) -> Dict[str, Any]:
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
     row = c.fetchone()
+    is_new_user = False
     if not row:
+        is_new_user = True
         joined = datetime.datetime.now().strftime("%Y-%m-%d")
         is_adm = 1 if user_id == SUPER_ADMIN_ID else 0
+        valid_ref = None
+        if referrer_id and int(referrer_id) != int(user_id):
+            c.execute("SELECT user_id FROM users WHERE user_id = ?", (int(referrer_id),))
+            if c.fetchone():
+                valid_ref = int(referrer_id)
         c.execute(
-            "INSERT INTO users (user_id, name, username, balance_bdt, joined_date, is_admin) VALUES (?, ?, ?, ?, ?, ?)",
-            (user_id, name, username or "", 0.0, joined, is_adm),
+            "INSERT INTO users (user_id, name, username, balance_bdt, joined_date, is_admin, referred_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (user_id, name, username or "", 0.0, joined, is_adm, valid_ref),
         )
         conn.commit()
+        if valid_ref:
+            add_notification(valid_ref, "👥 New Referral Joined!", f"{name} (@{username or 'user'}) joined using your referral link!")
         c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
         row = c.fetchone()
     else:
+        updates = []
+        params = []
         if user_id == SUPER_ADMIN_ID and row["is_admin"] != 1:
-            c.execute("UPDATE users SET is_admin = 1 WHERE user_id = ?", (user_id,))
+            updates.append("is_admin = 1")
+        if name and row["name"] != name:
+            updates.append("name = ?")
+            params.append(name)
+        if username and row["username"] != username:
+            updates.append("username = ?")
+            params.append(username)
+        if updates:
+            params.append(user_id)
+            c.execute(f"UPDATE users SET {', '.join(updates)} WHERE user_id = ?", tuple(params))
             conn.commit()
             c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
             row = c.fetchone()
     conn.close()
-    return dict(row)
+    res = dict(row)
+    res["_is_new_user"] = is_new_user
+    return res
 
 def set_user_state(user_id: int, state: Optional[str], data: Optional[Dict] = None):
     conn = get_db()
@@ -2148,10 +2076,10 @@ def is_admin(user_id: int) -> bool:
     return int(user_id) == SUPER_ADMIN_ID
 
 # ------------------------------------------------------------------------------
-# 5. KEYBOARD LAYOUTS
+# 5. KEYBOARD LAYOUTS (Includes 🤖 AI Assistant Button)
 # ------------------------------------------------------------------------------
 DEFAULT_MENU_LAYOUT = [
-    ["🛍️ Buy Products"],
+    ["🛍️ Buy Products", "🤖 AI Assistant"],
     ["👤 My Profile", "💳 Deposit"],
     ["🔐 Get Code", "💬 Support"],
 ]
@@ -2162,6 +2090,12 @@ def get_menu_layout() -> List[List[str]]:
         try:
             parsed = json.loads(raw)
             if isinstance(parsed, list) and parsed:
+                # Ensure 🤖 AI Assistant is present at least once unless admin explicitly customized after v2
+                flat = [btn for r in parsed for btn in r]
+                if "🤖 AI Assistant" not in flat and not get_setting("ai_btn_migrated", ""):
+                    parsed[0].append("🤖 AI Assistant")
+                    set_setting("ai_btn_migrated", "1")
+                    save_menu_layout(parsed)
                 return parsed
         except Exception:
             pass
@@ -2170,6 +2104,7 @@ def get_menu_layout() -> List[List[str]]:
 def save_menu_layout(layout: List[List[str]]):
     clean = [r for r in layout if r]
     set_setting("main_menu_layout", json.dumps(clean, ensure_ascii=False))
+    set_setting("ai_btn_migrated", "1")
 
 def get_main_reply_keyboard(user_id: int) -> ReplyKeyboardMarkup:
     layout = get_menu_layout()
@@ -2393,7 +2328,7 @@ def generate_pdf_receipt(
     story.append(total_table)
     story.append(Spacer(1, 25))
 
-    clean_bot = bot_username.lstrip('@')
+    clean_bot = (bot_username or "bot").lstrip('@')
     verify_url = f"https://t.me/{clean_bot}?start=order_{receipt_no}"
 
     qr_widget = qr.QrCodeWidget(verify_url)
@@ -2487,39 +2422,89 @@ def format_credentials_card(items: List[str], prod_name: str, cat_name: str) -> 
     return "\n".join(lines)
 
 # ------------------------------------------------------------------------------
-# 7. USER HANDLERS (Shop, Profile, Deposit, 2FA, Support)
+# 7. USER HANDLERS (New vs Returning Welcome, AI Assistant, Shop, Profile, Deposit)
 # ------------------------------------------------------------------------------
+def build_welcome_message(full_name: str, shop_name: str, is_new: bool) -> str:
+    safe_name = html.escape(full_name or "গ্রাহক")
+    if is_new:
+        return (
+            f"🌟 <b>স্বাগতম, {safe_name}!</b> ✨\n"
+            f"💎 <b>{shop_name} — ২৪/৭ অটোমেটেড ডিজিটাল শপ</b>\n"
+            f"─────────────────────────────\n"
+            f"আমাদের প্ল্যাটফর্মে আপনি পাচ্ছেন শতভাগ ভেরিফায়েড ও প্রিমিয়াম ডিজিটাল সার্ভিস:\n\n"
+            f"🛡️ <b>প্রিমিয়াম VPN সার্ভিস:</b> ফুল ওয়ারেন্টি ও হাই-স্পিড সিকিউরিটি।\n"
+            f"🌐 <b>প্রিমিয়াম Proxy সার্ভিস:</b> ক্লিন ও সুপার-ফাস্ট রেসিডেনশিয়াল প্রক্সি।\n"
+            f"✉️ <b>প্রিমিয়াম Mail সার্ভিস:</b> ইনস্ট্যান্ট অটো-ডেলিভারি ও এক্সেল ব্যাকআপ।\n"
+            f"🛍️ <b>স্মার্ট ওয়েব স্টোর (Mini App):</b> এক ক্লিকে লাইভ শপিং ও অর্ডার ট্র্যাকিং।\n"
+            f"🔐 <b>ফ্রি 2FA ও মেইল টুলস:</b> লাইভ 2FA কোড এবং ইনস্ট্যান্ট মেইল OTP রিডার।\n"
+            f"🤖 <b>২৪/৭ AI সাপোর্ট ও রেফারেল:</b> যেকোনো প্রশ্নের তাৎক্ষণিক উত্তর ও বন্ধুদের আমন্ত্রণ জানিয়ে আয়ের সুযোগ।\n"
+            f"─────────────────────────────\n"
+            f"👇 নিচের মেনু বাটন অথবা বাম কোণার <b>Open Shop</b> বাটনে চাপ দিয়ে আপনার কেনাকাটা শুরু করুন!"
+        )
+    else:
+        return (
+            f"👋 <b>স্বাগতম, {safe_name}!</b> ✨\n"
+            f"💎 <b>{shop_name}</b> — ২৪/৭ অটোমেটেড ডিজিটাল স্টোর।\n"
+            f"─────────────────────────────\n"
+            f"🛍️ প্রিমিয়াম VPN, প্রিমিয়াম Proxy ও প্রিমিয়াম Mail কিনতে নিচের মেনু অথবা <b>Open Shop</b> বাটন ব্যবহার করুন 👇"
+        )
+
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    get_or_create_user(user.id, user.full_name, user.username)
-    shop_name = get_setting("shop_name", "CyberNest Market")
-
+    ref_id = None
     if context.args and len(context.args) > 0:
-        arg = context.args[0]
+        arg = context.args[0].strip()
         if arg.startswith("order_"):
             receipt_code = arg.replace("order_", "")
+            db_u = get_or_create_user(user.id, user.full_name, user.username)
             await show_order_verification(update, receipt_code)
             return
+        elif arg.startswith("ref_"):
+            r_str = arg.replace("ref_", "").strip()
+            if r_str.isdigit():
+                ref_id = int(r_str)
+        elif arg.isdigit():
+            ref_id = int(arg)
+
+    db_user = get_or_create_user(user.id, user.full_name, user.username, referrer_id=ref_id)
+    is_new = bool(db_user.get("_is_new_user", False))
+    shop_name = get_setting("shop_name", "CyberNest Market")
 
     in_group, in_channel = await check_user_membership(context.bot, user.id)
     if not (in_group and in_channel):
         force_txt = (
-            f"👋 <b>স্বাগতম, {user.full_name}!</b>\n\n"
-            f"বট ব্যবহার করতে নিচের বাটনে চাপ দিয়ে গ্রুপ ও চ্যানেলে যুক্ত হয়ে ভেরিফাই করুন:"
+            f"👋 <b>স্বাগতম, {html.escape(user.full_name or 'বন্ধু')}!</b>\n\n"
+            f"বট ব্যবহার করতে নিচের বাটনে চাপ দিয়ে গ্রুপ ও চ্যানেলে যুক্ত হয়ে ভেরিফাই করুন:"
         )
         kb = get_force_join_keyboard(in_group, in_channel)
         await update.message.reply_text(force_txt, parse_mode=ParseMode.HTML, reply_markup=kb)
         return
 
-    welcome_text = (
-        f"🎉 <b>স্বাগতম, {user.full_name}!</b> ✨\n\n"
-        f"💎 <b>{shop_name}</b>\n"
-        f"─────────────────────────────\n"
-        f"🛍️ প্রিমিয়াম VPN, Proxy আর Mail সার্ভিস — সবচেয়ে দ্রুত ডেলিভারিতে, ২৪/৭।\n\n"
-        f"📌 নিচের মেনু থেকে বা বাম কোণার <b>Open Shop</b> বাটনে চাপ দিয়ে শপ ওপেন করুন 👇"
-    )
+    welcome_text = build_welcome_message(user.full_name, shop_name, is_new=is_new)
     reply_kb = get_main_reply_keyboard(user.id)
     await update.message.reply_text(welcome_text, parse_mode=ParseMode.HTML, reply_markup=reply_kb)
+
+async def ai_assistant_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    set_user_state(user.id, "WAITING_AI_QUESTION", {})
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🛡️ VPN Price List", callback_data="ai_q_vpn"),
+            InlineKeyboardButton("🌐 Proxy Packages", callback_data="ai_q_proxy"),
+        ],
+        [
+            InlineKeyboardButton("✉️ Mail Stock", callback_data="ai_q_mail"),
+            InlineKeyboardButton("💳 How to Deposit?", callback_data="ai_q_deposit"),
+        ],
+        [InlineKeyboardButton("❌ Exit AI Mode", callback_data="ai_q_exit")],
+    ])
+    txt = (
+        "🤖 <b>CyberNest Smart AI Assistant</b>\n"
+        "─────────────────────────────\n"
+        "আপনি প্রোডাক্টের লাইভ দাম, স্টক, পেমেন্ট নাম্বার বা অর্ডার করার নিয়ম নিয়ে যেকোনো প্রশ্ন লিখে পাঠান—আমি ডাটাবেস চেক করে সাথে সাথে উত্তর দেব!\n\n"
+        "👇 অথবা নিচের কুইক বাটনে চাপ দিন:"
+    )
+    await update.message.reply_text(txt, parse_mode=ParseMode.HTML, reply_markup=kb)
 
 async def check_user_membership(bot, user_id: int) -> Tuple[bool, bool]:
     if user_id == SUPER_ADMIN_ID:
@@ -2580,20 +2565,20 @@ async def execute_smart_broadcast(bot, reply_target, sdata: dict, btn_text: Opti
         except Exception:
             pass
 
-    grp_status = "✅ আপডেট গ্রুপে পাঠানো হয়েছে"
+    grp_status = "✅ আপডেট গ্রুপে পাঠানো হয়েছে"
     try:
         if photo_id:
             await bot.send_photo(chat_id=get_welcome_group_id(), photo=photo_id, caption=msg_text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
         else:
             await bot.send_message(chat_id=get_welcome_group_id(), text=msg_text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
     except Exception as e:
-        grp_status = f"⚠️ আপডেট গ্রুপে পাঠানো যায়নি ({e})"
+        grp_status = f"⚠️ আপডেট গ্রুপে পাঠানো যায়নি ({e})"
 
     await reply_target.reply_text(
         f"✅ <b>ব্রডকাস্ট সম্পন্ন!</b>\n"
         f"👥 মোট ইউজার: <b>{sent_cnt}</b> জনের ইনবক্সে পৌঁছেছে।\n"
         f"📢 {grp_status}।\n"
-        f"🛡️ <i>ট্রানজ্যাকশন চ্যানেল সম্পূর্ণ পরিষ্কার রাখা হয়েছে।</i>",
+        f"🛡️ <i>ট্রানজ্যাকশন চ্যানেল সম্পূর্ণ পরিষ্কার রাখা হয়েছে।</i>",
         parse_mode=ParseMode.HTML,
     )
 
@@ -2605,7 +2590,7 @@ async def show_order_verification(update: Update, receipt_no: str):
     conn.close()
 
     if not order:
-        await update.message.reply_text("❌ দুঃখিত! এই রিসিট নম্বরের কোনো অর্ডার পাওয়া যায়নি।")
+        await update.message.reply_text("❌ দুঃখিত! এই রিসিট নম্বরের কোনো অর্ডার পাওয়া যায়নি।")
         return
 
     txt = (
@@ -2629,10 +2614,19 @@ async def profile_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     balance_bdt = db_user["balance_bdt"]
     balance_usdt = balance_bdt / rate if rate > 0 else 0.0
 
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT COALESCE(SUM(total_bdt), 0) as spent FROM orders WHERE user_id = ? AND status != 'refunded'", (user.id,))
+    spent = float(c.fetchone()["spent"] or 0.0)
+    conn.close()
+    vip = get_vip_badge_info(spent)
+
     profile_text = (
-        f"👤 <b>My Profile</b>\n\n"
+        f"👤 <b>My Profile</b> ({vip['badge']})\n\n"
         f"👤 <b>Name</b> : {db_user['name']}\n"
+        f"🆔 <b>User ID</b> : <code>{user.id}</code>\n"
         f"💰 <b>Balance</b> : {balance_bdt:.2f} BDT / {balance_usdt:.4f} USDT\n"
+        f"🛍️ <b>Total Spent</b> : {spent:.2f} BDT\n"
         f"🎉 <b>Joined</b> : {db_user['joined_date']}\n"
         f"─────────────────────────────"
     )
@@ -2666,10 +2660,11 @@ async def buy_products_menu_handler(update: Update, context: ContextTypes.DEFAUL
 async def get_code_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "🔐 <b>Get Code & Authentication Tools</b>\n\n"
-        "হটমেইল/আউটলুক ওটিপি কোড এবং লাইভ 2FA কোড পাওয়ার জন্য নিচের অপশন থেকে নির্বাচন করুন:"
+        "হটমেইল/আউটলুক ওটিপি কোড এবং লাইভ 2FA কোড পাওয়ার জন্য নিচের অপশন থেকে নির্বাচন করুন:"
     )
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("🔑 2FA Authenticator (Live Code)", callback_data="tool_2fa_prompt")],
+        [InlineKeyboardButton("✉️ Outlook / Hotmail OTP Reader", callback_data="tool_outlook_prompt")],
         [InlineKeyboardButton("🌐 Hotmail & Outlook Code Server", url="https://code.yamin.bd/")],
     ])
     await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
@@ -2677,10 +2672,11 @@ async def get_code_menu_handler(update: Update, context: ContextTypes.DEFAULT_TY
 async def support_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "💬 <b>কাস্টমার সাপোর্ট</b>\n\n"
-        "যেকোনো সমস্যায় নিচে এডমিনকে মেসেজ দিন:"
+        "যেকোনো সমস্যায় নিচে এডমিনকে মেসেজ দিন অথবা 🤖 AI Assistant ব্যবহার করুন:"
     )
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📨 Message Admin", url=f"tg://user?id={SUPER_ADMIN_ID}")]
+        [InlineKeyboardButton("📨 Message Admin", url=f"tg://user?id={SUPER_ADMIN_ID}")],
+        [InlineKeyboardButton("🤖 Ask AI Assistant", callback_data="ai_q_open")],
     ])
     await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
 
@@ -2700,7 +2696,7 @@ async def deposit_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 # ------------------------------------------------------------------------------
-# 8. INLINE CALLBACK QUERY DISPATCHER (Users & Admin Nested Flow)
+# 8. INLINE CALLBACK QUERY DISPATCHER (Users, AI Assistant & Admin Nested Flow)
 # ------------------------------------------------------------------------------
 async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2723,7 +2719,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
             in_group, in_channel = await check_user_membership(context.bot, user_id)
             if in_group and in_channel:
                 try:
-                    await query.answer("🎉 ভেরিফিকেশন সফল হয়েছে!", show_alert=True)
+                    await query.answer("🎉 ভেরিফিকেশন সফল হয়েছে!", show_alert=True)
                 except Exception:
                     pass
                 try:
@@ -2731,19 +2727,12 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
                 except Exception:
                     pass
                 shop_name = get_setting("shop_name", "CyberNest Market")
-                safe_name = html.escape(query.from_user.full_name or "বন্ধু")
-                welcome_text = (
-                    f"🎉 <b>স্বাগতম, {safe_name}!</b> ✨\n\n"
-                    f"💎 <b>{shop_name}</b>\n"
-                    f"─────────────────────────────\n"
-                    f"🛍️ প্রিমিয়াম VPN, Proxy আর Mail সার্ভিস — সবচেয়ে দ্রুত ডেলিভারিতে, ২৪/৭।\n\n"
-                    f"📌 নিচের মেনু থেকে বেছে নিন 👇"
-                )
+                welcome_text = build_welcome_message(query.from_user.full_name, shop_name, is_new=True)
                 reply_kb = get_main_reply_keyboard(user_id)
                 await query.message.reply_text(welcome_text, parse_mode=ParseMode.HTML, reply_markup=reply_kb)
             else:
                 try:
-                    await query.answer("❌ আপনি এখনো গ্রুপ বা চ্যানেলে জয়েন করেননি! দয়া করে জয়েন করে আবার চাপুন।", show_alert=True)
+                    await query.answer("❌ আপনি এখনো গ্রুপ বা চ্যানেলে জয়েন করেননি! দয়া করে জয়েন করে আবার চাপুন।", show_alert=True)
                 except Exception:
                     pass
                 kb = get_force_join_keyboard(in_group, in_channel)
@@ -2753,6 +2742,27 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
                     pass
         except Exception as e:
             logger.error(f"Verification button error: {e}", exc_info=True)
+        return
+
+    # AI Quick Question Callbacks
+    if data.startswith("ai_q_"):
+        q_type = data.replace("ai_q_", "")
+        if q_type == "exit":
+            set_user_state(user_id, None)
+            await query.message.reply_text("✅ AI Assistant মোড বন্ধ করা হয়েছে।")
+            return
+        if q_type == "open":
+            set_user_state(user_id, "WAITING_AI_QUESTION", {})
+            await query.message.reply_text("🤖 আপনার প্রশ্নটি লিখে পাঠান (যেমন: VPN Price, Proxy Price, Mail Stock, Deposit):")
+            return
+        map_q = {
+            "vpn": "vpn price list",
+            "proxy": "proxy packages",
+            "mail": "mail stock",
+            "deposit": "how to deposit",
+        }
+        ans = generate_smart_ai_reply(map_q.get(q_type, "help"), user_id=user_id)
+        await query.message.reply_text(ans, parse_mode=ParseMode.HTML)
         return
 
     if data.startswith("usr_cat_"):
@@ -2782,7 +2792,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     if data == "usr_cancel_home":
-        await query.message.reply_text("❌ কেনাকাটা বাতিল করা হয়েছে। নতুন অর্ডারের জন্য মেনু ব্যবহার করুন।")
+        await query.message.reply_text("❌ কেনাকাটা বাতিল করা হয়েছে। নতুন অর্ডারের জন্য মেনু ব্যবহার করুন।")
         try:
             await query.message.delete()
         except Exception:
@@ -2827,10 +2837,10 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         conn.close()
 
         if not meta:
-            await query.message.reply_text("⚠️ মেনুটি আপডেট করা হয়েছে! অনুগ্রহ করে নিচের 🛍️ Buy Products বাটনে আবার চাপুন।")
+            await query.message.reply_text("⚠️ মেনুটি আপডেট করা হয়েছে! অনুগ্রহ করে নিচের 🛍️ Buy Products বাটনে আবার চাপুন।")
             return
         title = f"{meta['cat_name']} ➔ {meta['sub_name']}"
-        text = f"<b>{title}</b>\n\nনিচের প্ল্যান বা মেয়াদ নির্বাচন করুন:"
+        text = f"<b>{title}</b>\n\nনিচের প্ল্যান বা মেয়াদ নির্বাচন করুন:"
         kb = []
         is_mail_cat = bool(meta and ("mail" in meta["cat_name"].lower() or "মেইল" in meta["cat_name"]))
         for p in prods:
@@ -2880,7 +2890,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     if data.startswith("calc_custom_"):
         prod_id = int(data.split("_")[2])
         set_user_state(user_id, "WAITING_CALC_CUSTOM_QTY", {"prod_id": prod_id})
-        await query.message.reply_text("✏️ <b>Enter Quantity:</b>\nআপনি কতগুলো কিনতে চান তা সংখ্যায় লিখে পাঠান (যেমন: 5, 20, 50):", parse_mode=ParseMode.HTML)
+        await query.message.reply_text("✏️ <b>Enter Quantity:</b>\nআপনি কতগুলো কিনতে চান তা সংখ্যায় লিখে পাঠান (যেমন: 5, 20, 50):", parse_mode=ParseMode.HTML)
         return
 
     if data.startswith("calc_confirm_"):
@@ -2888,7 +2898,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         if not (in_group and in_channel):
             kb = get_force_join_keyboard(in_group, in_channel)
             await query.message.reply_text(
-                "⚠️ কিনতে হলে আগে নিচের বাটনে চাপ দিয়ে গ্রুপ ও চ্যানেলে জয়েন করে ভেরিফাই করুন:",
+                "⚠️ কিনতে হলে আগে নিচের বাটনে চাপ দিয়ে গ্রুপ ও চ্যানেলে জয়েন করে ভেরিফাই করুন:",
                 parse_mode=ParseMode.HTML,
                 reply_markup=kb,
             )
@@ -2911,7 +2921,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         prod_id = int(data.split("_")[1])
         set_user_state(user_id, "WAITING_CUSTOM_QTY", {"prod_id": prod_id})
         await query.message.reply_text(
-            "✏️ <b>Custom Quantity:</b>\nআপনি কতগুলো কিনতে চান তা সংখ্যায় লিখে পাঠান (যেমন: 5, 20, 50):",
+            "✏️ <b>Custom Quantity:</b>\nআপনি কতগুলো কিনতে চান তা সংখ্যায় লিখে পাঠান (যেমন: 5, 20, 50):",
             parse_mode=ParseMode.HTML,
         )
         return
@@ -2959,6 +2969,15 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         )
         return
 
+    if data == "tool_outlook_prompt":
+        set_user_state(user_id, "WAITING_OUTLOOK_STR", {})
+        await query.message.reply_text(
+            "✉️ <b>Outlook / Hotmail Live OTP Reader:</b>\n"
+            "আপনার মেইল স্ট্রিংটি <code>email|password|refresh_token|client_id</code> ফরম্যাটে পেস্ট করে পাঠান:",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
     if data == "prof_purchases":
         conn = get_db()
         c = conn.cursor()
@@ -2966,7 +2985,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         orders = c.fetchall()
         conn.close()
         if not orders:
-            await query.message.reply_text("🛒 আপনার পূর্বের কোনো কেনাকাটার হিস্টোরি পাওয়া যায়নি।")
+            await query.message.reply_text("🛒 আপনার পূর্বের কোনো কেনাকাটার হিস্টোরি পাওয়া যায়নি।")
             return
 
         txt = "🛒 <b>আপনার কেনাকাটার তালিকা:</b>\nবিস্তারিত দেখতে ও রিসিট পেতে অর্ডারের ওপর ক্লিক করুন:"
@@ -2986,7 +3005,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         conn.close()
 
         if not o:
-            await query.message.reply_text("❌ অর্ডারটি পাওয়া যায়নি।")
+            await query.message.reply_text("❌ অর্ডারটি পাওয়া যায়নি।")
             return
 
         creds_display = ""
@@ -3003,7 +3022,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
                 else:
                     creds_display += f"🔑 <code>{itm}</code>\n"
         else:
-            creds_display = "<i>⏳ অর্ডারটি প্রসেসিং হচ্ছে, খুব শীঘ্রই ডেলিভারি দেওয়া হবে।</i>"
+            creds_display = "<i>⏳ অর্ডারটি প্রসেসিং হচ্ছে, খুব শীঘ্রই ডেলিভারি দেওয়া হবে।</i>"
 
         date_only = o["order_date"].split()[0] if o["order_date"] else "N/A"
         txt = (
@@ -3016,10 +3035,29 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
             f"{creds_display}"
         )
         kb = [
-            [InlineKeyboardButton("🧾 Resend Receipt PDF", callback_data=f"prof_resend_pdf_{o['id']}")],
+            [InlineKeyboardButton("📦 Resend Product", callback_data=f"prof_resend_prod_{o['id']}"), InlineKeyboardButton("🧾 Resend Receipt PDF", callback_data=f"prof_resend_pdf_{o['id']}")],
+            [InlineKeyboardButton("🔄 Buy Again", callback_data=f"usr_prod_{o['product_id']}")],
             [InlineKeyboardButton("< Back", callback_data="prof_purchases")],
         ]
         await query.message.reply_text(txt, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+        return
+
+    if data.startswith("prof_resend_prod_"):
+        order_id = int(data.split("_")[3])
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT * FROM orders WHERE id = ? AND user_id = ?", (order_id, user_id))
+        o = c.fetchone()
+        conn.close()
+        if not o or not o["delivered_data"]:
+            await query.message.reply_text("⏳ প্রোডাক্ট এখনো ডেলিভারি হয়নি বা অর্ডার পাওয়া যায়নি।")
+            return
+        try:
+            items = json.loads(o["delivered_data"]) if o["delivered_data"].startswith("[") else [ln for ln in o["delivered_data"].splitlines() if ln.strip()]
+        except Exception:
+            items = [o["delivered_data"]]
+        card = format_credentials_card(items, o["product_name"], o["category_name"] or "Service")
+        await query.message.reply_text(card, parse_mode=ParseMode.HTML)
         return
 
     if data.startswith("prof_resend_pdf_"):
@@ -3031,7 +3069,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         conn.close()
 
         if not o:
-            await query.message.reply_text("অর্ডার পাওয়া যায়নি।")
+            await query.message.reply_text("অর্ডার পাওয়া যায়নি।")
             return
 
         bot_info = await get_bot(query).get_me()
@@ -3057,7 +3095,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
             )
         except Exception as e:
             logger.error(f"Error resending receipt: {e}")
-            await query.message.reply_text("❌ রিসিট তৈরি করতে সমস্যা হয়েছে।")
+            await query.message.reply_text("❌ রিসিট তৈরি করতে সমস্যা হয়েছে।")
         return
 
     if data == "prof_deposit_history":
@@ -3067,7 +3105,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         deps = c.fetchall()
         conn.close()
         if not deps:
-            await query.message.reply_text("🔄 আপনার কোনো ডিপোজিট হিস্টোরি পাওয়া যায়নি।")
+            await query.message.reply_text("🔄 আপনার কোনো ডিপোজিট হিস্টোরি পাওয়া যায়নি।")
             return
         msg = "🔄 <b>আপনার ডিপোজিট হিস্টোরি:</b>\n─────────────────────────────\n"
         for d in deps:
@@ -3097,10 +3135,17 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     if data == "prof_referral":
         bot_info = await context.bot.get_me()
         ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) as cnt FROM users WHERE referred_by = ?", (user_id,))
+        r_cnt = c.fetchone()["cnt"]
+        conn.close()
         msg = (
-            f"👥 <b>রেফারাল প্রোগ্রাম</b>\n\n"
-            f"আপনার বন্ধুদের আমন্ত্রণ জানান এবং স্পেশাল অফার উপভোগ করুন!\n\n"
-            f"🔗 আপনার রেফার লিংক:\n<code>{ref_link}</code>"
+            f"👥 <b>রেফারেল ও আর্নিং প্রোগ্রাম</b>\n"
+            f"─────────────────────────────\n"
+            f"👤 মোট রেফারেল: <b>{r_cnt} জন</b>\n"
+            f"💰 মোট রেফারেল আয়: <b>{float(db_user.get('referral_earnings', 0) or 0):.2f} BDT</b>\n\n"
+            f"🔗 আপনার রেফার লিংক (ট্যাপ করে কপি করুন):\n<code>{ref_link}</code>"
         )
         await query.message.reply_text(msg, parse_mode=ParseMode.HTML)
         return
@@ -3124,7 +3169,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
 async def post_transaction_to_channel(bot, receipt_no: str, customer_name: str, telegram_id: int, product_name: str, quantity: int, total_bdt: float):
     bot_info = await bot.get_me()
     text = (
-        f"🔔 <b>নতুন প্রোডাক্ট সেল হয়েছে!</b>\n"
+        f"🔔 <b>নতুন প্রোডাক্ট সেল হয়েছে!</b>\n"
         f"🧾 Receipt: {receipt_no}\n"
         f"👤 কাস্টমার: {customer_name} (ID: <code>{telegram_id}</code>)\n"
         f"📦 প্রোডাক্ট: {product_name}\n"
@@ -3168,8 +3213,8 @@ async def render_purchase_summary(query_or_message, prod_id: int, quantity: int 
 
     cat_low = p["cat_name"].lower()
     default_desc = (
-        "⚡ হাই-স্পিড প্রিমিয়াম VPN অ্যাকাউন্ট — ১৫–৩০ মিনিটের মধ্যে ইনবক্সে Email ও Password পাবেন।" if "vpn" in cat_low
-        else "🚀 আল্ট্রা-ফাস্ট ও ক্লিন রেসিডেনশিয়াল Proxy — হাই অ্যানোনিমিটি ও ১০০% ওয়ার্কিং গ্যারান্টি।" if "proxy" in cat_low
+        "⚡ হাই-স্পিড প্রিমিয়াম VPN অ্যাকাউন্ট — ১৫–৩০ মিনিটের মধ্যে ইনবক্সে Email ও Password পাবেন।" if "vpn" in cat_low
+        else "🚀 আল্ট্রা-ফাস্ট ও ক্লিন রেসিডেনশিয়াল Proxy — হাই অ্যানোনিমিটি ও ১০০% ওয়ার্কিং গ্যারান্টি।" if "proxy" in cat_low
         else "🔐 রিকভারি অ্যাডেড হাই-সিকিউরিটি মেইল — সম্পূর্ণ নিরাপদ ও ইনস্ট্যান্ট ডেলিভারি।" if "recovery" in cat_low
         else "📧 ফ্রেশ ও ভেরিফাইড মেইল অ্যাকাউন্ট — ১০০% চেক করা স্টক ও ইনস্ট্যান্ট ডেলিভারি।"
     )
@@ -3242,7 +3287,7 @@ async def process_order(query, prod_id: int, quantity: int):
 
         if not prod:
             conn.close()
-            await query.message.reply_text("প্রোডাক্ট পাওয়া যায়নি।")
+            await query.message.reply_text("প্রোডাক্ট পাওয়া যায়নি।")
             return
 
         total_bdt = prod["price_bdt"] * quantity
@@ -3253,10 +3298,10 @@ async def process_order(query, prod_id: int, quantity: int):
             shortage = total_bdt - user_balance
             await query.message.reply_text(
                 f"❌ <b>অপর্যাপ্ত ব্যালেন্স!</b>\n\n"
-                f"প্রয়োজনীয় টাকা: {total_bdt:.2f} BDT\n"
+                f"প্রয়োজনীয় টাকা: {total_bdt:.2f} BDT\n"
                 f"আপনার ব্যালেন্স: {user_balance:.2f} BDT\n"
                 f"ঘাটতি: {shortage:.2f} BDT\n\n"
-                f"দয়া করে নিচের 💳 Deposit মেনু থেকে ব্যালেন্স রিচার্জ করুন।",
+                f"দয়া করে নিচের 💳 Deposit মেনু থেকে ব্যালেন্স রিচার্জ করুন।",
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -3276,7 +3321,7 @@ async def process_order(query, prod_id: int, quantity: int):
             conn.close()
             await query.message.reply_text(
                 f"❌ <b>দুঃখিত! পর্যাপ্ত স্টক নেই।</b>\n"
-                f"বর্তমানে স্টকে আছে: <b>{len(stock_rows)}</b> টি। অনুগ্রহ করে পরিমাণ কমিয়ে দিন বা পরে চেষ্টা করুন।",
+                f"বর্তমানে স্টকে আছে: <b>{len(stock_rows)}</b> টি। অনুগ্রহ করে পরিমাণ কমিয়ে দিন বা পরে চেষ্টা করুন।",
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -3314,13 +3359,13 @@ async def process_order(query, prod_id: int, quantity: int):
                         pass
             else:
                 bulk_msg = (
-                    f"🎉 <b>আপনার অর্ডার সফলভাবে সম্পন্ন হয়েছে!</b>\n"
+                    f"🎉 <b>আপনার অর্ডার সফলভাবে সম্পন্ন হয়েছে!</b>\n"
                     f"─────────────────────────────\n"
                     f"🧾 <b>Receipt:</b> <code>{receipt_no}</code>\n"
                     f"📦 <b>প্রোডাক্ট:</b> {full_product_name}\n"
                     f"🔢 <b>পরিমাণ:</b> {quantity} টি | <b>মোট পরিশোধ:</b> {format_price(total_bdt)} BDT\n"
                     f"─────────────────────────────\n"
-                    f"📂 <b>আপনার সবকটি {quantity} টি অ্যাকাউন্ট/মেইল নিচের এক্সেল ফাইলে সুন্দরভাবে সাজিয়ে দেওয়া হলো।</b>"
+                    f"📂 <b>আপনার সবকটি {quantity} টি অ্যাকাউন্ট/মেইল নিচের এক্সেল ফাইলে সুন্দরভাবে সাজিয়ে দেওয়া হলো।</b>"
                 )
                 await query.message.reply_text(bulk_msg, parse_mode=ParseMode.HTML)
                 try:
@@ -3360,7 +3405,7 @@ async def process_order(query, prod_id: int, quantity: int):
                 await get_bot(query).send_message(
                     chat_id=SUPER_ADMIN_ID,
                     text=(
-                        f"🔔 <b>নতুন প্রোডাক্ট সেল হয়েছে!</b>\n"
+                        f"🔔 <b>নতুন প্রোডাক্ট সেল হয়েছে!</b>\n"
                         f"🧾 Receipt: <code>{receipt_no}</code>\n"
                         f"👤 কাস্টমার: {user_name} (ID: <code>{user_id}</code>)\n"
                         f"📦 প্রোডাক্ট: {full_product_name}\n"
@@ -3388,14 +3433,14 @@ async def process_order(query, prod_id: int, quantity: int):
         bot_info = await get_bot(query).get_me()
 
         confirm_msg = (
-            f"🎉 <b>আপনার অর্ডারটি সফলভাবে গ্রহণ করা হয়েছে!</b>\n"
+            f"🎉 <b>আপনার অর্ডারটি সফলভাবে গ্রহণ করা হয়েছে!</b>\n"
             f"─────────────────────────────\n"
             f"🧾 <b>অর্ডার নম্বর:</b> #{order_id} (Receipt: <code>{receipt_no}</code>)\n"
             f"🛡️ <b>প্রোডাক্ট:</b> {full_product_name}\n"
             f"🔢 <b>পরিমাণ:</b> {quantity} টি | <b>মোট পরিশোধ:</b> {format_price(total_bdt)} BDT\n"
             f"📅 <b>তারিখ:</b> {now_str} ({day_name})\n"
             f"─────────────────────────────\n"
-            f"⏳ <b>ডেলিভারি সময়:</b> আগামী ১৫ থেকে ৩০ মিনিটের মধ্যে এডমিন আপনার ইনবক্সে সার্ভিসটি ডেলিভারি পাঠাবে।"
+            f"⏳ <b>ডেলিভারি সময়:</b> আগামী ১৫ থেকে ৩০ মিনিটের মধ্যে এডমিন আপনার ইনবক্সে সার্ভিসটি ডেলিভারি পাঠাবে।"
         )
         await query.message.reply_text(confirm_msg, parse_mode=ParseMode.HTML)
 
@@ -3430,13 +3475,13 @@ async def process_order(query, prod_id: int, quantity: int):
             await get_bot(query).send_message(
                 chat_id=SUPER_ADMIN_ID,
                 text=(
-                    f"🔔 <b>নতুন ম্যানুয়াল অর্ডার প্রয়োজন!</b>\n"
+                    f"🔔 <b>নতুন ম্যানুয়াল অর্ডার প্রয়োজন!</b>\n"
                     f"─────────────────────────────\n"
                     f"🧾 <b>অর্ডার নম্বর:</b> #{order_id} (Receipt: <code>{receipt_no}</code>)\n"
                     f"👤 <b>কাস্টমার:</b> {user_name} (ID: <code>{user_id}</code>)\n"
                     f"📦 <b>প্রোডাক্ট:</b> {full_product_name}\n"
                     f"🔢 <b>পরিমাণ:</b> {quantity} টি | <b>মূল্য:</b> {format_price(total_bdt)} BDT\n"
-                    f"📅 <b>সময়:</b> {now_str}\n"
+                    f"📅 <b>সময়:</b> {now_str}\n"
                     f"─────────────────────────────\n"
                     f"👇 ডেলিভারি দিতে নিচের বাটনে চাপুন:"
                 ),
@@ -3448,7 +3493,7 @@ async def process_order(query, prod_id: int, quantity: int):
     except Exception as e:
         logger.error(f"Critical error in process_order: {e}", exc_info=True)
         try:
-            await query.message.reply_text(f"❌ অর্ডার প্রসেস করতে সাময়িক সমস্যা হয়েছে: {e}")
+            await query.message.reply_text(f"❌ অর্ডার প্রসেস করতে সাময়িক সমস্যা হয়েছে: {e}")
         except Exception:
             pass
 
@@ -3504,9 +3549,9 @@ async def admin_panel_menu_handler(update: Update, context: ContextTypes.DEFAULT
     text = (
         f"👑 <b>সুপার এডমিন কন্ট্রোল ড্যাশবোর্ড</b>\n"
         f"─────────────────────────────\n"
-        f"সব কাজ নেস্টেড বাটন দিয়ে ৩-৪ ধাপে পরিচালনা করুন:\n\n"
+        f"সব কাজ নেস্টেড বাটন দিয়ে ৩-৪ ধাপে পরিচালনা করুন:\n\n"
         f"💳 পেন্ডিং ডিপোজিট: <b>{pend_dep}</b> টি\n"
-        f"🛡️ পেন্ডিং ম্যানুয়াল অর্ডার: <b>{pend_ord}</b> টি"
+        f"🛡️ পেন্ডিং ম্যানুয়াল অর্ডার: <b>{pend_ord}</b> টি"
     )
     await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=build_admin_dashboard_markup(pend_dep, pend_ord))
 
@@ -3535,7 +3580,7 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
 
     if data == "adm_toggle_autosales_mgr":
         _AUTO_SALES_ACTIVE = not _AUTO_SALES_ACTIVE
-        state_str = "চালু করা হয়েছে 🟢" if _AUTO_SALES_ACTIVE else "বন্ধ করা হয়েছে 🔴"
+        state_str = "চালু করা হয়েছে 🟢" if _AUTO_SALES_ACTIVE else "বন্ধ করা হয়েছে 🔴"
         await query.answer(f"চ্যানেল অটো ট্রানজ্যাকশন {state_str}!", show_alert=True)
         await handle_admin_callbacks(query, "adm_tx_manager", context)
         return
@@ -3548,7 +3593,7 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             f"🔗 <b>Update Group Link:</b> {get_welcome_group_link()}\n\n"
             f"📢 <b>TX Channel ID:</b> <code>{get_transaction_channel_id()}</code>\n"
             f"🔗 <b>TX Channel Link:</b> {get_transaction_channel_link()}\n\n"
-            "💡 <i>গ্রুপ বা চ্যানেলে গিয়ে <code>/id</code> লিখলেই সঠিক আইডি পেয়ে যাবেন।</i>"
+            "💡 <i>গ্রুপ বা চ্যানেলে গিয়ে <code>/id</code> লিখলেই সঠিক আইডি পেয়ে যাবেন।</i>"
         )
         gc_kb = InlineKeyboardMarkup([
             [
@@ -3609,7 +3654,7 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         sdata = get_user_state(user_id)[1]
         set_user_state(user_id, "ADMIN_WAITING_BCAST_BTN_COUNT", sdata)
         await query.message.reply_text(
-            "🔢 <b>আপনি কয়টি বাটন অ্যাড করতে চান?</b>\n"
+            "🔢 <b>আপনি কয়টি বাটন অ্যাড করতে চান?</b>\n"
             "সংখ্যা লিখুন (যেমন: <code>1</code>, <code>2</code>, <code>3</code>... সর্বোচ্চ ১০টি):",
             parse_mode=ParseMode.HTML,
         )
@@ -3622,7 +3667,7 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
 
     if data == "adm_toggle_autosales":
         _AUTO_SALES_ACTIVE = not _AUTO_SALES_ACTIVE
-        state_str = "চালু করা হয়েছে 🟢" if _AUTO_SALES_ACTIVE else "বন্ধ করা হয়েছে 🔴"
+        state_str = "চালু করা হয়েছে 🟢" if _AUTO_SALES_ACTIVE else "বন্ধ করা হয়েছে 🔴"
         await query.answer(f"চ্যানেল অটো ট্রানজ্যাকশন {state_str}!", show_alert=True)
         data = "adm_root"
 
@@ -3663,7 +3708,7 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             f"👑 <b>সুপার এডমিন কন্ট্রোল ড্যাশবোর্ড</b>\n"
             f"─────────────────────────────\n"
             f"💳 পেন্ডিং ডিপোজিট: <b>{pend_dep}</b> টি\n"
-            f"🛡️ পেন্ডিং ম্যানুয়াল অর্ডার: <b>{pend_ord}</b> টি"
+            f"🛡️ পেন্ডিং ম্যানুয়াল অর্ডার: <b>{pend_ord}</b> টি"
         )
         await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=build_admin_dashboard_markup(pend_dep, pend_ord))
         return
@@ -3868,7 +3913,7 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
 
     if data == "adm_ml_reset":
         save_menu_layout([list(r) for r in DEFAULT_MENU_LAYOUT])
-        await query.message.reply_text("✅ ডিফল্ট লেআউট রিসেট করা হয়েছে!", reply_markup=get_main_reply_keyboard(user_id))
+        await query.message.reply_text("✅ ডিফল্ট লেআউট রিসেট করা হয়েছে!", reply_markup=get_main_reply_keyboard(user_id))
         await handle_admin_callbacks(query, "adm_menu_layout", context)
         return
 
@@ -3884,6 +3929,7 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             [InlineKeyboardButton("⬆️ Move Up", callback_data=f"adm_ml_mv_{r_idx}_{c_idx}_up"), InlineKeyboardButton("⬇️ Move Down", callback_data=f"adm_ml_mv_{r_idx}_{c_idx}_down")],
             [InlineKeyboardButton("⬅️ Move Left", callback_data=f"adm_ml_mv_{r_idx}_{c_idx}_left"), InlineKeyboardButton("➡️ Move Right", callback_data=f"adm_ml_mv_{r_idx}_{c_idx}_right")],
             [InlineKeyboardButton("↔️ Separate Row", callback_data=f"adm_ml_mv_{r_idx}_{c_idx}_solo")],
+            [InlineKeyboardButton("🗑️ Hide / Remove Button", callback_data=f"adm_ml_mv_{r_idx}_{c_idx}_remove")],
             [InlineKeyboardButton("< Back to Layout", callback_data="adm_menu_layout")],
         ]
         await query.edit_message_text(f"🎛️ <b>বাটন এডিটর:</b> <code>{lbl}</code>", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
@@ -3914,8 +3960,10 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             elif direction == "solo" and len(layout[r_idx]) > 1:
                 layout[r_idx].pop(c_idx)
                 layout.insert(r_idx + 1, [lbl])
+            elif direction == "remove":
+                layout[r_idx].pop(c_idx)
             save_menu_layout(layout)
-            await query.message.reply_text(f"✅ <b>{lbl}</b> আপডেট করা হয়েছে!", parse_mode=ParseMode.HTML, reply_markup=get_main_reply_keyboard(user_id))
+            await query.message.reply_text(f"✅ <b>{lbl}</b> আপডেট করা হয়েছে!", parse_mode=ParseMode.HTML, reply_markup=get_main_reply_keyboard(user_id))
         await handle_admin_callbacks(query, "adm_menu_layout", context)
         return
 
@@ -3983,7 +4031,7 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             c.execute("DELETE FROM products WHERE subcategory_id = ?", (sub_id,))
             c.execute("DELETE FROM subcategories WHERE id = ?", (sub_id,))
             conn.commit()
-            await query.message.reply_text(f"🗑️ ব্র্যান্ড '{sub_row['name']}' মুছে ফেলা হয়েছে!")
+            await query.message.reply_text(f"🗑️ ব্র্যান্ড '{sub_row['name']}' মুছে ফেলা হয়েছে!")
         conn.close()
         return
 
@@ -4005,7 +4053,7 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             c.execute("DELETE FROM subcategories WHERE category_id = ?", (cat_id,))
             c.execute("DELETE FROM categories WHERE id = ?", (cat_id,))
             conn.commit()
-            await query.message.reply_text(f"🗑️ ক্যাটাগরি '{cat_row['name']}' মুছে ফেলা হয়েছে!")
+            await query.message.reply_text(f"🗑️ ক্যাটাগরি '{cat_row['name']}' মুছে ফেলা হয়েছে!")
         conn.close()
         return
 
@@ -4018,7 +4066,7 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
     if data.startswith("adm_rename_"):
         prod_id = int(data.split("_")[2])
         set_user_state(user_id, "ADMIN_WAITING_NAME", {"prod_id": prod_id})
-        await query.message.reply_text("নতুন নাম বা মেয়াদ লিখুন:")
+        await query.message.reply_text("নতুন নাম বা মেয়াদ লিখুন:")
         return
 
     if data.startswith("adm_editdesc_"):
@@ -4034,7 +4082,7 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         c.execute("DELETE FROM products WHERE id = ?", (prod_id,))
         conn.commit()
         conn.close()
-        await query.edit_message_text("✅ প্রোডাক্টটি মুছে ফেলা হয়েছে।")
+        await query.edit_message_text("✅ প্রোডাক্টটি মুছে ফেলা হয়েছে।")
         return
 
     if data == "adm_btn_add_cat":
@@ -4051,7 +4099,7 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
     if data.startswith("adm_btn_add_prod_"):
         sub_id = int(data.split("_")[4])
         set_user_state(user_id, "ADMIN_WAITING_ADDPROD_NAME", {"sub_id": sub_id})
-        await query.message.reply_text("➕ নতুন মেয়াদ বা প্যাকেজের নাম লিখুন:")
+        await query.message.reply_text("➕ নতুন মেয়াদ বা প্যাকেজের নাম লিখুন:")
         return
 
     if data == "adm_pho_step1_cats":
@@ -4117,7 +4165,7 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         c.execute("UPDATE products SET image_file_id = NULL WHERE id = ?", (prod_id,))
         conn.commit()
         conn.close()
-        await query.edit_message_text("✅ ছবি মুছে ফেলা হয়েছে।")
+        await query.edit_message_text("✅ ছবি মুছে ফেলা হয়েছে।")
         return
 
     if data == "adm_pay_settings":
@@ -4257,16 +4305,16 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             conn.commit()
             conn.close()
             add_notification(dep["user_id"], "✅ Deposit Approved", f"+{dep['amount']:.2f} BDT added to your wallet!")
-            await query.edit_message_text(f"✅ ডিপোজিট #{dep_id} অনুমোদিত হয়েছে।")
+            await query.edit_message_text(f"✅ ডিপোজিট #{dep_id} অনুমোদিত হয়েছে।")
             try:
-                await context.bot.send_message(chat_id=dep["user_id"], text=f"🎉 <b>ডিপোজিট সফল!</b>\nআপনার অ্যাকাউন্টে {dep['amount']:.2f} BDT যুক্ত হয়েছে।", parse_mode=ParseMode.HTML)
+                await context.bot.send_message(chat_id=dep["user_id"], text=f"🎉 <b>ডিপোজিট সফল!</b>\nআপনার অ্যাকাউন্টে {dep['amount']:.2f} BDT যুক্ত হয়েছে।", parse_mode=ParseMode.HTML)
             except Exception:
                 pass
         elif action == "reject":
             c.execute("UPDATE deposits SET status = 'rejected' WHERE id = ?", (dep_id,))
             conn.commit()
             conn.close()
-            await query.edit_message_text(f"❌ ডিপোজিট #{dep_id} বাতিল করা হয়েছে।")
+            await query.edit_message_text(f"❌ ডিপোজিট #{dep_id} বাতিল করা হয়েছে।")
         return
 
     if data == "adm_pending_orders":
@@ -4320,7 +4368,7 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             c.execute("UPDATE orders SET status = 'refunded' WHERE id = ?", (order_id,))
             c.execute("UPDATE users SET balance_bdt = balance_bdt + ? WHERE user_id = ?", (o["total_bdt"], o["user_id"]))
             conn.commit()
-            await query.edit_message_text(f"❌ Order #{order_id} বাতিল ও রিফান্ড করা হয়েছে।")
+            await query.edit_message_text(f"❌ Order #{order_id} বাতিল ও রিফান্ড করা হয়েছে।")
         conn.close()
         return
 
@@ -4338,7 +4386,7 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             f"─────────────────────────────\n"
             f"👥 মোট ইউজার: <b>{u_stat['total_users']}</b> জন\n"
             f"🛍️ মোট সফল অর্ডার: <b>{o_stat['total_orders']}</b> টি\n"
-            f"💰 মোট বিক্রয় আয়: <b>{o_stat['total_rev']:.2f} BDT</b>\n"
+            f"💰 মোট বিক্রয় আয়: <b>{o_stat['total_rev']:.2f} BDT</b>\n"
             f"💳 ইউজার ব্যালেন্স: <b>{u_stat['total_bal']:.2f} BDT</b>"
         )
         await query.message.reply_text(stat_text, parse_mode=ParseMode.HTML)
@@ -4353,23 +4401,61 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     state, sdata = get_user_state(user.id)
 
     if text == "🛍️ Buy Products":
+        set_user_state(user.id, None)
         await buy_products_menu_handler(update, context)
         return
+    if text == "🤖 AI Assistant":
+        await ai_assistant_menu_handler(update, context)
+        return
     if text == "👤 My Profile":
+        set_user_state(user.id, None)
         await profile_handler(update, context)
         return
     if text == "💳 Deposit":
         await deposit_menu_handler(update, context)
         return
     if text == "🔐 Get Code":
+        set_user_state(user.id, None)
         await get_code_menu_handler(update, context)
         return
     if text == "💬 Support":
+        set_user_state(user.id, None)
         await support_handler(update, context)
         return
     if text == "👑 Admin Panel":
         if is_admin(user.id):
+            set_user_state(user.id, None)
             await admin_panel_menu_handler(update, context)
+        return
+
+    if state == "WAITING_AI_QUESTION":
+        reply_txt = generate_smart_ai_reply(text, user_id=user.id)
+        kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("🛡️ VPN Price List", callback_data="ai_q_vpn"),
+                InlineKeyboardButton("🌐 Proxy Packages", callback_data="ai_q_proxy"),
+            ],
+            [
+                InlineKeyboardButton("✉️ Mail Stock", callback_data="ai_q_mail"),
+                InlineKeyboardButton("💳 How to Deposit?", callback_data="ai_q_deposit"),
+            ],
+            [InlineKeyboardButton("❌ Exit AI Mode", callback_data="ai_q_exit")],
+        ])
+        await update.message.reply_text(reply_txt, parse_mode=ParseMode.HTML, reply_markup=kb)
+        return
+
+    if state == "WAITING_OUTLOOK_STR":
+        res = fetch_outlook_otp(text)
+        set_user_state(user.id, None)
+        if res.get("ok"):
+            await update.message.reply_text(
+                f"✉️ <b>Outlook / Hotmail OTP Found!</b>\n"
+                f"📌 <b>Subject:</b> {html.escape(str(res.get('subject', 'Inbox')))}\n"
+                f"🔢 <b>Code / Message:</b> <code>{html.escape(str(res.get('code', '')))}</code>",
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            await update.message.reply_text(f"❌ <b>Error:</b> {html.escape(str(res.get('error', 'Failed')))}", parse_mode=ParseMode.HTML)
         return
 
     if state == "WAITING_DEP_AMOUNT_MANUAL":
@@ -4380,7 +4466,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 await update.message.reply_text(f"❌ সর্বনিম্ন ডিপোজিট হলো <b>{min_man:.0f} টাকা</b>। আবার লিখুন:", parse_mode=ParseMode.HTML)
                 return
         except ValueError:
-            await update.message.reply_text("দয়া করে সঠিক সংখ্যায় টাকার পরিমাণ লিখুন:")
+            await update.message.reply_text("দয়া করে সঠিক সংখ্যায় টাকার পরিমাণ লিখুন:")
             return
 
         set_user_state(user.id, "WAITING_DEP_TRX", {"amount": amt})
@@ -4389,7 +4475,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             [InlineKeyboardButton("💎 Binance", callback_data="usr_dep_method_Binance")],
         ])
         await update.message.reply_text(
-            f"✅ আপনি <b>{amt:.2f} BDT</b> ডিপোজিট করতে চেয়েছেন।\n\nনিচের কোন মাধ্যমে সেন্ড মানি করবেন সিলেক্ট করুন:",
+            f"✅ আপনি <b>{amt:.2f} BDT</b> ডিপোজিট করতে চেয়েছেন।\n\nনিচের কোন মাধ্যমে সেন্ড মানি করবেন সিলেক্ট করুন:",
             parse_mode=ParseMode.HTML,
             reply_markup=kb,
         )
@@ -4414,7 +4500,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         set_user_state(user.id, None)
         add_notification(user.id, "💳 Deposit Submitted", f"{method} {amount:.2f} BDT (TrxID: {trx}) is pending approval.")
         await update.message.reply_text(
-            f"✅ <b>ডিপোজিট রিকোয়েস্ট সাবমিটেড!</b>\n\nআইডি: #{dep_id} | মেথড: {method}\nপরিমাণ: {amount:.2f} BDT | TrxID: <code>{trx}</code>",
+            f"✅ <b>ডিপোজিট রিকোয়েস্ট সাবমিটেড!</b>\n\nআইডি: #{dep_id} | মেথড: {method}\nপরিমাণ: {amount:.2f} BDT | TrxID: <code>{trx}</code>",
             parse_mode=ParseMode.HTML,
         )
 
@@ -4422,7 +4508,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         try:
             await context.bot.send_message(
                 chat_id=SUPER_ADMIN_ID,
-                text=f"🔔 <b>নতুন ডিপোজিট রিকোয়েস্ট #{dep_id}</b>\n👤 {user.full_name} (<code>{user.id}</code>)\n📱 {method} | 💰 {amount:.2f} BDT\n🔢 TrxID: <code>{trx}</code>",
+                text=f"🔔 <b>নতুন ডিপোজিট রিকোয়েস্ট #{dep_id}</b>\n👤 {user.full_name} (<code>{user.id}</code>)\n📱 {method} | 💰 {amount:.2f} BDT\n🔢 TrxID: <code>{trx}</code>",
                 parse_mode=ParseMode.HTML,
                 reply_markup=adm_kb,
             )
@@ -4438,20 +4524,20 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             time_remaining = 30 - (int(time.time()) % 30)
             set_user_state(user.id, None)
             await update.message.reply_text(
-                f"🔑 <b>2FA Live Code</b>\n\n🔢 কোড: <code>{code_2fa}</code>\n⏳ মেয়াদ বাকি: <b>{time_remaining} সেকেন্ড</b>",
+                f"🔑 <b>2FA Live Code</b>\n\n🔢 কোড: <code>{code_2fa}</code>\n⏳ মেয়াদ বাকি: <b>{time_remaining} সেকেন্ড</b>",
                 parse_mode=ParseMode.HTML,
             )
         except Exception:
-            await update.message.reply_text("❌ অবৈধ 2FA Secret Key! দয়া করে সঠিক কি দিন।")
+            await update.message.reply_text("❌ অবৈধ 2FA Secret Key! দয়া করে সঠিক কি দিন।")
         return
 
-    if state == "WAITING_CALC_CUSTOM_QTY":
+    if state in ("WAITING_CALC_CUSTOM_QTY", "WAITING_CUSTOM_QTY"):
         try:
             qty = int(text)
             if qty <= 0:
                 raise ValueError
         except ValueError:
-            await update.message.reply_text("দয়া করে সঠিক সংখ্যা লিখুন:")
+            await update.message.reply_text("দয়া করে সঠিক সংখ্যা লিখুন:")
             return
         prod_id = sdata.get("prod_id")
         set_user_state(user.id, None)
@@ -4459,6 +4545,9 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     if not is_admin(user.id):
+        # Fallback for normal users typing questions directly in chat -> Smart AI Assistant
+        ans = generate_smart_ai_reply(text, user_id=user.id)
+        await update.message.reply_text(ans, parse_mode=ParseMode.HTML)
         return
 
     if state == "ADMIN_WAITING_STOCK_INPUT":
@@ -4474,14 +4563,14 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             total_now = c.fetchone()["cnt"]
             conn.close()
             set_user_state(user.id, None)
-            await update.message.reply_text(f"✅ সফলভাবে <b>{len(lines)}</b> টি স্টক যুক্ত হয়েছে! মোট স্টক: <b>{total_now}</b> টি।", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(f"✅ সফলভাবে <b>{len(lines)}</b> টি স্টক যুক্ত হয়েছে! মোট স্টক: <b>{total_now}</b> টি।", parse_mode=ParseMode.HTML)
         return
 
     if state == "ADMIN_WAITING_VPN_EMAIL":
         order_id = sdata.get("order_id")
         set_user_state(user.id, "ADMIN_WAITING_VPN_PASS", {"order_id": order_id, "email": text.strip()})
         await update.message.reply_text(
-            f"✅ Email গ্রহণ করা হয়েছে: <code>{text.strip()}</code>\n\n"
+            f"✅ Email গ্রহণ করা হয়েছে: <code>{text.strip()}</code>\n\n"
             f"🔐 <b>(ধাপ ২/২):</b> এবার VPN-এর <b>Password</b> লিখে পাঠান:",
             parse_mode=ParseMode.HTML,
         )
@@ -4502,7 +4591,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             conn.close()
             set_user_state(user.id, None)
             add_notification(order["user_id"], "✅ VPN Order Delivered!", f"Order #{order_id} ({order['product_name']}) has been delivered.")
-            await update.message.reply_text(f"✅ VPN Order #{order_id} সফলভাবে কাস্টমারের ইনবক্সে পাঠানো হয়েছে!")
+            await update.message.reply_text(f"✅ VPN Order #{order_id} সফলভাবে কাস্টমারের ইনবক্সে পাঠানো হয়েছে!")
             user_msg = format_credentials_card([combined_cred], order["product_name"], order["category_name"])
             if order["image_file_id"]:
                 try:
@@ -4513,7 +4602,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             await context.bot.send_message(chat_id=order["user_id"], text=user_msg, parse_mode=ParseMode.HTML)
         else:
             conn.close()
-            await update.message.reply_text("অর্ডার পাওয়া যায়নি।")
+            await update.message.reply_text("অর্ডার পাওয়া যায়নি।")
         return
 
     if state == "ADMIN_WAITING_MANUAL_DELIVERY":
@@ -4528,7 +4617,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             conn.close()
             set_user_state(user.id, None)
             add_notification(order["user_id"], "✅ Order Delivered!", f"Order #{order_id} ({order['product_name']}) has been delivered.")
-            await update.message.reply_text(f"✅ Order #{order_id} সফলভাবে কাস্টমারকে ডেলিভারি পাঠানো হয়েছে।")
+            await update.message.reply_text(f"✅ Order #{order_id} সফলভাবে কাস্টমারকে ডেলিভারি পাঠানো হয়েছে।")
             user_msg = format_credentials_card([text], order['product_name'], order['category_name'])
             if order["image_file_id"]:
                 try:
@@ -4544,25 +4633,25 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     if state == "ADMIN_WAITING_WGRP_ID":
         set_setting("welcome_group_id", text.strip())
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ Update Group ID সেভ হয়েছে: <code>{text.strip()}</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(f"✅ Update Group ID সেভ হয়েছে: <code>{text.strip()}</code>", parse_mode=ParseMode.HTML)
         return
 
     if state == "ADMIN_WAITING_WGRP_LINK":
         set_setting("welcome_group_link", text.strip())
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ Update Group Link সেভ হয়েছে: {text.strip()}")
+        await update.message.reply_text(f"✅ Update Group Link সেভ হয়েছে: {text.strip()}")
         return
 
     if state == "ADMIN_WAITING_TXCH_ID":
         set_setting("transaction_channel_id", text.strip())
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ Transaction Channel ID সেভ হয়েছে: <code>{text.strip()}</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(f"✅ Transaction Channel ID সেভ হয়েছে: <code>{text.strip()}</code>", parse_mode=ParseMode.HTML)
         return
 
     if state == "ADMIN_WAITING_TXCH_LINK":
         set_setting("transaction_channel_link", text.strip())
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ Transaction Channel Link সেভ হয়েছে: {text.strip()}")
+        await update.message.reply_text(f"✅ Transaction Channel Link সেভ হয়েছে: {text.strip()}")
         return
 
     if state == "ADMIN_WAITING_CUSTOM_TX_NAME":
@@ -4601,16 +4690,16 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         set_user_state(user.id, None)
         ok, err = await post_transaction_to_channel(context.bot, fake_receipt, cname, fake_uid, pname, qty, price)
         if ok:
-            await update.message.reply_text(f"✅ কাস্টম ট্রানজ্যাকশন (<code>{fake_receipt}</code>) চ্যানেলে পাঠানো হয়েছে!", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(f"✅ কাস্টম ট্রানজ্যাকশন (<code>{fake_receipt}</code>) চ্যানেলে পাঠানো হয়েছে!", parse_mode=ParseMode.HTML)
         else:
-            await update.message.reply_text(f"❌ পাঠানো যায়নি: <code>{err}</code>", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(f"❌ পাঠানো যায়নি: <code>{err}</code>", parse_mode=ParseMode.HTML)
         return
 
     if state == "ADMIN_WAITING_BCAST_MSG":
         set_user_state(user.id, "ADMIN_WAITING_BCAST_BTN_CHOICE", {"msg_text": text, "photo_id": None})
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("✅ হ্যাঁ (বাটন যোগ করব)", callback_data="adm_bcast_add_btn")],
-            [InlineKeyboardButton("❌ না (বাটন ছাড়াই পাঠাব)", callback_data="adm_bcast_skip_btn")],
+            [InlineKeyboardButton("❌ না (বাটন ছাড়াই পাঠাব)", callback_data="adm_bcast_skip_btn")],
         ])
         await update.message.reply_text("👇 আপনি কি মেসেজের নিচে লিংক-বাটন অ্যাড করতে চান?", reply_markup=kb)
         return
@@ -4635,7 +4724,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         sdata["cur_btn_name"] = text.strip()
         set_user_state(user.id, "ADMIN_WAITING_BCAST_BTN_URL", sdata)
         await update.message.reply_text(
-            f"✅ <b>[{idx}/{cnt}] বাটন গ্রহণ করা হয়েছে!</b>\n"
+            f"✅ <b>[{idx}/{cnt}] বাটন গ্রহণ করা হয়েছে!</b>\n"
             f"🔗 এবার এই বাটনের নিচে কোন <b>লিংক (https://...)</b> যাবে তা দিন:",
             parse_mode=ParseMode.HTML,
         )
@@ -4644,7 +4733,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     if state == "ADMIN_WAITING_BCAST_BTN_URL":
         b_url = text.strip()
         if not (b_url.startswith("http://") or b_url.startswith("https://") or b_url.startswith("tg://")):
-            await update.message.reply_text("❌ লিংকটি অবশ্যই <code>https://</code> দিয়ে শুরু হতে হবে। আবার দিন:", parse_mode=ParseMode.HTML)
+            await update.message.reply_text("❌ লিংকটি অবশ্যই <code>https://</code> দিয়ে শুরু হতে হবে। আবার দিন:", parse_mode=ParseMode.HTML)
             return
         btns = sdata.get("buttons", [])
         btns.append({"text": sdata.get("cur_btn_name", "Open"), "url": b_url})
@@ -4654,7 +4743,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             nxt = len(btns) + 1
             set_user_state(user.id, "ADMIN_WAITING_BCAST_BTN_NAME", sdata)
             await update.message.reply_text(
-                f"✅ <b>[{len(btns)}/{cnt}]</b> বাটন সম্পন্ন হয়েছে!\n"
+                f"✅ <b>[{len(btns)}/{cnt}]</b> বাটন সম্পন্ন হয়েছে!\n"
                 f"✏️ এবার <b>[{nxt}/{cnt}] বাটনের নাম</b> লিখে পাঠান:",
                 parse_mode=ParseMode.HTML,
             )
@@ -4674,7 +4763,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         o = c.fetchone()
         conn.close()
         if not o:
-            await update.message.reply_text("❌ রিসিট পাওয়া যায়নি।")
+            await update.message.reply_text("❌ রিসিট পাওয়া যায়নি।")
             return
         bot_info = await context.bot.get_me()
         pdf_bio = generate_pdf_receipt(
@@ -4695,7 +4784,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         conn.commit()
         conn.close()
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ ব্র্যান্ডের নাম পরিবর্তন হয়েছে: <b>{text}</b>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(f"✅ ব্র্যান্ডের নাম পরিবর্তন হয়েছে: <b>{text}</b>", parse_mode=ParseMode.HTML)
         return
 
     if state == "ADMIN_WAITING_REN_CAT":
@@ -4706,7 +4795,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         conn.commit()
         conn.close()
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ ক্যাটাগরির নাম পরিবর্তন হয়েছে: <b>{text}</b>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(f"✅ ক্যাটাগরির নাম পরিবর্তন হয়েছে: <b>{text}</b>", parse_mode=ParseMode.HTML)
         return
 
     if state == "ADMIN_WAITING_NEW_CAT_NAME":
@@ -4716,7 +4805,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         conn.commit()
         conn.close()
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ নতুন ক্যাটাগরি <b>{text}</b> তৈরি হয়েছে!", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(f"✅ নতুন ক্যাটাগরি <b>{text}</b> তৈরি হয়েছে!", parse_mode=ParseMode.HTML)
         return
 
     if state == "ADMIN_WAITING_NEW_SUB_NAME":
@@ -4727,7 +4816,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         conn.commit()
         conn.close()
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ নতুন ব্র্যান্ড <b>{text}</b> তৈরি হয়েছে!", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(f"✅ নতুন ব্র্যান্ড <b>{text}</b> তৈরি হয়েছে!", parse_mode=ParseMode.HTML)
         return
 
     if state == "ADMIN_WAITING_ADDPROD_NAME":
@@ -4752,7 +4841,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         conn.commit()
         conn.close()
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ নতুন ভ্যারিয়েন্ট <b>{p_name}</b> ({price_bdt:.2f} BDT) যুক্ত হয়েছে!", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(f"✅ নতুন ভ্যারিয়েন্ট <b>{p_name}</b> ({price_bdt:.2f} BDT) যুক্ত হয়েছে!", parse_mode=ParseMode.HTML)
         return
 
     if state == "ADMIN_WAITING_DESC":
@@ -4763,7 +4852,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         conn.commit()
         conn.close()
         set_user_state(user.id, None)
-        await update.message.reply_text("✅ কাস্টম বিবরণ সেভ হয়েছে!")
+        await update.message.reply_text("✅ কাস্টম বিবরণ সেভ হয়েছে!")
         return
 
     if state == "ADMIN_WAITING_PRICE":
@@ -4778,7 +4867,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             conn.commit()
             conn.close()
             set_user_state(user.id, None)
-            await update.message.reply_text(f"✅ নতুন দাম সেট হয়েছে: {p_bdt:.2f} BDT")
+            await update.message.reply_text(f"✅ নতুন দাম সেট হয়েছে: {p_bdt:.2f} BDT")
         except ValueError:
             await update.message.reply_text("সঠিক সংখ্যা লিখুন:")
         return
@@ -4791,25 +4880,25 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         conn.commit()
         conn.close()
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ নাম পরিবর্তন হয়েছে: {text}")
+        await update.message.reply_text(f"✅ নাম পরিবর্তন হয়েছে: {text}")
         return
 
     if state == "ADMIN_WAITING_BKASH":
         set_setting("bkash_number", text)
         set_user_state(user.id, None)
-        await update.message.reply_text("✅ বিকাশ নাম্বার সেট হয়েছে।")
+        await update.message.reply_text("✅ বিকাশ নাম্বার সেট হয়েছে।")
         return
 
     if state == "ADMIN_WAITING_NAGAD":
         set_setting("nagad_number", text)
         set_user_state(user.id, None)
-        await update.message.reply_text("✅ নগদ নাম্বার সেট হয়েছে।")
+        await update.message.reply_text("✅ নগদ নাম্বার সেট হয়েছে।")
         return
 
     if state == "ADMIN_WAITING_BINANCE":
         set_setting("binance_id", text)
         set_user_state(user.id, None)
-        await update.message.reply_text("✅ বাইনান্স তথ্য সেট হয়েছে।")
+        await update.message.reply_text("✅ বাইনান্স তথ্য সেট হয়েছে।")
         return
 
     if state == "ADMIN_WAITING_MINDEP_MANUAL":
@@ -4817,7 +4906,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             new_min = float(text)
             set_setting("min_deposit_manual", str(new_min))
             set_user_state(user.id, None)
-            await update.message.reply_text(f"✅ সর্বনিম্ন ডিপোজিট সেট হয়েছে: {new_min:.0f} BDT")
+            await update.message.reply_text(f"✅ সর্বনিম্ন ডিপোজিট সেট হয়েছে: {new_min:.0f} BDT")
         except ValueError:
             await update.message.reply_text("সঠিক সংখ্যা লিখুন:")
         return
@@ -4844,7 +4933,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         conn.commit()
         conn.close()
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ <code>{t_id}</code>-কে {amt:.2f} BDT যোগ করা হয়েছে!", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(f"✅ <code>{t_id}</code>-কে {amt:.2f} BDT যোগ করা হয়েছে!", parse_mode=ParseMode.HTML)
         return
 
     if state == "ADMIN_WAITING_DEDBAL_AMT":
@@ -4855,11 +4944,14 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         t_id = sdata.get("target_uid")
         conn = get_db()
         c = conn.cursor()
-        c.execute("UPDATE users SET balance_bdt = MAX(0, balance_bdt - ?) WHERE user_id = ?", (amt, t_id))
+        if conn.is_pg:
+            c.execute("UPDATE users SET balance_bdt = GREATEST(0, balance_bdt - %s) WHERE user_id = %s", (amt, t_id))
+        else:
+            c.execute("UPDATE users SET balance_bdt = MAX(0, balance_bdt - ?) WHERE user_id = ?", (amt, t_id))
         conn.commit()
         conn.close()
         set_user_state(user.id, None)
-        await update.message.reply_text(f"✅ <code>{t_id}</code> থেকে {amt:.2f} BDT কাটা হয়েছে!", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(f"✅ <code>{t_id}</code> থেকে {amt:.2f} BDT কাটা হয়েছে!", parse_mode=ParseMode.HTML)
         return
 
 async def photo_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4874,7 +4966,7 @@ async def photo_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
         set_user_state(user.id, "ADMIN_WAITING_BCAST_BTN_CHOICE", {"msg_text": caption, "photo_id": photo_file_id})
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("✅ হ্যাঁ (বাটন যোগ করব)", callback_data="adm_bcast_add_btn")],
-            [InlineKeyboardButton("❌ না (বাটন ছাড়াই পাঠাব)", callback_data="adm_bcast_skip_btn")],
+            [InlineKeyboardButton("❌ না (বাটন ছাড়াই পাঠাব)", callback_data="adm_bcast_skip_btn")],
         ])
         await update.message.reply_text("👇 আপনি কি ছবির নিচে লিংক-বাটন অ্যাড করতে চান?", reply_markup=kb)
         return
@@ -4888,7 +4980,16 @@ async def photo_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
         conn.commit()
         conn.close()
         set_user_state(user.id, None)
-        await update.message.reply_text("✅ নতুন ফটো সফলভাবে সেভ হয়েছে!")
+        await update.message.reply_text(f"✅ নতুন ফটো সফলভাবে সেভ হয়েছে!\n📋 File ID: <code>{photo_file_id}</code>", parse_mode=ParseMode.HTML)
+        return
+
+    # Convenience: Admin sends any photo outside state -> return its Telegram file_id for Web Admin use
+    photo_file_id = update.message.photo[-1].file_id
+    await update.message.reply_text(
+        f"🖼️ <b>Telegram Photo File ID:</b>\n<code>{photo_file_id}</code>\n\n"
+        f"💡 <i>এই কোডটি কপি করে ওয়েব এডমিন প্যানেলের যেকোনো প্রোডাক্ট বা অ্যাড ব্যানারে পেস্ট করতে পারবেন।</i>",
+        parse_mode=ParseMode.HTML,
+    )
 
 async def document_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -4899,7 +5000,7 @@ async def document_message_handler(update: Update, context: ContextTypes.DEFAULT
     if state == "ADMIN_WAITING_STOCK_INPUT":
         doc = update.message.document
         if not doc.file_name.endswith(".xlsx"):
-            await update.message.reply_text("❌ দয়া করে <code>.xlsx</code> এক্সেল ফাইল আপলোড করুন।", parse_mode=ParseMode.HTML)
+            await update.message.reply_text("❌ দয়া করে <code>.xlsx</code> এক্সেল ফাইল আপলোড করুন।", parse_mode=ParseMode.HTML)
             return
 
         tg_file = await context.bot.get_file(doc.file_id)
@@ -4907,12 +5008,12 @@ async def document_message_handler(update: Update, context: ContextTypes.DEFAULT
         try:
             items = read_items_from_excel(file_bytes)
         except Exception as e:
-            await update.message.reply_text(f"❌ এক্সেল ফাইল পড়তে সমস্যা হয়েছে: {e}")
+            await update.message.reply_text(f"❌ এক্সেল ফাইল পড়তে সমস্যা হয়েছে: {e}")
             return
 
         prod_id = sdata.get("prod_id")
         if not items:
-            await update.message.reply_text("❌ এক্সেল ফাইলে কোনো ডেটা পাওয়া যায়নি।")
+            await update.message.reply_text("❌ এক্সেল ফাইলে কোনো ডেটা পাওয়া যায়নি।")
             return
 
         conn = get_db()
@@ -5040,7 +5141,7 @@ async def id_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 def main():
     print("=" * 60)
-    print("Starting Render Web Service + Embedded Mini App Server...")
+    print("Starting Render Web Service + External webapp.html Server...")
     threading.Thread(target=start_health_server, daemon=True).start()
     print("Initializing Database...")
     init_db()
