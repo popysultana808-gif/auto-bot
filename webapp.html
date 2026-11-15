@@ -1,1 +1,3291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>CyberNest Digital Mart — Premium Telegram Mini App</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg: #f4f6fb;
+      --card: #ffffff;
+      --card-2: #f8fafc;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --accent: #ff6b00;
+      --accent-2: #ff3d00;
+      --accent-soft: rgba(255, 107, 0, 0.12);
+      --green: #10b981;
+      --green-soft: rgba(16, 185, 129, 0.14);
+      --blue: #3b82f6;
+      --blue-soft: rgba(59, 130, 246, 0.14);
+      --red: #ef4444;
+      --red-soft: rgba(239, 68, 68, 0.14);
+      --purple: #7c3aed;
+      --shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+    }
+    body.dark {
+      --bg: #070b14;
+      --card: #111827;
+      --card-2: #1a2336;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --border: #1e293b;
+      --accent: #ff7a1a;
+      --accent-2: #ff5500;
+      --accent-soft: rgba(255, 122, 26, 0.16);
+      --green-soft: rgba(16, 185, 129, 0.16);
+      --blue-soft: rgba(59, 130, 246, 0.16);
+      --red-soft: rgba(239, 68, 68, 0.16);
+      --shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+    }
 
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding-bottom: 96px;
+      transition: background 0.25s ease, color 0.25s ease;
+      overflow-x: hidden;
+    }
+
+    /* 1. SPLASH SCREEN */
+    #splash {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at center, #1e1038 0%, #070b14 100%);
+      color: #ffffff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      transition: opacity 0.45s ease, visibility 0.45s ease;
+    }
+    #splash.hide { opacity: 0; visibility: hidden; pointer-events: none; }
+    .splash-logo-wrap {
+      position: relative;
+      width: 96px;
+      height: 96px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 18px;
+    }
+    .splash-ring {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 3.5px solid rgba(255, 255, 255, 0.12);
+      border-top-color: #ff6b00;
+      border-right-color: #a855f7;
+      animation: spin 1s linear infinite;
+    }
+    .splash-ring-inner {
+      position: absolute;
+      inset: 8px;
+      border-radius: 50%;
+      border: 2.5px dashed rgba(255, 107, 0, 0.45);
+      animation: spinReverse 2.2s linear infinite;
+    }
+    .splash-core {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #ff6b00, #7c3aed);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      font-weight: 900;
+      box-shadow: 0 0 25px rgba(255, 107, 0, 0.5);
+    }
+    .splash-bar-wrap {
+      width: 210px;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 14px;
+    }
+    .splash-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #ff6b00, #ec4899, #8b5cf6);
+      border-radius: 999px;
+      animation: loadProgress 1.1s ease-out forwards;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes spinReverse { to { transform: rotate(-360deg); } }
+    @keyframes loadProgress { 0% { width: 15%; } 60% { width: 78%; } 100% { width: 100%; } }
+
+    /* 2. LIVE PROFILE HEADER */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 60;
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+    }
+    .user-mini {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      cursor: pointer;
+    }
+    .avatar-wrap {
+      position: relative;
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      padding: 2px;
+      background: linear-gradient(135deg, #ff6b00, #a855f7, #06b6d4);
+      flex-shrink: 0;
+    }
+    .avatar {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: var(--card);
+      color: var(--accent);
+      font-weight: 800;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .user-info { min-width: 0; }
+    .user-name-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .user-name-row b {
+      font-size: 14px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 130px;
+    }
+    .vip-pill {
+      font-size: 10px;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      white-space: nowrap;
+    }
+    .user-info small {
+      display: block;
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .top-actions { display: flex; align-items: center; gap: 8px; }
+    .bal-pill {
+      background: linear-gradient(135deg, #ff7a1a, #ff4500);
+      color: #ffffff;
+      padding: 7px 12px;
+      border-radius: 999px;
+      font-weight: 800;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      border: none;
+      box-shadow: 0 4px 12px rgba(255, 107, 0, 0.3);
+    }
+    .bal-plus {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.25);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 900;
+    }
+    .icon-btn {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      background: var(--card-2);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      position: relative;
+      font-size: 17px;
+    }
+    .badge-dot {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--red);
+      border: 2px solid var(--card);
+      display: none;
+    }
+
+    .container { padding: 14px; max-width: 620px; margin: 0 auto; }
+    .hidden { display: none !important; }
+
+    /* 3. RGB ANIMATED SEARCH BAR & FILTER BUTTON */
+    .search-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    @keyframes rgbShift {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+    .rgb-search-outer {
+      flex: 1;
+      padding: 2.2px;
+      border-radius: 15px;
+      background: linear-gradient(270deg, #ff0055, #ff7a00, #ffea00, #00e676, #00b0ff, #7c4dff, #ff0055);
+      background-size: 400% 400%;
+      animation: rgbShift 5s ease infinite;
+      box-shadow: 0 4px 16px rgba(255, 107, 0, 0.14);
+    }
+    .rgb-search-inner {
+      background: var(--card);
+      border-radius: 13px;
+      padding: 9px 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .rgb-search-inner input {
+      border: none;
+      outline: none;
+      background: transparent;
+      color: var(--text);
+      font-size: 13.5px;
+      width: 100%;
+    }
+    .filter-trigger-btn {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      border: 1.5px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      font-size: 18px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: var(--shadow);
+      flex-shrink: 0;
+      position: relative;
+    }
+    .filter-trigger-btn.active {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    /* 4. AUTO-SLIDING PROMO AD BANNER */
+    .slider-wrap {
+      position: relative;
+      border-radius: 18px;
+      overflow: hidden;
+      margin-bottom: 16px;
+      box-shadow: var(--shadow);
+    }
+    .slide-card {
+      color: #ffffff;
+      padding: 18px 16px 26px;
+      min-height: 132px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      position: relative;
+      cursor: pointer;
+      background-size: cover;
+      background-position: center;
+      transition: all 0.35s ease;
+    }
+    .slide-overlay {
+      position: relative;
+      z-index: 2;
+    }
+    .slide-badge {
+      display: inline-block;
+      background: rgba(255, 255, 255, 0.22);
+      backdrop-filter: blur(6px);
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 10.5px;
+      font-weight: 800;
+      letter-spacing: 0.4px;
+      margin-bottom: 6px;
+    }
+    .slide-card h3 {
+      margin: 2px 0 6px;
+      font-size: 18px;
+      font-weight: 800;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    }
+    .slide-card p {
+      margin: 0;
+      font-size: 12px;
+      opacity: 0.92;
+      line-height: 1.4;
+      max-width: 92%;
+    }
+    .slider-dots {
+      position: absolute;
+      bottom: 8px;
+      left: 0;
+      right: 0;
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+      z-index: 3;
+    }
+    .s-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.4);
+      border: none;
+      padding: 0;
+      cursor: pointer;
+      transition: all 0.25s ease;
+    }
+    .s-dot.active {
+      width: 20px;
+      background: #ffffff;
+    }
+
+    /* CATEGORY ROW */
+    .cat-row {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 6px;
+      margin-bottom: 14px;
+      scrollbar-width: none;
+    }
+    .cat-row::-webkit-scrollbar { display: none; }
+    .cat-pill {
+      flex-shrink: 0;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      padding: 9px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text);
+      transition: all 0.2s ease;
+    }
+    .cat-pill.active {
+      background: linear-gradient(135deg, #ff7a1a, #ff4500);
+      color: #ffffff;
+      border-color: transparent;
+      box-shadow: 0 4px 12px rgba(255, 107, 0, 0.28);
+    }
+
+    .sec-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 14px 0 10px;
+      font-weight: 800;
+      font-size: 14px;
+    }
+
+    /* 5. TOP SELLING HORIZONTAL SLIDER */
+    .top-slider {
+      display: flex;
+      gap: 10px;
+      overflow-x: auto;
+      padding-bottom: 6px;
+      margin-bottom: 14px;
+      scrollbar-width: none;
+    }
+    .top-slider::-webkit-scrollbar { display: none; }
+    .top-hcard {
+      flex: 0 0 245px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      box-shadow: var(--shadow);
+      cursor: pointer;
+    }
+    .top-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+    .prod-thumb {
+      width: 46px;
+      height: 46px;
+      border-radius: 12px;
+      background: var(--accent-soft);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+    .prod-thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+    /* 6. GROUPED BRAND CARDS GRID */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+    .p-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 10px;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      transition: transform 0.18s ease;
+    }
+    .p-card:active { transform: scale(0.985); }
+    .p-img-box {
+      height: 100px;
+      border-radius: 13px;
+      background: var(--card-2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      margin-bottom: 8px;
+      position: relative;
+    }
+    .p-img-box img { width: 100%; height: 100%; object-fit: cover; }
+    .fav-btn {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(15, 23, 42, 0.55);
+      color: #fff;
+      cursor: pointer;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(4px);
+    }
+    .plan-count-tag {
+      position: absolute;
+      bottom: 6px;
+      left: 6px;
+      background: rgba(15, 23, 42, 0.72);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 999px;
+      backdrop-filter: blur(4px);
+    }
+    .p-cat-tag {
+      font-size: 10.5px;
+      color: var(--accent);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .p-name {
+      font-size: 14px;
+      font-weight: 800;
+      margin: 2px 0 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .p-price {
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: 5px;
+    }
+    .p-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 10.5px;
+      margin-bottom: 8px;
+      gap: 4px;
+    }
+    .st-in { color: var(--green); font-weight: 700; }
+    .st-vpn { color: var(--blue); font-weight: 700; }
+    .st-out { color: var(--red); font-weight: 700; }
+
+    /* BUTTONS */
+    .btn-primary {
+      width: 100%;
+      border: none;
+      border-radius: 12px;
+      padding: 10px 14px;
+      background: linear-gradient(135deg, #ff7a1a, #ff4500);
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 13px;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(255, 107, 0, 0.25);
+      transition: opacity 0.2s;
+    }
+    .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+    .btn-outline {
+      border: 1px solid var(--border);
+      background: var(--card-2);
+      color: var(--text);
+      border-radius: 11px;
+      padding: 8px 12px;
+      font-weight: 700;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .back-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 14px;
+      border-radius: 12px;
+      font-weight: 800;
+      font-size: 13px;
+      cursor: pointer;
+      box-shadow: var(--shadow);
+    }
+
+    /* DEDICATED BRAND DETAIL PAGE & PLAN SELECTOR */
+    .plan-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 9px;
+      margin: 10px 0 14px;
+    }
+    .plan-box {
+      border: 1.5px solid var(--border);
+      background: var(--card-2);
+      border-radius: 13px;
+      padding: 10px 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      position: relative;
+    }
+    .plan-box.active {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      box-shadow: 0 0 0 2px rgba(255, 107, 0, 0.15);
+    }
+    .plan-box.disabled {
+      opacity: 0.45;
+    }
+    .plan-title { font-size: 13px; font-weight: 800; color: var(--text); }
+    .plan-price { font-size: 14px; font-weight: 900; color: var(--accent); }
+    .plan-sub { font-size: 10px; color: var(--muted); font-weight: 600; }
+
+    .guarantee-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin: 10px 0;
+    }
+    .g-badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: var(--card-2);
+      border: 1px solid var(--border);
+    }
+
+    /* 7. DEPOSIT METHODS & NUMBER-PAD CALCULATOR */
+    .method-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .method-card {
+      background: var(--card);
+      border: 2px solid var(--border);
+      border-radius: 16px;
+      padding: 12px 8px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: var(--shadow);
+    }
+    .method-card.active {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      transform: translateY(-2px);
+    }
+    .m-logo {
+      width: 46px;
+      height: 46px;
+      border-radius: 13px;
+      margin: 0 auto 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      color: #fff;
+      font-size: 13px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.12);
+    }
+    .calc-display {
+      background: var(--card-2);
+      border: 1.5px solid var(--border);
+      border-radius: 16px;
+      padding: 14px;
+      text-align: center;
+      margin-bottom: 12px;
+    }
+    .calc-amount {
+      font-size: 32px;
+      font-weight: 900;
+      color: var(--accent);
+      letter-spacing: 0.5px;
+    }
+    .chip-row {
+      display: flex;
+      gap: 7px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .amt-chip {
+      padding: 7px 13px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      font-weight: 800;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .amt-chip:active, .amt-chip.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .numpad-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .num-key {
+      height: 48px;
+      border-radius: 13px;
+      border: 1px solid var(--border);
+      background: var(--card-2);
+      color: var(--text);
+      font-size: 18px;
+      font-weight: 800;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+    }
+    .num-key:active {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    /* 8. PROFILE, TOGGLES, DETAILS TABLE & REFERRAL */
+    .toggle-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: flex-end;
+    }
+    .mini-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--card-2);
+      color: var(--text);
+      font-size: 11px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .stat-box-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin: 12px 0;
+    }
+    .stat-item {
+      background: var(--card-2);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 10px 6px;
+      text-align: center;
+    }
+    .stat-item b { font-size: 16px; display: block; color: var(--accent); }
+    .stat-item span { font-size: 11px; color: var(--muted); font-weight: 600; }
+    .info-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+    }
+    .info-table tr { border-bottom: 1px solid var(--border); }
+    .info-table tr:last-child { border-bottom: none; }
+    .info-table td { padding: 9px 4px; }
+    .info-table td:first-child { color: var(--muted); font-weight: 600; }
+    .info-table td:last-child { text-align: right; font-weight: 800; }
+
+    /* ADMIN BUTTON GRID DASHBOARD */
+    .admin-btn-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .adm-tile {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px 12px;
+      text-align: left;
+      cursor: pointer;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      transition: transform 0.15s;
+    }
+    .adm-tile:active { transform: scale(0.98); }
+    .adm-tile-icon {
+      font-size: 22px;
+      width: 40px;
+      height: 40px;
+      border-radius: 11px;
+      background: var(--accent-soft);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .adm-tile b { font-size: 13px; color: var(--text); }
+    .adm-tile small { font-size: 11px; color: var(--muted); }
+
+    /* FLOATING AI SUPPORT CHATBOT */
+    .ai-fab {
+      position: fixed;
+      right: 16px;
+      bottom: 82px;
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #7c3aed, #ff6b00);
+      color: #ffffff;
+      border: none;
+      box-shadow: 0 8px 22px rgba(124, 58, 237, 0.45);
+      font-size: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 75;
+    }
+    .chat-box {
+      max-height: 290px;
+      overflow-y: auto;
+      padding: 10px;
+      background: var(--card-2);
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      margin-bottom: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .chat-msg {
+      padding: 9px 12px;
+      border-radius: 13px;
+      font-size: 12.5px;
+      line-height: 1.45;
+      max-width: 88%;
+    }
+    .chat-msg.bot {
+      background: var(--card);
+      border: 1px solid var(--border);
+      align-self: flex-start;
+    }
+    .chat-msg.user {
+      background: linear-gradient(135deg, #ff7a1a, #ff4500);
+      color: #fff;
+      align-self: flex-end;
+    }
+
+    /* COMMON CARDS, INPUTS, MODALS & NAV */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px;
+      margin-bottom: 12px;
+      box-shadow: var(--shadow);
+    }
+    .input, textarea, select {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 11px;
+      border: 1px solid var(--border);
+      background: var(--card-2);
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+      margin-top: 5px;
+      margin-bottom: 10px;
+    }
+    .row-between { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .copy-box {
+      background: var(--card-2);
+      border: 1px dashed var(--accent);
+      border-radius: 11px;
+      padding: 10px;
+      font-family: monospace;
+      font-size: 12.5px;
+      word-break: break-all;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin: 6px 0;
+    }
+    .qty-box {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--card-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 6px 12px;
+      margin: 8px 0;
+    }
+    .qty-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      font-size: 18px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 68px;
+      background: var(--card);
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      z-index: 65;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      font-size: 11px;
+      color: var(--muted);
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      font-weight: 600;
+    }
+    .nav-item.active { color: var(--accent); font-weight: 800; }
+    .nav-center {
+      width: 50px;
+      height: 50px;
+      border-radius: 16px;
+      margin-top: -20px;
+      background: linear-gradient(135deg, #ff7a1a, #ff4500);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 21px;
+      box-shadow: 0 8px 20px rgba(255, 107, 0, 0.35);
+      border: 3px solid var(--bg);
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.62);
+      z-index: 120;
+      display: none;
+      align-items: flex-end;
+      justify-content: center;
+      backdrop-filter: blur(3px);
+    }
+    .modal.open { display: flex; }
+    .modal.center { align-items: center; padding: 16px; }
+    .sheet {
+      background: var(--card);
+      width: 100%;
+      max-width: 600px;
+      max-height: 90vh;
+      overflow-y: auto;
+      border-radius: 22px 22px 0 0;
+      padding: 16px;
+      animation: slideUp 0.24s ease;
+    }
+    .modal.center .sheet { border-radius: 20px; max-width: 420px; }
+    @keyframes slideUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+    .toast {
+      position: fixed;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #0f172a;
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 999px;
+      font-size: 12.5px;
+      font-weight: 700;
+      z-index: 9999;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+      display: none;
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .toast.show { display: block; animation: slideUp 0.2s ease; }
+  </style>
+</head>
+<body>
+
+  <!-- 1. PREMIUM LOADING SPLASH SCREEN -->
+  <div id="splash">
+    <div class="splash-logo-wrap">
+      <div class="splash-ring"></div>
+      <div class="splash-ring-inner"></div>
+      <div class="splash-core">CN</div>
+    </div>
+    <h2 style="margin:0;font-size:20px;letter-spacing:0.4px">CyberNest Digital Mart</h2>
+    <small id="splashStatus" style="opacity:0.8;margin-top:6px;font-size:12px">Initializing secure session...</small>
+    <div class="splash-bar-wrap"><div class="splash-bar-fill"></div></div>
+  </div>
+
+  <!-- TOAST NOTIFICATION -->
+  <div id="toastBox" class="toast"></div>
+
+  <!-- 2. LIVE PROFILE HEADER -->
+  <div class="topbar">
+    <div class="user-mini" onclick="switchPage('profile')">
+      <div class="avatar-wrap">
+        <div class="avatar" id="uAvatar">C</div>
+      </div>
+      <div class="user-info">
+        <div class="user-name-row">
+          <b id="uName">Customer</b>
+          <span class="vip-pill" id="uVipBadge">⭐ Member</span>
+        </div>
+        <small id="uSubHandle">@username</small>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="bal-pill" onclick="switchPage('deposit')">
+        <span id="uBal">৳0.00</span>
+        <span class="bal-plus">+</span>
+      </button>
+      <button class="icon-btn" onclick="openNotifs()" title="Notifications">
+        🔔 <span class="badge-dot" id="notifDot"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- PAGE 1: HOME (RGB Search, Filter, Ad Slider, Top Selling, Grouped Brands) -->
+  <!-- ========================================================================= -->
+  <div id="page-home" class="container">
+    <div class="search-row">
+      <div class="rgb-search-outer">
+        <div class="rgb-search-inner">
+          <span>🔍</span>
+          <input id="searchInput" type="text" placeholder="Search VPN, Proxy, Mail brands..." oninput="renderGroupedBrands()" />
+        </div>
+      </div>
+      <button class="filter-trigger-btn" id="filterBtn" onclick="openModal('filterModal')" title="Filter & Sort">
+        ⚙️
+      </button>
+    </div>
+
+    <!-- Rotating Ad Banner Slider -->
+    <div class="slider-wrap" id="adSliderWrap">
+      <div class="slide-card" id="activeSlideCard" onclick="handleBannerClick()">
+        <div class="slide-overlay">
+          <span class="slide-badge" id="slideBadge">⚡ 24/7 AUTOMATED STORE</span>
+          <h3 id="slideTitle">CyberNest Digital Mart</h3>
+          <p id="slideSub">Fastest VPN, Residential Proxy & Verified Mail delivery with bKash, Nagad & Binance.</p>
+        </div>
+        <div class="slider-dots" id="sliderDots"></div>
+      </div>
+    </div>
+
+    <!-- Category Pills -->
+    <div class="cat-row" id="catRow"></div>
+
+    <!-- 🔥 Top Selling Horizontal Slider -->
+    <div id="topSellingSection">
+      <div class="sec-title">
+        <span id="lblTopSelling">🔥 Top Selling</span>
+        <small style="color:var(--muted);font-size:11px">Most popular plans</small>
+      </div>
+      <div class="top-slider" id="topSellingSlider"></div>
+    </div>
+
+    <!-- Grouped Brand Cards -->
+    <div class="sec-title">
+      <span id="prodSecTitle">🛍️ Brand Catalog</span>
+      <small id="prodCount" style="color:var(--muted)"></small>
+    </div>
+    <div class="grid" id="brandGrid"></div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- PAGE 2: GROUPED BRAND DETAILS & PLAN SELECTOR (← Back Button)            -->
+  <!-- ========================================================================= -->
+  <div id="page-brand" class="container hidden">
+    <div class="back-bar">
+      <button class="back-btn" onclick="switchPage('home')">← Back to Store</button>
+      <span id="bdCatBadge" class="vip-pill" style="font-size:11px;padding:5px 10px">CATEGORY</span>
+    </div>
+
+    <div class="card">
+      <div id="bdImgBox" style="height:150px;border-radius:14px;overflow:hidden;background:var(--card-2);display:flex;align-items:center;justify-content:center;margin-bottom:12px"></div>
+      <div class="row-between">
+        <h3 id="bdBrandTitle" style="margin:0;font-size:19px">Brand Name</h3>
+        <span id="bdRuleBadge" style="font-size:12px;font-weight:800"></span>
+      </div>
+      <p id="bdDesc" style="font-size:12.5px;color:var(--muted);margin:6px 0 10px;line-height:1.45"></p>
+
+      <!-- 3 Live Guarantee & Status Badges -->
+      <div class="guarantee-row">
+        <span class="g-badge">⚡ Instant / Fast Delivery</span>
+        <span class="g-badge">✅ 100% Verified</span>
+        <span class="g-badge" id="bdSoldBadge">🔥 0 sold</span>
+      </div>
+
+      <div style="margin-top:14px">
+        <label style="font-size:11.5px;font-weight:800;color:var(--muted);letter-spacing:0.4px">SELECT DATA PLAN / DURATION</label>
+        <div class="plan-grid" id="bdPlanGrid"></div>
+      </div>
+
+      <label style="font-size:11.5px;font-weight:800;color:var(--muted)">QUANTITY</label>
+      <div class="qty-box">
+        <button class="qty-btn" onclick="changePlanQty(-1)">−</button>
+        <input id="bdQtyInput" type="number" value="1" min="1" style="width:80px;text-align:center;font-weight:900;font-size:17px;border:none;background:transparent;color:var(--text)" oninput="recalcBrandOrder()" />
+        <button class="qty-btn" onclick="changePlanQty(1)">+</button>
+      </div>
+      <div class="chip-row" style="justify-content:flex-start;margin-bottom:10px">
+        <button class="amt-chip" onclick="setPlanQty(1)">1</button>
+        <button class="amt-chip" onclick="setPlanQty(5)">5</button>
+        <button class="amt-chip" onclick="setPlanQty(10)">10</button>
+        <button class="amt-chip" onclick="setPlanQty(25)">25</button>
+        <button class="amt-chip" onclick="setPlanQty(50)">50</button>
+      </div>
+
+      <div class="row-between" style="margin-bottom:6px">
+        <input id="bdCouponInput" class="input" style="margin:0;flex:1" placeholder="Promo / Coupon code (optional)" />
+        <button class="btn-outline" style="padding:10px 14px" onclick="applyBrandCoupon()">Apply</button>
+      </div>
+      <div id="bdCouponMsg" style="font-size:11.5px;margin-bottom:8px"></div>
+
+      <div class="card" style="background:var(--card-2);box-shadow:none;margin-bottom:12px;padding:12px">
+        <div class="row-between" style="font-size:12.5px;margin-bottom:5px">
+          <span>Selected Plan Price</span>
+          <b id="bdUnitPrice">৳0</b>
+        </div>
+        <div class="row-between" style="font-size:13px;margin-bottom:5px">
+          <span>Total Payable</span>
+          <b id="bdTotalPayable" style="font-size:18px;color:var(--accent)">৳0</b>
+        </div>
+        <div class="row-between" style="font-size:12px">
+          <span>Your Wallet Balance</span>
+          <b id="bdWalletBal">৳0</b>
+        </div>
+      </div>
+
+      <button class="btn-primary" id="bdConfirmBtn" onclick="confirmBrandOrder()">🛒 Confirm & Buy Now</button>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- PAGE 3: PREMIUM DEPOSIT & NUMBER-PAD CALCULATOR                           -->
+  <!-- ========================================================================= -->
+  <div id="page-deposit" class="container hidden">
+    <!-- Step 1: Method & Calculator -->
+    <div id="depStepCalc">
+      <div class="card">
+        <div class="row-between" style="margin-bottom:10px">
+          <h3 style="margin:0;font-size:17px">💳 Add Wallet Balance</h3>
+          <span style="font-size:11.5px;color:var(--muted)">Min: <b id="depMinLbl">৳20</b></span>
+        </div>
+
+        <!-- Official Branded Method Cards -->
+        <div class="method-grid">
+          <div class="method-card active" id="mcard-bKash" onclick="selectDepMethod('bKash')">
+            <div class="m-logo" style="background:linear-gradient(135deg,#e2136e,#b80d57)">bKash</div>
+            <b style="font-size:12.5px">bKash</b>
+            <div style="font-size:10px;color:var(--muted)">Send Money</div>
+          </div>
+          <div class="method-card" id="mcard-Nagad" onclick="selectDepMethod('Nagad')">
+            <div class="m-logo" style="background:linear-gradient(135deg,#f7941d,#ed1c24)">Nagad</div>
+            <b style="font-size:12.5px">Nagad</b>
+            <div style="font-size:10px;color:var(--muted)">Send Money</div>
+          </div>
+          <div class="method-card" id="mcard-Binance" onclick="selectDepMethod('Binance')">
+            <div class="m-logo" style="background:linear-gradient(135deg,#f3ba2f,#d99a00);color:#111">USDT</div>
+            <b style="font-size:12.5px">Binance</b>
+            <div style="font-size:10px;color:var(--muted)">Pay / TRC20</div>
+          </div>
+        </div>
+
+        <!-- Live Calculator Display -->
+        <div class="calc-display">
+          <small style="color:var(--muted);font-size:11px;font-weight:700">DEPOSIT AMOUNT (<span id="calcMethodTag">bKash</span>)</small>
+          <div class="calc-amount">৳<span id="calcAmtText">100</span></div>
+          <small id="calcUsdtEquiv" style="color:var(--muted);font-size:11px">≈ $0.80 USDT</small>
+        </div>
+
+        <!-- Quick Deposit Chips -->
+        <div class="chip-row">
+          <button class="amt-chip" onclick="setCalcAmt(100)">৳100</button>
+          <button class="amt-chip" onclick="setCalcAmt(200)">৳200</button>
+          <button class="amt-chip" onclick="setCalcAmt(500)">৳500</button>
+          <button class="amt-chip" onclick="setCalcAmt(1000)">৳1000</button>
+          <button class="amt-chip" onclick="setCalcAmt(2000)">৳2000</button>
+        </div>
+
+        <!-- Full Number-Pad Calculator (1-9, 0, Backspace, Clear) -->
+        <div class="numpad-grid">
+          <button class="num-key" onclick="pressNumKey('1')">1</button>
+          <button class="num-key" onclick="pressNumKey('2')">2</button>
+          <button class="num-key" onclick="pressNumKey('3')">3</button>
+          <button class="num-key" onclick="pressNumKey('4')">4</button>
+          <button class="num-key" onclick="pressNumKey('5')">5</button>
+          <button class="num-key" onclick="pressNumKey('6')">6</button>
+          <button class="num-key" onclick="pressNumKey('7')">7</button>
+          <button class="num-key" onclick="pressNumKey('8')">8</button>
+          <button class="num-key" onclick="pressNumKey('9')">9</button>
+          <button class="num-key" style="font-size:13px" onclick="pressNumKey('C')">CLEAR</button>
+          <button class="num-key" onclick="pressNumKey('0')">0</button>
+          <button class="num-key" onclick="pressNumKey('BS')">⌫</button>
+        </div>
+
+        <button class="btn-primary" onclick="proceedToPayStep()">➡️ Proceed to Pay</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Payment Number Copy & TrxID Verification Form -->
+    <div id="depStepVerify" class="hidden">
+      <div class="back-bar">
+        <button class="back-btn" onclick="backToCalcStep()">← Back to Calculator</button>
+        <span class="vip-pill" id="verifyMethodBadge">bKash</span>
+      </div>
+      <div class="card">
+        <h3 style="margin:0 0 6px;font-size:17px">📲 Complete Your Payment</h3>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">
+          Send exactly <b id="verifyAmtShow" style="color:var(--accent)">৳100</b> to the official account below, then submit your Transaction ID (TrxID):
+        </p>
+
+        <label style="font-size:11px;font-weight:800;color:var(--muted)">OFFICIAL PAYMENT NUMBER / ID (ONE-TAP COPY)</label>
+        <div class="copy-box">
+          <b id="verifyPayNum" style="font-size:13.5px">Loading...</b>
+          <button class="btn-outline" onclick="copyText(document.getElementById('verifyPayNum').innerText)">📋 Copy</button>
+        </div>
+
+        <label style="font-size:12px;font-weight:800;margin-top:10px;display:block">TRANSACTION ID (TrxID)</label>
+        <input id="depTrxInput" type="text" class="input" placeholder="Enter TrxID / Payment Reference" />
+
+        <button class="btn-primary" id="depSubmitBtn" onclick="submitDepositRequest()">✅ Verify & Submit Deposit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- PAGE 4: FREE 2FA & OUTLOOK / HOTMAIL OTP TOOLS                            -->
+  <!-- ========================================================================= -->
+  <div id="page-tools" class="container hidden">
+    <div class="row-between" style="margin-bottom:12px">
+      <button class="btn-outline" id="tBtnOutlook" style="flex:1;border-color:var(--accent);color:var(--accent)" onclick="switchTool('outlook')">✉️ Outlook / Hotmail OTP</button>
+      <button class="btn-outline" id="tBtn2fa" style="flex:1" onclick="switchTool('2fa')">🔑 2FA Live Code</button>
+    </div>
+
+    <div id="tool-outlook" class="card">
+      <h3 style="margin-top:0;font-size:16px">✉️ Live Outlook / Hotmail OTP Reader</h3>
+      <p style="font-size:12px;color:var(--muted)">Paste full string <code>email|password|refresh_token|client_id</code> below:</p>
+      <textarea id="outlookInput" rows="4" placeholder="email|password|refresh_token|client_id"></textarea>
+      <div class="row-between" style="margin-bottom:10px">
+        <button class="btn-outline" style="flex:1" onclick="pasteTo('outlookInput')">📋 Paste</button>
+        <button class="btn-outline" style="flex:1" onclick="clearTool('outlook')">❌ Clear</button>
+      </div>
+      <button class="btn-primary" onclick="getOutlookCode()">🔄 Fetch Latest OTP</button>
+      <div id="outlookResult" class="hidden" style="margin-top:12px"></div>
+    </div>
+
+    <div id="tool-2fa" class="card hidden">
+      <h3 style="margin-top:0;font-size:16px">🔑 2FA Live Authenticator</h3>
+      <p style="font-size:12px;color:var(--muted)">Paste your 2FA Secret Key to generate live 6-digit OTP code:</p>
+      <input id="tfaInput" type="text" class="input" placeholder="e.g. JBSWY3DPEHPK3PXP" />
+      <div class="row-between" style="margin-bottom:10px">
+        <button class="btn-outline" style="flex:1" onclick="pasteTo('tfaInput')">📋 Paste</button>
+        <button class="btn-outline" style="flex:1" onclick="clearTool('2fa')">❌ Clear</button>
+      </div>
+      <button class="btn-primary" onclick="get2faCode()">🔑 Generate 6-Digit Code</button>
+      <div id="tfaResult" class="hidden" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- PAGE 5: PREMIUM PROFILE, TOGGLES, DETAILS TABLE & PURCHASE HISTORY        -->
+  <!-- ========================================================================= -->
+  <div id="page-profile" class="container hidden">
+    <div class="card">
+      <div class="row-between" style="align-items:flex-start">
+        <div style="display:flex;gap:12px;align-items:center">
+          <div class="avatar-wrap" style="width:58px;height:58px">
+            <div class="avatar" id="profAvatar" style="font-size:22px">C</div>
+          </div>
+          <div>
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+              <b id="profName" style="font-size:16px">Customer</b>
+              <span class="vip-pill" id="profVipBadge">🥉 Bronze VIP</span>
+            </div>
+            <div id="profUsername" style="font-size:12px;color:var(--muted);margin-top:2px">@username</div>
+            <div id="profIdChip" style="font-size:11px;color:var(--accent);font-weight:700;margin-top:2px">ID: ---</div>
+          </div>
+        </div>
+
+        <!-- 3 Switches: THEME, LANG, CURRENCY -->
+        <div class="toggle-group">
+          <button class="mini-switch" id="swTheme" onclick="toggleTheme()">🌙 Dark</button>
+          <button class="mini-switch" id="swLang" onclick="toggleLang()">🌐 EN</button>
+          <button class="mini-switch" id="swCurr" onclick="toggleCurrency()">🇧🇩 BDT</button>
+        </div>
+      </div>
+
+      <!-- 3 Live Status Counters -->
+      <div class="stat-box-3">
+        <div class="stat-item"><b id="stOrders">0</b><span id="lblOrders">Orders</span></div>
+        <div class="stat-item"><b id="stSpent">৳0</b><span id="lblSpent">Spent TK</span></div>
+        <div class="stat-item"><b id="stCancelled">0</b><span id="lblCancelled">Cancelled</span></div>
+      </div>
+
+      <!-- 7-Row User Details Table -->
+      <table class="info-table">
+        <tr><td>Name</td><td id="tbName">---</td></tr>
+        <tr><td>Username</td><td id="tbUsername">---</td></tr>
+        <tr><td>Account ID</td><td id="tbAccId">---</td></tr>
+        <tr><td>Balance</td><td id="tbBalance" style="color:var(--accent)">৳0.00</td></tr>
+        <tr><td>Referred By</td><td id="tbRefBy">Direct</td></tr>
+        <tr><td>Joined At</td><td id="tbJoined">---</td></tr>
+        <tr><td>Language</td><td id="tbLang">EN</td></tr>
+      </table>
+
+      <!-- Orange Referral & Earnings Button -->
+      <button class="btn-primary" style="margin-top:12px;background:linear-gradient(135deg,#ff7a1a,#f59e0b)" onclick="switchPage('referral')">
+        👥 Referral & Earnings Dashboard ➔
+      </button>
+    </div>
+
+    <!-- Enhanced Purchase History (3 Action Buttons per Order) -->
+    <div class="card">
+      <div class="row-between" style="margin-bottom:10px">
+        <b style="font-size:15px">📄 Purchase History</b>
+        <button class="btn-outline" onclick="loadHistory()">🔄 Refresh</button>
+      </div>
+      <div id="historyList" style="font-size:13px"></div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- PAGE 6: DEDICATED 👥 REFERRAL & EARNINGS PAGE (← Back Button)             -->
+  <!-- ========================================================================= -->
+  <div id="page-referral" class="container hidden">
+    <div class="back-bar">
+      <button class="back-btn" onclick="switchPage('profile')">← Back to Profile</button>
+      <span class="vip-pill">👥 Referral Program</span>
+    </div>
+
+    <div class="card" style="background:linear-gradient(135deg,#ff6b00,#f59e0b);color:#fff;text-align:center;padding:20px 14px">
+      <small style="font-size:11px;font-weight:800;letter-spacing:0.6px;opacity:0.9">TOTAL REFERRAL EARNINGS</small>
+      <div id="refTotalEarn" style="font-size:32px;font-weight:900;margin:6px 0">৳0.00</div>
+      <small style="opacity:0.9;font-size:12px">Invite friends & earn instant rewards</small>
+    </div>
+
+    <div class="grid" style="margin-bottom:12px">
+      <div class="card" style="margin:0;text-align:center">
+        <small style="color:var(--muted);font-weight:700;font-size:11px">REFERRALS</small>
+        <div id="refTotalCount" style="font-size:22px;font-weight:900;color:var(--accent);margin-top:4px">0</div>
+      </div>
+      <div class="card" style="margin:0;text-align:center">
+        <small style="color:var(--muted);font-weight:700;font-size:11px">PENDING TK</small>
+        <div id="refPendingTk" style="font-size:22px;font-weight:900;color:var(--green);margin-top:4px">৳0.00</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <b style="font-size:14px">🔗 Your Referral Link</b>
+      <div class="copy-box" style="margin-top:8px">
+        <span id="refLinkBox" style="font-size:12px">Loading...</span>
+        <button class="btn-outline" onclick="copyText(document.getElementById('refLinkBox').innerText)">📋 Copy</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <b style="font-size:14px">💡 How It Works</b>
+      <ul style="margin:8px 0 0;padding-left:18px;font-size:12.5px;color:var(--muted);line-height:1.6">
+        <li>Copy your unique referral link above and share it with friends.</li>
+        <li>When a new user starts the bot using your link, they are permanently linked to your account.</li>
+        <li>Track every referred member's Name, Username, and ID live below!</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <b style="font-size:14px">📋 Joined Referral Users</b>
+      <div id="refUsersList" style="margin-top:10px;font-size:12.5px"></div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- PAGE 7: BUTTON-BASED SUPER ADMIN PANEL (UID: 8919985167)                  -->
+  <!-- ========================================================================= -->
+  <div id="page-admin" class="container hidden">
+    <!-- Main Admin Grid View -->
+    <div id="admDashboardHome">
+      <div class="card">
+        <div class="row-between">
+          <div>
+            <h3 style="margin:0;font-size:17px">👑 Super Admin Control Panel</h3>
+            <small style="color:var(--muted)">Live two-way sync with Telegram Bot & Database</small>
+          </div>
+          <button class="btn-outline" onclick="loadAdminOverview()">🔄 Sync</button>
+        </div>
+        <div class="stat-box-3" style="margin-bottom:0">
+          <div class="stat-item"><b id="admStUsers">0</b><span>Users</span></div>
+          <div class="stat-item"><b id="admStDep">0</b><span>Pend. Dep</span></div>
+          <div class="stat-item"><b id="admStOrd">0</b><span>Pend. Ord</span></div>
+        </div>
+      </div>
+
+      <!-- 11-Button Grid Dashboard -->
+      <div class="admin-btn-grid">
+        <div class="adm-tile" onclick="openAdminSection('add_stock')">
+          <div class="adm-tile-icon">📥</div>
+          <b>1. Add Stock</b>
+          <small>Category ➔ Brand ➔ Plan</small>
+        </div>
+        <div class="adm-tile" onclick="openAdminSection('manage_buttons')">
+          <div class="adm-tile-icon">🏷️</div>
+          <b>2. Buttons & Price</b>
+          <small>Create, edit, active/inactive</small>
+        </div>
+        <div class="adm-tile" onclick="openAdminSection('manage_photos')">
+          <div class="adm-tile-icon">🖼️</div>
+          <b>3. Product Photos</b>
+          <small>Set or remove photos</small>
+        </div>
+        <div class="adm-tile" onclick="openAdminSection('payment_settings')">
+          <div class="adm-tile-icon">💳</div>
+          <b>4. Payment Settings</b>
+          <small>bKash, Nagad, Binance, Rate</small>
+        </div>
+        <div class="adm-tile" onclick="openAdminSection('pending_deposits')">
+          <div class="adm-tile-icon">💰</div>
+          <b>5. Deposits (Pending)</b>
+          <small>1-Click Approve / Reject</small>
+        </div>
+        <div class="adm-tile" onclick="openAdminSection('pending_orders')">
+          <div class="adm-tile-icon">📦</div>
+          <b>6. Orders (Pending)</b>
+          <small>VPN Email/Pass & Proxy</small>
+        </div>
+        <div class="adm-tile" onclick="openAdminSection('receipt_checker')">
+          <div class="adm-tile-icon">🧾</div>
+          <b>7. Receipt Checker</b>
+          <small>Verify RCP & Download PDF</small>
+        </div>
+        <div class="adm-tile" onclick="openAdminSection('user_management')">
+          <div class="adm-tile-icon">👥</div>
+          <b>8. User Management</b>
+          <small>Search, +Add / -Deduct TK</small>
+        </div>
+        <div class="adm-tile" onclick="openAdminSection('broadcast')">
+          <div class="adm-tile-icon">📢</div>
+          <b>9. Step Broadcast</b>
+          <small>Step-by-step multi-button</small>
+        </div>
+        <div class="adm-tile" onclick="openAdminSection('banners_popup')">
+          <div class="adm-tile-icon">🎨</div>
+          <b>10. Ads, Popup & Coupon</b>
+          <small>Rotating banners & promos</small>
+        </div>
+        <div class="adm-tile" onclick="openAdminSection('channel_tx')">
+          <div class="adm-tile-icon">⚡</div>
+          <b>11. Channel TX & Group</b>
+          <small>Auto sales & 4-step TX</small>
+        </div>
+        <div class="adm-tile" onclick="openAdminSection('layout_reset')">
+          <div class="adm-tile-icon">🎛️</div>
+          <b>12. Layout & Reset</b>
+          <small>Bot menu & Factory Reset</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dynamic Sub-Page Container for Admin Tools -->
+    <div id="admSubView" class="hidden">
+      <div class="back-bar">
+        <button class="back-btn" onclick="closeAdminSection()">← Back to Admin Grid</button>
+        <span class="vip-pill" id="admSubBadge">ADMIN TOOL</span>
+      </div>
+      <div id="admSubContent"></div>
+    </div>
+  </div>
+
+  <!-- FLOATING AI SUPPORT CHATBOT BUTTON -->
+  <button class="ai-fab" onclick="openModal('aiModal')" title="AI Support Assistant">🤖</button>
+
+  <!-- BOTTOM NAVIGATION -->
+  <div class="bottom-nav">
+    <button class="nav-item active" id="nav-home" onclick="switchPage('home')"><span>🏠</span><span id="navLblHome">Home</span></button>
+    <button class="nav-item" id="nav-tools" onclick="switchPage('tools')"><span>🔐</span><span id="navLblTools">Tools</span></button>
+    <button class="nav-item" id="nav-deposit" onclick="switchPage('deposit')">
+      <div class="nav-center">💳</div><span id="navLblDeposit">Deposit</span>
+    </button>
+    <button class="nav-item" id="nav-profile" onclick="switchPage('profile')"><span>👤</span><span id="navLblProfile">Profile</span></button>
+    <button class="nav-item hidden" id="nav-admin" onclick="switchPage('admin')"><span>👑</span><span>Admin</span></button>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- MODALS: FILTER & SORT, NOTIFICATIONS, WELCOME OFFER, AI SUPPORT CHATBOT   -->
+  <!-- ========================================================================= -->
+  <!-- Filter & Sort Modal -->
+  <div class="modal" id="filterModal">
+    <div class="sheet">
+      <div class="row-between" style="margin-bottom:12px">
+        <h3 style="margin:0;font-size:17px">⚙️ Filter & Sort Products</h3>
+        <button class="btn-outline" onclick="closeModal('filterModal')">✕</button>
+      </div>
+
+      <label style="font-size:11.5px;font-weight:800;color:var(--muted)">SORT BY</label>
+      <div class="plan-grid" style="margin-top:6px">
+        <div class="plan-box active" id="sort-popular" onclick="setSortMode('popular')"><b class="plan-title">🔥 Popular</b><span class="plan-sub">Most sold first</span></div>
+        <div class="plan-box" id="sort-newest" onclick="setSortMode('newest')"><b class="plan-title">✨ Newest</b><span class="plan-sub">Latest added</span></div>
+        <div class="plan-box" id="sort-low" onclick="setSortMode('low')"><b class="plan-title">⬇️ Price: Low to High</b><span class="plan-sub">Cheapest first</span></div>
+        <div class="plan-box" id="sort-high" onclick="setSortMode('high')"><b class="plan-title">⬆️ Price: High to Low</b><span class="plan-sub">Premium first</span></div>
+      </div>
+
+      <div class="row-between card" style="background:var(--card-2);box-shadow:none;margin:10px 0">
+        <div>
+          <b style="font-size:13px">In Stock Only</b>
+          <div style="font-size:11px;color:var(--muted)">Hide sold-out products</div>
+        </div>
+        <input type="checkbox" id="inStockOnlyToggle" style="width:20px;height:20px" onchange="toggleInStockFilter(this.checked)" />
+      </div>
+
+      <div class="row-between" style="margin-top:12px">
+        <button class="btn-outline" style="flex:1" onclick="resetFilters()">Reset</button>
+        <button class="btn-primary" style="flex:2" onclick="closeModal('filterModal');renderGroupedBrands()">Apply Filters</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating AI Support Chatbot Modal -->
+  <div class="modal" id="aiModal">
+    <div class="sheet">
+      <div class="row-between" style="margin-bottom:10px">
+        <div>
+          <h3 style="margin:0;font-size:16px">🤖 CyberNest Live AI Support</h3>
+          <small style="color:var(--muted)">Connected to live store prices, stock & payment DB</small>
+        </div>
+        <button class="btn-outline" onclick="closeModal('aiModal')">✕</button>
+      </div>
+
+      <div class="chat-box" id="aiChatHistory">
+        <div class="chat-msg bot">
+          👋 আসসালামু আলাইকুম! আমি CyberNest AI Assistant। প্রোডাক্টের লাইভ দাম, স্টক বা ডিপোজিট নিয়ে যেকোনো প্রশ্ন করুন অথবা নিচের চিপসে ট্যাপ করুন:
+        </div>
+      </div>
+
+      <div class="chip-row" style="justify-content:flex-start;margin-bottom:8px">
+        <button class="amt-chip" onclick="askAiChip('VPN Price List')">🛡️ VPN Price List</button>
+        <button class="amt-chip" onclick="askAiChip('Proxy Packages')">🌐 Proxy Packages</button>
+        <button class="amt-chip" onclick="askAiChip('Mail Stock')">✉️ Mail Stock</button>
+        <button class="amt-chip" onclick="askAiChip('How to Deposit?')">💳 How to Deposit?</button>
+      </div>
+
+      <div class="row-between">
+        <input id="aiInputBox" class="input" style="margin:0;flex:1" placeholder="Ask about prices, stock, payment..." onkeydown="if(event.key==='Enter')sendAiQuestion()" />
+        <button class="btn-primary" style="width:auto;padding:10px 16px" onclick="sendAiQuestion()">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Welcome Offer Popup -->
+  <div class="modal center" id="offerModal">
+    <div class="sheet" style="text-align:center">
+      <div id="offerImgWrap" style="margin-bottom:10px"></div>
+      <h3 id="offerTitle" style="margin:4px 0 8px">🎁 Special Offer!</h3>
+      <p id="offerText" style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:14px"></p>
+      <button class="btn-primary" onclick="closeModal('offerModal')">🛍️ Start Shopping</button>
+    </div>
+  </div>
+
+  <!-- Notifications Modal -->
+  <div class="modal" id="notifModal">
+    <div class="sheet">
+      <div class="row-between" style="margin-bottom:10px">
+        <h3 style="margin:0;font-size:16px">🔔 Notifications</h3>
+        <button class="btn-outline" onclick="closeModal('notifModal')">✕</button>
+      </div>
+      <div id="notifList"></div>
+    </div>
+  </div>
+
+  <script>
+    const tg = window.Telegram ? window.Telegram.WebApp : null;
+    if (tg) { tg.ready(); tg.expand(); }
+    const initData = tg ? tg.initData : "";
+
+    let sCurr = "BDT", sTheme = "dark", sLang = "EN", sFavs = [];
+    try {
+      sCurr = localStorage.getItem("cn_curr") || "BDT";
+      sTheme = localStorage.getItem("cn_theme") || "dark";
+      sLang = localStorage.getItem("cn_lang") || "EN";
+      sFavs = JSON.parse(localStorage.getItem("cn_favs") || "[]");
+    } catch (e) {}
+
+    let APP = {
+      user: {
+        user_id: 8919985167,
+        full_name: "Customer",
+        username: "cybernest_user",
+        balance_bdt: 0,
+        joined_date: "2026-11-15",
+        referred_by: null,
+        referral_earnings: 0,
+        pending_referral_tk: 0,
+        language: sLang,
+        is_admin: false,
+        total_orders: 0,
+        total_spent: 0,
+        cancelled_orders: 0,
+        referrals: 0,
+        referral_list: [],
+        vip: { tier: "Member", badge: "⭐ Member" }
+      },
+      categories: [],
+      subcategories: [],
+      products: [],
+      banners: [],
+      settings: {
+        usdt_rate: "125",
+        min_deposit_manual: "20",
+        bkash_number: "01XXXXXXXXX (Personal)",
+        nagad_number: "01XXXXXXXXX (Personal)",
+        binance_id: "Pay ID: 12345678",
+        bot_username: "fast_shop_100_bot"
+      },
+      adminOverview: null,
+      currency: sCurr,
+      theme: sTheme,
+      lang: sLang,
+      selectedCat: "all",
+      sortBy: "popular",
+      inStockOnly: false,
+      favorites: sFavs,
+      slideIdx: 0,
+      slideTimer: null,
+      activeBrandGroup: null,
+      selectedPlan: null,
+      discountPct: 0,
+      appliedCoupon: "",
+      depMethod: "bKash",
+      calcAmountStr: "100",
+      bcastStep: 1,
+      bcastData: { message: "", photo: "", btnCount: 0, buttons: [], curIdx: 0 },
+      txWizard: { step: 1, customer_name: "", product_name: "", quantity: 1, total_bdt: 50 }
+    };
+
+    if (APP.theme === "dark") document.body.classList.add("dark");
+
+    function showToast(msg) {
+      const t = document.getElementById("toastBox");
+      t.innerText = msg;
+      t.classList.add("show");
+      setTimeout(() => t.classList.remove("show"), 2600);
+    }
+
+    async function api(path, body = null) {
+      try {
+        const opts = {
+          method: body ? "POST" : "GET",
+          headers: { "Content-Type": "application/json", "X-Telegram-Init-Data": initData }
+        };
+        if (body) opts.body = JSON.stringify(body);
+        const res = await fetch(path, opts);
+        return await res.json();
+      } catch (e) {
+        return { ok: false, error: "Network preview mode" };
+      }
+    }
+
+    function fmtPrice(bdt) {
+      const n = Number(bdt || 0);
+      if (APP.currency === "USDT") {
+        const rate = Number(APP.settings.usdt_rate || 125);
+        return "$" + (n / rate).toFixed(3);
+      }
+      return "৳" + (n < 1 && n > 0 ? n.toFixed(2) : n.toFixed(2).replace(/\.00$/, ""));
+    }
+
+    function prodImgUrl(p) {
+      if (!p || !p.image_file_id) return "";
+      if (p.image_file_id.startsWith("http") || p.image_file_id.startsWith("data:")) return p.image_file_id;
+      return "/api/tg_photo?file_id=" + encodeURIComponent(p.image_file_id);
+    }
+
+    function catIcon(catName) {
+      const n = (catName || "").toLowerCase();
+      if (n.includes("vpn")) return "🛡️";
+      if (n.includes("proxy")) return "🌐";
+      if (n.includes("recovery")) return "🔐";
+      if (n.includes("mail")) return "✉️";
+      return "📦";
+    }
+
+    // Fallback preview catalog when opened outside Telegram
+    function loadSamplePreviewData() {
+      APP.categories = [
+        { id: 1, name: "🛡️ VPN", icon: "🛡️" },
+        { id: 2, name: "🌐 Proxy", icon: "🌐" },
+        { id: 3, name: "✉️ Mail", icon: "✉️" },
+        { id: 4, name: "✉️ Recovery Added Mail", icon: "✉️" }
+      ];
+      APP.products = [
+        { id: 101, sub_id: 11, sub_name: "Nord VPN", category_id: 1, cat_name: "🛡️ VPN", name: "3 Days", price_bdt: 15, is_active: 1, in_stock: 0, sold_count: 42 },
+        { id: 102, sub_id: 11, sub_name: "Nord VPN", category_id: 1, cat_name: "🛡️ VPN", name: "7 Days", price_bdt: 20, is_active: 1, in_stock: 0, sold_count: 85 },
+        { id: 103, sub_id: 11, sub_name: "Nord VPN", category_id: 1, cat_name: "🛡️ VPN", name: "15 Days", price_bdt: 35, is_active: 1, in_stock: 0, sold_count: 31 },
+        { id: 104, sub_id: 11, sub_name: "Nord VPN", category_id: 1, cat_name: "🛡️ VPN", name: "30 Days", price_bdt: 60, is_active: 1, in_stock: 0, sold_count: 64 },
+        { id: 105, sub_id: 12, sub_name: "Express VPN", category_id: 1, cat_name: "🛡️ VPN", name: "7 Days", price_bdt: 20, is_active: 1, in_stock: 0, sold_count: 53 },
+        { id: 106, sub_id: 12, sub_name: "Express VPN", category_id: 1, cat_name: "🛡️ VPN", name: "30 Days", price_bdt: 65, is_active: 1, in_stock: 0, sold_count: 39 },
+        { id: 201, sub_id: 21, sub_name: "Rapid Proxy", category_id: 2, cat_name: "🌐 Proxy", name: "100 MB", price_bdt: 15, is_active: 1, in_stock: 10, sold_count: 94 },
+        { id: 202, sub_id: 21, sub_name: "Rapid Proxy", category_id: 2, cat_name: "🌐 Proxy", name: "200 MB", price_bdt: 25, is_active: 1, in_stock: 8, sold_count: 76 },
+        { id: 203, sub_id: 21, sub_name: "Rapid Proxy", category_id: 2, cat_name: "🌐 Proxy", name: "500 MB", price_bdt: 60, is_active: 1, in_stock: 5, sold_count: 51 },
+        { id: 204, sub_id: 21, sub_name: "Rapid Proxy", category_id: 2, cat_name: "🌐 Proxy", name: "1 GB", price_bdt: 115, is_active: 1, in_stock: 5, sold_count: 48 },
+        { id: 205, sub_id: 22, sub_name: "9 Proxy", category_id: 2, cat_name: "🌐 Proxy", name: "100 MB", price_bdt: 12, is_active: 1, in_stock: 12, sold_count: 68 },
+        { id: 206, sub_id: 22, sub_name: "9 Proxy", category_id: 2, cat_name: "🌐 Proxy", name: "200 MB", price_bdt: 23, is_active: 1, in_stock: 9, sold_count: 44 },
+        { id: 207, sub_id: 22, sub_name: "9 Proxy", category_id: 2, cat_name: "🌐 Proxy", name: "500 MB", price_bdt: 60, is_active: 1, in_stock: 6, sold_count: 29 },
+        { id: 208, sub_id: 22, sub_name: "9 Proxy", category_id: 2, cat_name: "🌐 Proxy", name: "1 GB", price_bdt: 110, is_active: 1, in_stock: 4, sold_count: 35 },
+        { id: 301, sub_id: 31, sub_name: "Hotmail", category_id: 3, cat_name: "✉️ Mail", name: "Fresh Hotmail", price_bdt: 0.65, is_active: 1, in_stock: 240, sold_count: 520 },
+        { id: 302, sub_id: 32, sub_name: "Outlook", category_id: 3, cat_name: "✉️ Mail", name: "Fresh Outlook", price_bdt: 0.68, is_active: 1, in_stock: 185, sold_count: 410 }
+      ];
+      APP.banners = [
+        { id: 1, title: "CyberNest Digital Mart", subtitle: "Fastest VPN, Residential Proxy & Verified Mail Store — 24/7 Instant Delivery", badge_text: "⚡ 24/7 AUTOMATED STORE", target_sub_id: 0, bg_gradient: "linear-gradient(135deg, #2e0249 0%, #570a57 50%, #ff6b00 100%)" },
+        { id: 2, title: "Premium High-Speed VPNs", subtitle: "Nord VPN, Express VPN, Surfshark & More — 100% Verified with Warranty", badge_text: "🛡️ PREMIUM VPN DEALS", target_sub_id: 11, bg_gradient: "linear-gradient(135deg, #0f172a 0%, #1e3a8a 55%, #0ea5e9 100%)" },
+        { id: 3, title: "Clean Residential Proxies", subtitle: "Rapid Proxy & 9 Proxy — 100 MB to 1 GB Packages Ready to Order", badge_text: "🌐 RESIDENTIAL PROXY", target_sub_id: 21, bg_gradient: "linear-gradient(135deg, #064e3b 0%, #047857 55%, #10b981 100%)" }
+      ];
+      APP.user.is_admin = true;
+    }
+
+    async function boot() {
+      const data = await api("/api/init");
+      if (data && !data.error && data.user) {
+        APP.user = data.user;
+        APP.categories = data.categories || [];
+        APP.subcategories = data.subcategories || [];
+        APP.products = data.products || [];
+        APP.banners = (data.banners && data.banners.length) ? data.banners : [];
+        APP.settings = data.settings || APP.settings;
+        if (data.unread_notifs > 0) document.getElementById("notifDot").style.display = "block";
+      } else {
+        loadSamplePreviewData();
+      }
+
+      syncUserHeaderAndProfile();
+      initBannerSlider();
+      renderCategories();
+      renderTopSelling();
+      renderGroupedBrands();
+      applyLanguageLabels();
+      updateCalcDisplay();
+
+      if (APP.settings.popup_enabled === "1" && !sessionStorage.getItem("popup_shown")) {
+        try { sessionStorage.setItem("popup_shown", "1"); } catch (e) {}
+        document.getElementById("offerTitle").innerText = APP.settings.popup_title || "Special Offer!";
+        document.getElementById("offerText").innerText = APP.settings.popup_text || "";
+        const iw = document.getElementById("offerImgWrap");
+        if (APP.settings.popup_image) {
+          const src = APP.settings.popup_image.startsWith("http") || APP.settings.popup_image.startsWith("data:")
+            ? APP.settings.popup_image
+            : "/api/tg_photo?file_id=" + encodeURIComponent(APP.settings.popup_image);
+          iw.innerHTML = `<img src="${src}" style="width:100%;max-height:170px;object-fit:cover;border-radius:12px" />`;
+        } else iw.innerHTML = "";
+        openModal("offerModal");
+      }
+
+      setTimeout(() => document.getElementById("splash").classList.add("hide"), 450);
+    }
+
+    function renderAvatar(elId, name, photoUrl) {
+      const el = document.getElementById(elId);
+      if (!el) return;
+      const initial = (name || "C").trim()[0].toUpperCase();
+      if (photoUrl) {
+        el.innerHTML = `<img src="${photoUrl}" onerror="this.parentElement.innerText='${initial}'" />`;
+      } else {
+        el.innerText = initial;
+      }
+    }
+
+    function syncUserHeaderAndProfile() {
+      const u = APP.user;
+      const vip = u.vip || { badge: "⭐ Member" };
+
+      renderAvatar("uAvatar", u.full_name, u.photo_url);
+      renderAvatar("profAvatar", u.full_name, u.photo_url);
+
+      document.getElementById("uName").innerText = u.full_name || "Customer";
+      document.getElementById("uVipBadge").innerText = vip.badge;
+      document.getElementById("uSubHandle").innerText = u.username ? `@${u.username}` : `ID: ${u.user_id}`;
+      document.getElementById("uBal").innerText = fmtPrice(u.balance_bdt || 0);
+
+      document.getElementById("profName").innerText = u.full_name || "Customer";
+      document.getElementById("profVipBadge").innerText = vip.badge;
+      document.getElementById("profUsername").innerText = u.username ? `@${u.username}` : "No username";
+      document.getElementById("profIdChip").innerText = `ID: ${u.user_id}`;
+
+      document.getElementById("stOrders").innerText = u.total_orders || 0;
+      document.getElementById("stSpent").innerText = fmtPrice(u.total_spent || 0);
+      document.getElementById("stCancelled").innerText = u.cancelled_orders || 0;
+
+      document.getElementById("tbName").innerText = u.full_name || "Customer";
+      document.getElementById("tbUsername").innerText = u.username ? `@${u.username}` : "N/A";
+      document.getElementById("tbAccId").innerText = u.user_id;
+      document.getElementById("tbBalance").innerText = fmtPrice(u.balance_bdt || 0);
+      document.getElementById("tbRefBy").innerText = u.referred_by ? `ID: ${u.referred_by}` : "Direct";
+      document.getElementById("tbJoined").innerText = u.joined_date || "N/A";
+      document.getElementById("tbLang").innerText = APP.lang;
+
+      document.getElementById("swTheme").innerText = APP.theme === "dark" ? "☀️ Light" : "🌙 Dark";
+      document.getElementById("swLang").innerText = `🌐 ${APP.lang}`;
+      document.getElementById("swCurr").innerText = APP.currency === "BDT" ? "🇧🇩 BDT" : "💲 USDT";
+
+      // Referral page sync
+      document.getElementById("refTotalEarn").innerText = fmtPrice(u.referral_earnings || 0);
+      document.getElementById("refTotalCount").innerText = u.referrals || 0;
+      document.getElementById("refPendingTk").innerText = fmtPrice(u.pending_referral_tk || 0);
+      const botU = APP.settings.bot_username || "fast_shop_100_bot";
+      document.getElementById("refLinkBox").innerText = `https://t.me/${botU}?start=ref_${u.user_id}`;
+
+      const rList = document.getElementById("refUsersList");
+      if (u.referral_list && u.referral_list.length) {
+        rList.innerHTML = u.referral_list.map(ru => `
+          <div class="row-between" style="padding:8px 0;border-bottom:1px solid var(--border)">
+            <div>
+              <b>${ru.name || "User"}</b>
+              <div style="font-size:11px;color:var(--muted)">@${ru.username || "N/A"} • ID: <code>${ru.user_id}</code></div>
+            </div>
+            <small style="color:var(--green);font-weight:700">${ru.joined_date || ""}</small>
+          </div>
+        `).join("");
+      } else {
+        rList.innerHTML = `<div style="color:var(--muted);text-align:center;padding:14px">No referred users yet. Share your link to start earning!</div>`;
+      }
+
+      document.getElementById("depMinLbl").innerText = fmtPrice(APP.settings.min_deposit_manual || 20);
+
+      if (u.is_admin || Number(u.user_id) === 8919985167) {
+        document.getElementById("nav-admin").classList.remove("hidden");
+      }
+    }
+
+    // 4. ROTATING AD BANNER SLIDER
+    function initBannerSlider() {
+      if (!APP.banners || !APP.banners.length) {
+        APP.banners = [
+          { id: 1, title: "CyberNest Digital Mart", subtitle: "Fastest VPN, Proxy & Mail delivery with bKash, Nagad & Binance.", badge_text: "⚡ 24/7 AUTOMATED STORE", target_sub_id: 0, bg_gradient: "linear-gradient(135deg, #2e0249 0%, #570a57 50%, #ff6b00 100%)" }
+        ];
+      }
+      APP.slideIdx = 0;
+      renderActiveSlide();
+      if (APP.slideTimer) clearInterval(APP.slideTimer);
+      if (APP.banners.length > 1) {
+        APP.slideTimer = setInterval(() => {
+          APP.slideIdx = (APP.slideIdx + 1) % APP.banners.length;
+          renderActiveSlide();
+        }, 4200);
+      }
+    }
+
+    function renderActiveSlide() {
+      const b = APP.banners[APP.slideIdx] || APP.banners[0];
+      if (!b) return;
+      const card = document.getElementById("activeSlideCard");
+      if (b.image_url) {
+        const src = b.image_url.startsWith("http") || b.image_url.startsWith("data:")
+          ? b.image_url
+          : "/api/tg_photo?file_id=" + encodeURIComponent(b.image_url);
+        card.style.backgroundImage = `linear-gradient(90deg, rgba(11,15,25,0.82) 0%, rgba(11,15,25,0.45) 100%), url('${src}')`;
+      } else {
+        card.style.backgroundImage = b.bg_gradient || "linear-gradient(135deg, #2e0249 0%, #570a57 50%, #ff6b00 100%)";
+      }
+      document.getElementById("slideBadge").innerText = b.badge_text || "⚡ SPECIAL OFFER";
+      document.getElementById("slideTitle").innerText = b.title || "CyberNest Digital Mart";
+      document.getElementById("slideSub").innerText = b.subtitle || "";
+
+      const dots = document.getElementById("sliderDots");
+      dots.innerHTML = APP.banners.map((_, idx) =>
+        `<button class="s-dot ${idx === APP.slideIdx ? 'active' : ''}" onclick="event.stopPropagation();jumpSlide(${idx})"></button>`
+      ).join("");
+    }
+
+    function jumpSlide(idx) {
+      APP.slideIdx = idx;
+      renderActiveSlide();
+    }
+
+    function handleBannerClick() {
+      const b = APP.banners[APP.slideIdx];
+      if (!b) return;
+      if (b.target_sub_id && Number(b.target_sub_id) > 0) {
+        openBrandPage(Number(b.target_sub_id));
+      } else if (b.target_cat_id && Number(b.target_cat_id) > 0) {
+        selectCat(Number(b.target_cat_id));
+      }
+    }
+
+    // CATEGORIES & TOP SELLING SLIDER
+    function renderCategories() {
+      const row = document.getElementById("catRow");
+      let html = `<button class="cat-pill ${APP.selectedCat === 'all' ? 'active' : ''}" onclick="selectCat('all')">📦 All Brands</button>`;
+      APP.categories.forEach(c => {
+        html += `<button class="cat-pill ${APP.selectedCat == c.id ? 'active' : ''}" onclick="selectCat(${c.id})">${c.name}</button>`;
+      });
+      row.innerHTML = html;
+    }
+
+    function selectCat(cid) {
+      APP.selectedCat = cid;
+      renderCategories();
+      renderGroupedBrands();
+    }
+
+    function renderTopSelling() {
+      const wrap = document.getElementById("topSellingSlider");
+      if (!APP.products.length) {
+        wrap.innerHTML = "";
+        return;
+      }
+      const sorted = [...APP.products].sort((a, b) => (b.sold_count || 0) - (a.sold_count || 0)).slice(0, 6);
+      wrap.innerHTML = sorted.map(p => {
+        const img = prodImgUrl(p);
+        return `
+          <div class="top-hcard" onclick="openBrandPage(${p.sub_id}, ${p.id})">
+            <div class="top-left">
+              <div class="prod-thumb">${img ? `<img src="${img}">` : catIcon(p.cat_name)}</div>
+              <div style="min-width:0">
+                <b style="font-size:12.5px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.sub_name} • ${p.name}</b>
+                <div style="font-size:12px;color:var(--accent);font-weight:800">${fmtPrice(p.price_bdt)} <span style="color:var(--muted);font-weight:500;font-size:10.5px">🔥 ${p.sold_count || 0}</span></div>
+              </div>
+            </div>
+            <button class="btn-primary" style="width:auto;padding:7px 11px;font-size:11.5px">Buy</button>
+          </div>
+        `;
+      }).join("");
+    }
+
+    // 6. GROUPED BRAND CARDS & STOCK BADGE RULES
+    function getBrandStockBadgeHtml(group) {
+      const catLow = (group.cat_name || "").toLowerCase();
+      const anyActive = group.plans.some(x => x.is_active);
+      if (!anyActive) return `<span class="st-out">● Unavailable</span>`;
+      if (catLow.includes("proxy")) {
+        return `<span class="st-in">● Ready to order</span>`;
+      }
+      if (catLow.includes("vpn")) {
+        return `<span class="st-vpn">🛡️ Verified / Warranty</span>`;
+      }
+      // Mail category shows live stock count
+      if (group.total_stock > 0) {
+        return `<span class="st-in">● Stock: ${group.total_stock}</span>`;
+      }
+      return `<span class="st-out">● Out of stock</span>`;
+    }
+
+    function buildGroupedBrands() {
+      const map = new Map();
+      APP.products.forEach(p => {
+        const key = p.sub_id || p.sub_name;
+        if (!map.has(key)) {
+          map.set(key, {
+            sub_id: p.sub_id,
+            sub_name: p.sub_name,
+            category_id: p.category_id,
+            cat_name: p.cat_name,
+            image_file_id: p.image_file_id || "",
+            description: p.description || "",
+            min_price: Number(p.price_bdt),
+            max_price: Number(p.price_bdt),
+            total_stock: 0,
+            total_sold: 0,
+            newest_id: Number(p.id),
+            plans: []
+          });
+        }
+        const g = map.get(key);
+        if (!g.image_file_id && p.image_file_id) g.image_file_id = p.image_file_id;
+        if (!g.description && p.description) g.description = p.description;
+        g.min_price = Math.min(g.min_price, Number(p.price_bdt));
+        g.max_price = Math.max(g.max_price, Number(p.price_bdt));
+        g.total_stock += Number(p.in_stock || 0);
+        g.total_sold += Number(p.sold_count || 0);
+        g.newest_id = Math.max(g.newest_id, Number(p.id));
+        g.plans.push(p);
+      });
+      return Array.from(map.values());
+    }
+
+    function renderGroupedBrands() {
+      const q = (document.getElementById("searchInput").value || "").toLowerCase().trim();
+      let groups = buildGroupedBrands().filter(g => {
+        if (APP.selectedCat !== "all" && g.category_id != APP.selectedCat) return false;
+        if (q) {
+          const hay = (g.sub_name + " " + g.cat_name + " " + g.plans.map(x => x.name).join(" ")).toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        if (APP.inStockOnly) {
+          const catLow = (g.cat_name || "").toLowerCase();
+          const isVpnOrProxy = catLow.includes("vpn") || catLow.includes("proxy");
+          const hasAvail = g.plans.some(x => x.is_active && (isVpnOrProxy || x.in_stock > 0));
+          if (!hasAvail) return false;
+        }
+        return true;
+      });
+
+      if (APP.sortBy === "popular") groups.sort((a, b) => b.total_sold - a.total_sold);
+      else if (APP.sortBy === "newest") groups.sort((a, b) => b.newest_id - a.newest_id);
+      else if (APP.sortBy === "low") groups.sort((a, b) => a.min_price - b.min_price);
+      else if (APP.sortBy === "high") groups.sort((a, b) => b.min_price - a.min_price);
+
+      document.getElementById("prodCount").innerText = `${groups.length} brands`;
+      const grid = document.getElementById("brandGrid");
+      if (!groups.length) {
+        grid.innerHTML = `<div style="grid-column:span 2;text-align:center;color:var(--muted);padding:32px">No matching brands found.</div>`;
+        return;
+      }
+
+      grid.innerHTML = groups.map(g => {
+        const img = prodImgUrl({ image_file_id: g.image_file_id });
+        const catLow = (g.cat_name || "").toLowerCase();
+        const isVpnOrProxy = catLow.includes("vpn") || catLow.includes("proxy");
+        const available = g.plans.some(x => x.is_active && (isVpnOrProxy || x.in_stock > 0));
+        const badgeHtml = getBrandStockBadgeHtml(g);
+        const priceLabel = g.plans.length > 1
+          ? `From ${fmtPrice(g.min_price)}`
+          : fmtPrice(g.min_price);
+        const isFav = APP.favorites.includes(g.sub_id);
+
+        return `
+          <div class="p-card" onclick="openBrandPage(${g.sub_id})">
+            <div>
+              <div class="p-img-box">
+                ${img ? `<img src="${img}" />` : `<span style="font-size:38px">${catIcon(g.cat_name)}</span>`}
+                <button class="fav-btn" onclick="toggleFavBrand(event, ${g.sub_id})">${isFav ? "❤️" : "🤍"}</button>
+                <span class="plan-count-tag">${g.plans.length} ${g.plans.length > 1 ? "Plans" : "Plan"}</span>
+              </div>
+              <div class="p-cat-tag">${g.cat_name}</div>
+              <div class="p-name">${g.sub_name}</div>
+              <div class="p-price">${priceLabel}</div>
+              <div class="p-meta">${badgeHtml} <span>🔥 ${g.total_sold}</span></div>
+            </div>
+            <button class="btn-primary" ${available ? "" : "disabled"} onclick="event.stopPropagation();openBrandPage(${g.sub_id})">
+              ${available ? "🛒 Buy Now" : "Out of Stock"}
+            </button>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function toggleFavBrand(e, subId) {
+      e.stopPropagation();
+      if (APP.favorites.includes(subId)) APP.favorites = APP.favorites.filter(x => x !== subId);
+      else APP.favorites.push(subId);
+      try { localStorage.setItem("cn_favs", JSON.stringify(APP.favorites)); } catch (err) {}
+      renderGroupedBrands();
+    }
+
+    function setSortMode(mode) {
+      APP.sortBy = mode;
+      ["popular", "newest", "low", "high"].forEach(m => {
+        document.getElementById("sort-" + m).classList.toggle("active", m === mode);
+      });
+      document.getElementById("filterBtn").classList.add("active");
+    }
+
+    function toggleInStockFilter(checked) {
+      APP.inStockOnly = checked;
+      document.getElementById("filterBtn").classList.toggle("active", checked || APP.sortBy !== "popular");
+    }
+
+    function resetFilters() {
+      APP.sortBy = "popular";
+      APP.inStockOnly = false;
+      document.getElementById("inStockOnlyToggle").checked = false;
+      setSortMode("popular");
+      document.getElementById("filterBtn").classList.remove("active");
+      renderGroupedBrands();
+    }
+
+    // DEDICATED BRAND PAGE WITH PLAN SELECTOR GRID
+    function openBrandPage(subId, preselectProdId = null) {
+      const groups = buildGroupedBrands();
+      const g = groups.find(x => x.sub_id == subId);
+      if (!g) return;
+      APP.activeBrandGroup = g;
+      APP.discountPct = 0;
+      APP.appliedCoupon = "";
+      document.getElementById("bdCouponInput").value = "";
+      document.getElementById("bdCouponMsg").innerText = "";
+      document.getElementById("bdQtyInput").value = 1;
+
+      document.getElementById("bdCatBadge").innerText = g.cat_name;
+      document.getElementById("bdBrandTitle").innerText = g.sub_name;
+      document.getElementById("bdSoldBadge").innerText = `🔥 ${g.total_sold} sold`;
+
+      const img = prodImgUrl({ image_file_id: g.image_file_id });
+      document.getElementById("bdImgBox").innerHTML = img
+        ? `<img src="${img}" style="width:100%;height:100%;object-fit:cover">`
+        : `<span style="font-size:56px">${catIcon(g.cat_name)}</span>`;
+
+      const defaultPlan = (preselectProdId && g.plans.find(x => x.id == preselectProdId)) || g.plans[0];
+      selectPlanInBrand(defaultPlan.id);
+      switchPage("brand");
+    }
+
+    function selectPlanInBrand(prodId) {
+      const g = APP.activeBrandGroup;
+      if (!g) return;
+      const plan = g.plans.find(x => x.id == prodId) || g.plans[0];
+      APP.selectedPlan = plan;
+
+      const catLow = (g.cat_name || "").toLowerCase();
+      const defaultDesc = catLow.includes("vpn")
+        ? "⚡ High-speed premium VPN account with full replacement warranty. Delivered to your Telegram inbox."
+        : catLow.includes("proxy")
+        ? "🌐 Ultra-fast clean residential Proxy package with high anonymity and instant one-tap copy format."
+        : "✉️ Fresh & verified Mail account with instant automatic delivery and Excel (.xlsx) backup.";
+      document.getElementById("bdDesc").innerText = plan.description || g.description || defaultDesc;
+
+      // Stock Badge Rule on Plan Page
+      let ruleHtml = "";
+      if (!plan.is_active) ruleHtml = `<span class="st-out">● Unavailable</span>`;
+      else if (catLow.includes("proxy")) ruleHtml = `<span class="st-in">● Ready to order</span>`;
+      else if (catLow.includes("vpn")) ruleHtml = `<span class="st-vpn">🛡️ Verified / Warranty</span>`;
+      else ruleHtml = plan.in_stock > 0 ? `<span class="st-in">● Stock: ${plan.in_stock} pcs</span>` : `<span class="st-out">● Out of stock</span>`;
+      document.getElementById("bdRuleBadge").innerHTML = ruleHtml;
+
+      // Render Plan Grid Boxes
+      const grid = document.getElementById("bdPlanGrid");
+      grid.innerHTML = g.plans.map(p => {
+        const isSel = p.id === plan.id;
+        const subLine = catLow.includes("mail")
+          ? `Stock: ${p.in_stock}`
+          : (catLow.includes("proxy") ? "Ready to order" : "Verified Plan");
+        return `
+          <div class="plan-box ${isSel ? 'active' : ''} ${!p.is_active ? 'disabled' : ''}" onclick="selectPlanInBrand(${p.id})">
+            <span class="plan-title">${p.name}</span>
+            <span class="plan-price">${fmtPrice(p.price_bdt)}</span>
+            <span class="plan-sub">${subLine}</span>
+          </div>
+        `;
+      }).join("");
+
+      recalcBrandOrder();
+    }
+
+    function changePlanQty(delta) {
+      const inp = document.getElementById("bdQtyInput");
+      inp.value = Math.max(1, (parseInt(inp.value) || 1) + delta);
+      recalcBrandOrder();
+    }
+
+    function setPlanQty(q) {
+      document.getElementById("bdQtyInput").value = q;
+      recalcBrandOrder();
+    }
+
+    function recalcBrandOrder() {
+      const plan = APP.selectedPlan;
+      if (!plan) return;
+      const qty = Math.max(1, parseInt(document.getElementById("bdQtyInput").value) || 1);
+      let total = Number(plan.price_bdt) * qty;
+      if (APP.discountPct > 0) total = total * (1 - APP.discountPct / 100);
+
+      document.getElementById("bdUnitPrice").innerText = `${fmtPrice(plan.price_bdt)} (${plan.name})`;
+      document.getElementById("bdTotalPayable").innerText = fmtPrice(total);
+      const bal = Number(APP.user.balance_bdt || 0);
+      document.getElementById("bdWalletBal").innerHTML = fmtPrice(bal) + (bal < total ? ` <span style="color:var(--red)">(Insufficient)</span>` : "");
+
+      const catLow = (plan.cat_name || "").toLowerCase();
+      const canOrder = plan.is_active && (catLow.includes("vpn") || catLow.includes("proxy") || plan.in_stock >= qty);
+      const btn = document.getElementById("bdConfirmBtn");
+      btn.disabled = !canOrder;
+      btn.innerText = canOrder ? `🛒 Confirm & Buy (${fmtPrice(total)})` : "Out of Stock";
+    }
+
+    async function applyBrandCoupon() {
+      const code = document.getElementById("bdCouponInput").value.trim();
+      if (!code) return;
+      const res = await api("/api/coupon/check", { code });
+      const msg = document.getElementById("bdCouponMsg");
+      if (res.ok) {
+        APP.discountPct = res.discount_pct;
+        APP.appliedCoupon = code;
+        msg.innerHTML = `<span style="color:var(--green)">✅ ${res.discount_pct}% discount applied!</span>`;
+        recalcBrandOrder();
+      } else {
+        APP.discountPct = 0;
+        APP.appliedCoupon = "";
+        msg.innerHTML = `<span style="color:var(--red)">❌ ${res.error || "Invalid coupon"}</span>`;
+        recalcBrandOrder();
+      }
+    }
+
+    async function confirmBrandOrder() {
+      const plan = APP.selectedPlan;
+      if (!plan) return;
+      const qty = Math.max(1, parseInt(document.getElementById("bdQtyInput").value) || 1);
+      const btn = document.getElementById("bdConfirmBtn");
+      btn.disabled = true;
+      btn.innerText = "⏳ Processing Order...";
+      const res = await api("/api/order", { product_id: plan.id, quantity: qty, coupon: APP.appliedCoupon });
+      btn.disabled = false;
+      if (res.ok) {
+        showToast(res.message || "✅ Order Completed!");
+        await boot();
+        switchPage("profile");
+      } else {
+        showToast("❌ " + (res.error || "Order failed"));
+        recalcBrandOrder();
+      }
+    }
+
+    // 7. PREMIUM DEPOSIT CALCULATOR SYSTEM
+    function selectDepMethod(m) {
+      APP.depMethod = m;
+      ["bKash", "Nagad", "Binance"].forEach(x => {
+        const el = document.getElementById("mcard-" + x);
+        if (el) el.classList.toggle("active", x === m);
+      });
+      document.getElementById("calcMethodTag").innerText = m;
+      updateCalcDisplay();
+      // Add "Deposit started" notification to bell
+      document.getElementById("notifDot").style.display = "block";
+      api("/api/notifications/add", {
+        title: "💳 Deposit Started",
+        message: `You opened the ${m} deposit calculator. Complete Send Money & submit TrxID.`
+      });
+    }
+
+    function setCalcAmt(val) {
+      APP.calcAmountStr = String(val);
+      updateCalcDisplay();
+    }
+
+    function pressNumKey(k) {
+      if (k === "C") {
+        APP.calcAmountStr = "0";
+      } else if (k === "BS") {
+        APP.calcAmountStr = APP.calcAmountStr.length > 1 ? APP.calcAmountStr.slice(0, -1) : "0";
+      } else {
+        if (APP.calcAmountStr === "0") APP.calcAmountStr = k;
+        else if (APP.calcAmountStr.length < 6) APP.calcAmountStr += k;
+      }
+      updateCalcDisplay();
+    }
+
+    function updateCalcDisplay() {
+      const amt = parseFloat(APP.calcAmountStr || "0") || 0;
+      document.getElementById("calcAmtText").innerText = amt;
+      const rate = parseFloat(APP.settings.usdt_rate || "125") || 125;
+      document.getElementById("calcUsdtEquiv").innerText = `≈ $${(amt / rate).toFixed(2)} USDT`;
+    }
+
+    function proceedToPayStep() {
+      const amt = parseFloat(APP.calcAmountStr || "0") || 0;
+      const minDep = parseFloat(APP.settings.min_deposit_manual || "20") || 20;
+      if (amt < minDep) {
+        showToast(`⚠️ Minimum deposit is ৳${minDep}`);
+        return;
+      }
+      document.getElementById("depStepCalc").classList.add("hidden");
+      document.getElementById("depStepVerify").classList.remove("hidden");
+      document.getElementById("verifyMethodBadge").innerText = APP.depMethod;
+      document.getElementById("verifyAmtShow").innerText = `৳${amt} BDT`;
+
+      let payNum = APP.settings.bkash_number || "";
+      if (APP.depMethod === "Nagad") payNum = APP.settings.nagad_number || "";
+      if (APP.depMethod === "Binance") payNum = APP.settings.binance_id || "";
+      document.getElementById("verifyPayNum").innerText = payNum;
+    }
+
+    function backToCalcStep() {
+      document.getElementById("depStepVerify").classList.add("hidden");
+      document.getElementById("depStepCalc").classList.remove("hidden");
+    }
+
+    async function submitDepositRequest() {
+      const amt = parseFloat(APP.calcAmountStr || "0") || 0;
+      const trx = document.getElementById("depTrxInput").value.trim();
+      if (!trx) {
+        showToast("⚠️ Please enter your Transaction ID (TrxID)");
+        return;
+      }
+      const btn = document.getElementById("depSubmitBtn");
+      btn.disabled = true;
+      btn.innerText = "⏳ Submitting...";
+      const res = await api("/api/deposit", { method: APP.depMethod, amount: amt, trx_id: trx });
+      btn.disabled = false;
+      btn.innerText = "✅ Verify & Submit Deposit";
+      if (res.ok) {
+        document.getElementById("depTrxInput").value = "";
+        showToast("✅ Deposit request submitted! Admin will approve shortly.");
+        backToCalcStep();
+        switchPage("home");
+      } else {
+        showToast("❌ " + (res.error || "Submission failed"));
+      }
+    }
+
+    // 8. TOOLS: OUTLOOK & 2FA
+    function switchTool(t) {
+      document.getElementById("tool-outlook").classList.toggle("hidden", t !== "outlook");
+      document.getElementById("tool-2fa").classList.toggle("hidden", t !== "2fa");
+      const bOut = document.getElementById("tBtnOutlook");
+      const b2fa = document.getElementById("tBtn2fa");
+      bOut.style.borderColor = t === "outlook" ? "var(--accent)" : "var(--border)";
+      bOut.style.color = t === "outlook" ? "var(--accent)" : "var(--text)";
+      b2fa.style.borderColor = t === "2fa" ? "var(--accent)" : "var(--border)";
+      b2fa.style.color = t === "2fa" ? "var(--accent)" : "var(--text)";
+    }
+
+    async function pasteTo(id) {
+      try {
+        const txt = await navigator.clipboard.readText();
+        if (txt) document.getElementById(id).value = txt;
+      } catch (e) {
+        showToast("Long-press inside the box to paste");
+      }
+    }
+
+    function clearTool(t) {
+      if (t === "outlook") {
+        document.getElementById("outlookInput").value = "";
+        document.getElementById("outlookResult").classList.add("hidden");
+      } else {
+        document.getElementById("tfaInput").value = "";
+        document.getElementById("tfaResult").classList.add("hidden");
+      }
+    }
+
+    async function getOutlookCode() {
+      const raw = document.getElementById("outlookInput").value.trim();
+      if (!raw) return;
+      const box = document.getElementById("outlookResult");
+      box.classList.remove("hidden");
+      box.innerHTML = "⏳ Connecting to Outlook IMAP...";
+      const res = await api("/api/tools/outlook", { account: raw });
+      if (res.ok) {
+        box.innerHTML = `
+          <div style="font-size:12px;color:var(--muted)">Subject: ${res.subject || "Inbox"}</div>
+          <div class="copy-box"><b>${res.code}</b><button class="btn-outline" onclick="copyText('${res.code}')">📋 Copy</button></div>
+        `;
+      } else {
+        box.innerHTML = `<span style="color:var(--red)">❌ ${res.error || "Failed"}</span>`;
+      }
+    }
+
+    async function get2faCode() {
+      const secret = document.getElementById("tfaInput").value.trim();
+      if (!secret) return;
+      const box = document.getElementById("tfaResult");
+      box.classList.remove("hidden");
+      const res = await api("/api/tools/2fa", { secret });
+      if (res.ok) {
+        box.innerHTML = `
+          <div class="copy-box"><b style="font-size:20px;letter-spacing:2px">${res.code}</b><button class="btn-outline" onclick="copyText('${res.code}')">📋 Copy</button></div>
+          <small style="color:var(--muted)">⏳ Valid for ${res.remaining} seconds</small>
+        `;
+      } else {
+        box.innerHTML = `<span style="color:var(--red)">❌ ${res.error || "Invalid key"}</span>`;
+      }
+    }
+
+    // 9. PURCHASE HISTORY WITH 3 ACTION BUTTONS
+    async function loadHistory() {
+      const res = await api("/api/orders/history");
+      const list = document.getElementById("historyList");
+      if (!res.orders || !res.orders.length) {
+        list.innerHTML = `<div style="color:var(--muted);text-align:center;padding:16px">No orders yet.</div>`;
+        return;
+      }
+      list.innerHTML = res.orders.map(o => `
+        <div style="border-bottom:1px solid var(--border);padding:12px 0">
+          <div class="row-between">
+            <b>${o.product_name} (x${o.quantity})</b>
+            <b style="color:var(--accent)">${fmtPrice(o.total_bdt)}</b>
+          </div>
+          <div class="row-between" style="font-size:11px;color:var(--muted);margin-top:3px">
+            <span>Receipt: <code>${o.receipt_no || ('#' + o.id)}</code> • ${o.created_at}</span>
+            <span style="color:${o.status === 'completed' ? 'var(--green)' : 'var(--accent)'};font-weight:800">${(o.status || '').toUpperCase()}</span>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:9px;flex-wrap:wrap">
+            <button class="btn-outline" style="flex:1;padding:7px 8px;font-size:11.5px" onclick="resendOrderProduct(${o.id})">📦 Get Product</button>
+            <button class="btn-outline" style="flex:1;padding:7px 8px;font-size:11.5px" onclick="resendOrderPdf(${o.id})">🧾 Get Receipt</button>
+            <button class="btn-primary" style="flex:1;padding:7px 8px;font-size:11.5px" onclick="buyAgainOrder(${o.sub_id || 0}, ${o.product_id || 0})">🔄 Buy Again</button>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    async function resendOrderProduct(oid) {
+      showToast("⏳ Sending product to your Telegram inbox...");
+      const r = await api("/api/order/resend_product", { order_id: oid });
+      if (r.ok) showToast(r.message || "📦 Sent to Telegram inbox!");
+      else showToast("❌ " + (r.error || "Could not resend"));
+    }
+
+    async function resendOrderPdf(oid) {
+      showToast("⏳ Generating official PDF receipt...");
+      const r = await api("/api/order/resend_pdf", { order_id: oid });
+      if (r.ok) showToast(r.message || "🧾 PDF Receipt sent to Telegram inbox!");
+      else showToast("❌ " + (r.error || "Could not send PDF"));
+    }
+
+    function buyAgainOrder(subId, prodId) {
+      if (subId) {
+        openBrandPage(subId, prodId);
+        return;
+      }
+      const p = APP.products.find(x => x.id == prodId);
+      if (p) openBrandPage(p.sub_id, p.id);
+      else switchPage("home");
+    }
+
+    // 10. FLOATING AI SUPPORT CHATBOT
+    function askAiChip(qText) {
+      document.getElementById("aiInputBox").value = qText;
+      sendAiQuestion();
+    }
+
+    async function sendAiQuestion() {
+      const inp = document.getElementById("aiInputBox");
+      const q = inp.value.trim();
+      if (!q) return;
+      inp.value = "";
+      const box = document.getElementById("aiChatHistory");
+      box.innerHTML += `<div class="chat-msg user">${q.replace(/</g, "&lt;")}</div>`;
+      box.scrollTop = box.scrollHeight;
+
+      const r = await api("/api/ai_support", { question: q });
+      const replyHtml = (r && r.reply)
+        ? r.reply.replace(/\n/g, "<br>")
+        : "🤖 আমাদের প্রিমিয়াম VPN ৳১৫ থেকে, Proxy ৳১০ থেকে এবং Mail ৳০.৬৫ থেকে শুরু। ডিপোজিট ট্যাবে গিয়ে bKash, Nagad বা Binance দিয়ে ব্যালেন্স অ্যাড করতে পারবেন।";
+      box.innerHTML += `<div class="chat-msg bot">${replyHtml}</div>`;
+      box.scrollTop = box.scrollHeight;
+    }
+
+    // 11. BUTTON-BASED SUPER ADMIN PANEL (12 DEDICATED SUB-VIEWS)
+    async function loadAdminOverview() {
+      const res = await api("/api/admin/overview");
+      if (res && res.ok) {
+        APP.adminOverview = res;
+        document.getElementById("admStUsers").innerText = res.stats.users;
+        document.getElementById("admStDep").innerText = res.stats.pending_deposits;
+        document.getElementById("admStOrd").innerText = res.stats.pending_orders;
+      }
+    }
+
+    async function openAdminSection(sec) {
+      await loadAdminOverview();
+      document.getElementById("admDashboardHome").classList.add("hidden");
+      document.getElementById("admSubView").classList.remove("hidden");
+      const box = document.getElementById("admSubContent");
+      const badge = document.getElementById("admSubBadge");
+
+      // 1. Add Stock (Category -> Brand -> Plan)
+      if (sec === "add_stock") {
+        badge.innerText = "📥 ADD STOCK";
+        const catOpts = APP.categories.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+        box.innerHTML = `
+          <div class="card">
+            <h4 style="margin:0 0 10px">📥 Add Live Stock (Category ➔ Brand ➔ Plan)</h4>
+            <label style="font-size:11.5px;font-weight:700">1. Select Category</label>
+            <select id="stkCatSel" class="input" onchange="admFilterStockBrands()">${catOpts}</select>
+            <label style="font-size:11.5px;font-weight:700">2. Select Brand</label>
+            <select id="stkBrandSel" class="input" onchange="admFilterStockPlans()"></select>
+            <label style="font-size:11.5px;font-weight:700">3. Select Plan / Variant</label>
+            <select id="stkPlanSel" class="input"></select>
+            <label style="font-size:11.5px;font-weight:700">4. Paste Credentials / Proxies (1 per line)</label>
+            <textarea id="stkLinesInput" rows="5" placeholder="email:password OR host:port:user:pass"></textarea>
+            <button class="btn-primary" onclick="admSubmitStock()">📥 Upload Stock Now</button>
+          </div>
+        `;
+        admFilterStockBrands();
+      }
+
+      // 2. Manage Buttons & Price
+      else if (sec === "manage_buttons") {
+        badge.innerText = "🏷️ BUTTONS & PRICE";
+        const catOpts = APP.categories.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+        const subOpts = buildGroupedBrands().map(g => `<option value="${g.sub_id}">${g.cat_name} ➔ ${g.sub_name}</option>`).join("");
+        box.innerHTML = `
+          <div class="card">
+            <h4 style="margin:0 0 8px">➕ Create Category / Brand / Plan</h4>
+            <div class="row-between">
+              <input id="newCatName" class="input" style="margin:0;flex:1" placeholder="New Category (e.g. 🛡️ VPN)" />
+              <button class="btn-outline" onclick="admCatalogOp('add_category')">+ Category</button>
+            </div>
+            <hr style="border:none;border-top:1px solid var(--border);margin:10px 0">
+            <select id="newBrandCat" class="input">${catOpts}</select>
+            <div class="row-between">
+              <input id="newBrandName" class="input" style="margin:0;flex:1" placeholder="New Brand Name (e.g. Nord VPN)" />
+              <button class="btn-outline" onclick="admCatalogOp('add_brand')">+ Brand</button>
+            </div>
+            <hr style="border:none;border-top:1px solid var(--border);margin:10px 0">
+            <select id="newPlanSub" class="input">${subOpts}</select>
+            <input id="newPlanName" class="input" placeholder="Plan Name (e.g. 100 MB or 30 Days)" />
+            <input id="newPlanPrice" type="number" class="input" placeholder="Price in BDT (e.g. 15)" />
+            <input id="newPlanDesc" class="input" placeholder="Custom Description (optional)" />
+            <button class="btn-primary" onclick="admCatalogOp('add_product')">➕ Add Plan</button>
+          </div>
+          <div id="admProductsEditList">
+            ${APP.products.map(p => `
+              <div class="card">
+                <div class="row-between">
+                  <b>${p.sub_name} — ${p.name}</b>
+                  <button class="btn-outline" onclick="admToggleActive(${p.id})">${p.is_active ? "🟢 Active" : "🔴 Inactive"}</button>
+                </div>
+                <div class="row-between" style="margin-top:8px">
+                  <input id="ed_name_${p.id}" class="input" style="margin:0;flex:1" value="${p.name}" />
+                  <input id="ed_price_${p.id}" type="number" class="input" style="margin:0;width:95px" value="${p.price_bdt}" />
+                </div>
+                <input id="ed_desc_${p.id}" class="input" placeholder="Custom description..." value="${p.description || ''}" />
+                <div class="row-between">
+                  <button class="btn-primary" style="flex:1" onclick="admSaveProdDetails(${p.id})">💾 Save Changes</button>
+                  <button class="btn-outline" style="color:var(--red)" onclick="admDeleteProd(${p.id})">🗑️</button>
+                </div>
+              </div>
+            `).join("")}
+          </div>
+        `;
+      }
+
+      // 3. Manage Product Photos
+      else if (sec === "manage_photos") {
+        badge.innerText = "🖼️ PRODUCT PHOTOS";
+        box.innerHTML = APP.products.map(p => `
+          <div class="card">
+            <b>${p.sub_name} — ${p.name}</b>
+            <input id="pho_in_${p.id}" class="input" placeholder="Paste Image URL or Telegram file_id" value="${p.image_file_id || ''}" />
+            <div class="row-between">
+              <button class="btn-primary" style="flex:1" onclick="admSavePhoto(${p.id}, true)">🖼️ Save for Brand</button>
+              <button class="btn-outline" style="color:var(--red)" onclick="document.getElementById('pho_in_${p.id}').value='';admSavePhoto(${p.id}, true)">🗑️ Remove</button>
+            </div>
+          </div>
+        `).join("");
+      }
+
+      // 4. Payment Settings
+      else if (sec === "payment_settings") {
+        badge.innerText = "💳 PAYMENT SETTINGS";
+        box.innerHTML = `
+          <div class="card">
+            <h4 style="margin:0 0 10px">💳 Edit Payment Numbers & Rates</h4>
+            <label style="font-size:11.5px;font-weight:700">📱 bKash Number</label>
+            <input id="setBkash" class="input" value="${APP.settings.bkash_number || ''}" />
+            <label style="font-size:11.5px;font-weight:700">📱 Nagad Number</label>
+            <input id="setNagad" class="input" value="${APP.settings.nagad_number || ''}" />
+            <label style="font-size:11.5px;font-weight:700">💎 Binance Pay ID / TRC20</label>
+            <input id="setBinance" class="input" value="${APP.settings.binance_id || ''}" />
+            <label style="font-size:11.5px;font-weight:700">📌 Minimum Deposit (BDT)</label>
+            <input id="setMinDep" type="number" class="input" value="${APP.settings.min_deposit_manual || 20}" />
+            <label style="font-size:11.5px;font-weight:700">💱 USDT Rate (1 USDT = ? BDT)</label>
+            <input id="setUsdtRate" type="number" class="input" value="${APP.settings.usdt_rate || 125}" />
+            <button class="btn-primary" onclick="admSavePaymentSettings()">💾 Save Payment Settings</button>
+          </div>
+        `;
+      }
+
+      // 5. Pending Deposits
+      else if (sec === "pending_deposits") {
+        badge.innerText = "💰 PENDING DEPOSITS";
+        const deps = (APP.adminOverview && APP.adminOverview.pending_deposits) || [];
+        box.innerHTML = deps.length ? deps.map(d => `
+          <div class="card">
+            <div class="row-between">
+              <b>Deposit #${d.id} — ${d.method}</b>
+              <b style="color:var(--accent)">৳${d.amount}</b>
+            </div>
+            <div style="font-size:12px;color:var(--muted);margin:4px 0">
+              User: ${d.user_name || 'User'} (<code>${d.user_id}</code>) • TrxID: <code>${d.trx_id}</code>
+            </div>
+            <div class="row-between" style="margin-top:8px">
+              <button class="btn-primary" style="flex:1" onclick="admDepAction(${d.id}, 'approve')">✅ Approve</button>
+              <button class="btn-outline" style="color:var(--red);flex:1" onclick="admDepAction(${d.id}, 'reject')">❌ Reject</button>
+            </div>
+          </div>
+        `).join("") : `<div class="card" style="text-align:center;color:var(--muted)">✅ No pending deposits right now.</div>`;
+      }
+
+      // 6. Pending Manual Orders (Separate Email & Pass for VPN, String for Proxy)
+      else if (sec === "pending_orders") {
+        badge.innerText = "📦 PENDING ORDERS";
+        const ords = (APP.adminOverview && APP.adminOverview.pending_orders) || [];
+        box.innerHTML = ords.length ? ords.map(o => {
+          const isVpn = (o.category_name || "").toLowerCase().includes("vpn") || (o.product_name || "").toLowerCase().includes("vpn");
+          return `
+            <div class="card">
+              <b>Order #${o.id} — ${o.product_name} (x${o.quantity})</b>
+              <div style="font-size:12px;color:var(--muted);margin:3px 0 8px">
+                User: ${o.user_name || 'Customer'} (<code>${o.user_id}</code>) • Paid: ৳${o.total_bdt} • Receipt: <code>${o.receipt_no}</code>
+              </div>
+              ${isVpn ? `
+                <input id="vpn_em_${o.id}" class="input" placeholder="📧 VPN Email / Username" />
+                <input id="vpn_pw_${o.id}" class="input" placeholder="🔐 VPN Password" />
+              ` : `
+                <input id="prx_str_${o.id}" class="input" placeholder="🌐 Proxy String (host:port:user:pass)" />
+              `}
+              <div class="row-between">
+                <button class="btn-primary" style="flex:2" onclick="admDeliverManualOrder(${o.id}, ${isVpn})">🚀 Deliver + Send PDF</button>
+                <button class="btn-outline" style="color:var(--red);flex:1" onclick="admRefundOrder(${o.id})">❌ Refund</button>
+              </div>
+            </div>
+          `;
+        }).join("") : `<div class="card" style="text-align:center;color:var(--muted)">✅ No pending manual orders.</div>`;
+      }
+
+      // 7. Receipt Checker
+      else if (sec === "receipt_checker") {
+        badge.innerText = "🧾 RECEIPT CHECKER";
+        box.innerHTML = `
+          <div class="card">
+            <h4 style="margin:0 0 8px">🧾 Verify Official Receipt Code</h4>
+            <input id="rcpCheckInput" class="input" placeholder="Enter Receipt Code (e.g. RCP-A1B2C3D4E5)" />
+            <button class="btn-primary" onclick="admVerifyReceipt(false)">🔍 Check Authenticity</button>
+            <div id="rcpCheckResult" style="margin-top:12px"></div>
+          </div>
+        `;
+      }
+
+      // 8. User Management
+      else if (sec === "user_management") {
+        badge.innerText = "👥 USER MANAGEMENT";
+        const ulist = (APP.adminOverview && APP.adminOverview.users) || [];
+        box.innerHTML = `
+          <div class="card">
+            <h4 style="margin:0 0 8px">💰 Add or Deduct User Balance</h4>
+            <input id="umUserId" type="number" class="input" placeholder="Telegram User ID (e.g. 8919985167)" />
+            <input id="umAmount" type="number" class="input" placeholder="Amount in BDT (e.g. 100)" />
+            <div class="row-between">
+              <button class="btn-primary" style="flex:1" onclick="admModifyUserBal('add')">➕ Add Balance</button>
+              <button class="btn-outline" style="color:var(--red);flex:1" onclick="admModifyUserBal('deduct')">➖ Deduct</button>
+            </div>
+          </div>
+          <div class="card">
+            <b style="font-size:14px">👥 Registered Users (${ulist.length})</b>
+            <div style="margin-top:8px">
+              ${ulist.map(u => `
+                <div class="row-between" style="padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px">
+                  <div>
+                    <b>${u.name || 'User'}</b> <small style="color:var(--muted)">@${u.username || 'N/A'}</small>
+                    <div style="font-size:11px;color:var(--muted)">ID: <code>${u.user_id}</code></div>
+                  </div>
+                  <div style="text-align:right">
+                    <b style="color:var(--accent)">৳${Number(u.balance_bdt || 0).toFixed(2)}</b>
+                    <div><button class="btn-outline" style="padding:3px 8px;font-size:10.5px;margin-top:3px" onclick="document.getElementById('umUserId').value='${u.user_id}'">Select</button></div>
+                  </div>
+                </div>
+              `).join("")}
+            </div>
+          </div>
+        `;
+      }
+
+      // 9. Step-by-Step Broadcast
+      else if (sec === "broadcast") {
+        badge.innerText = "📢 STEP BROADCAST";
+        APP.bcastStep = 1;
+        APP.bcastData = { message: "", photo: "", btnCount: 0, buttons: [], curIdx: 0 };
+        renderAdminBroadcastWizard();
+      }
+
+      // 10. Manage Rotating Ads Banner, Welcome Popup & Coupons
+      else if (sec === "banners_popup") {
+        badge.innerText = "🎨 BANNERS & POPUP";
+        const subOpts = `<option value="0">None (Home)</option>` + buildGroupedBrands().map(g => `<option value="${g.sub_id}">${g.sub_name}</option>`).join("");
+        const banners = (APP.adminOverview && APP.adminOverview.banners) || APP.banners;
+        box.innerHTML = `
+          <div class="card">
+            <h4 style="margin:0 0 8px">🖼️ Add Rotating Home Ad Banner</h4>
+            <input id="bnTitle" class="input" placeholder="Banner Headline (e.g. Nord VPN 50% Off)" />
+            <input id="bnSub" class="input" placeholder="Subtitle text" />
+            <input id="bnBadge" class="input" placeholder="Badge tag (e.g. 🔥 HOT DEAL)" value="🔥 HOT OFFER" />
+            <input id="bnImg" class="input" placeholder="Image URL or Telegram file_id (optional)" />
+            <label style="font-size:11px;font-weight:700">Click Target Brand</label>
+            <select id="bnTargetSub" class="input">${subOpts}</select>
+            <button class="btn-primary" onclick="admAddBanner()">➕ Add Ad Banner</button>
+            <div style="margin-top:12px">
+              ${banners.map(b => `
+                <div class="row-between" style="padding:7px 0;border-bottom:1px solid var(--border);font-size:12px">
+                  <div><b>${b.title}</b><div style="color:var(--muted);font-size:11px">${b.badge_text || ''}</div></div>
+                  <button class="btn-outline" style="color:var(--red)" onclick="admDelBanner(${b.id})">🗑️ Delete</button>
+                </div>
+              `).join("")}
+            </div>
+          </div>
+
+          <div class="card">
+            <h4 style="margin:0 0 8px">🎁 Welcome Offer Popup</h4>
+            <select id="popEn" class="input">
+              <option value="1" ${APP.settings.popup_enabled === "1" ? "selected" : ""}>🟢 Enabled</option>
+              <option value="0" ${APP.settings.popup_enabled !== "1" ? "selected" : ""}>🔴 Disabled</option>
+            </select>
+            <input id="popTitle" class="input" placeholder="Popup Title" value="${APP.settings.popup_title || ''}" />
+            <textarea id="popText" rows="2" placeholder="Popup Message">${APP.settings.popup_text || ''}</textarea>
+            <input id="popImg" class="input" placeholder="Popup Image URL or file_id" value="${APP.settings.popup_image || ''}" />
+            <button class="btn-primary" onclick="admSavePopup()">💾 Save Popup</button>
+          </div>
+
+          <div class="card">
+            <h4 style="margin:0 0 8px">🎟️ Discount Coupons</h4>
+            <div class="row-between">
+              <input id="newCoupCode" class="input" style="margin:0;flex:1" placeholder="Code (e.g. VIP10)" />
+              <input id="newCoupPct" type="number" class="input" style="margin:0;width:90px" placeholder="% Off" />
+            </div>
+            <button class="btn-primary" style="margin-top:8px" onclick="admCreateCoupon()">➕ Save Coupon</button>
+          </div>
+        `;
+      }
+
+      // 11. Channel TX & Group Settings (with 4-Step Custom Channel TX Builder)
+      else if (sec === "channel_tx") {
+        badge.innerText = "⚡ CHANNEL TX & GROUP";
+        APP.txWizard = { step: 1, customer_name: "", product_name: "", quantity: 1, total_bdt: 50 };
+        const autoOn = APP.adminOverview ? APP.adminOverview.stats.auto_sales_active : (APP.settings.auto_sales_active === "1");
+        box.innerHTML = `
+          <div class="card">
+            <div class="row-between">
+              <div>
+                <b>⚡ Auto Channel Sales Loop</b>
+                <div style="font-size:11.5px;color:var(--muted)">Posts realistic sales every 5-7 mins</div>
+              </div>
+              <button class="btn-primary" style="width:auto" id="btnToggleAutoSales" onclick="admToggleAutoSales()">
+                ${autoOn ? "🟢 ON (Click to Turn OFF)" : "🔴 OFF (Click to Turn ON)"}
+              </button>
+            </div>
+          </div>
+
+          <div class="card" id="customTxWizardCard"></div>
+
+          <div class="card">
+            <h4 style="margin:0 0 8px">⚙️ Group & Channel ID / Link Settings</h4>
+            <label style="font-size:11px;font-weight:700">👥 Update Group ID</label>
+            <input id="gcWgrpId" class="input" value="${APP.settings.welcome_group_id || ''}" />
+            <label style="font-size:11px;font-weight:700">🔗 Update Group Link</label>
+            <input id="gcWgrpLink" class="input" value="${APP.settings.welcome_group_link || ''}" />
+            <label style="font-size:11px;font-weight:700">📢 Transaction Channel ID</label>
+            <input id="gcTxId" class="input" value="${APP.settings.transaction_channel_id || ''}" />
+            <label style="font-size:11px;font-weight:700">🔗 Transaction Channel Link</label>
+            <input id="gcTxLink" class="input" value="${APP.settings.transaction_channel_link || ''}" />
+            <button class="btn-primary" onclick="admSaveGcSettings()">💾 Save Group & Channel Settings</button>
+          </div>
+        `;
+        renderCustomTxWizard();
+      }
+
+      // 12. Menu Layout & Factory Reset
+      else if (sec === "layout_reset") {
+        badge.innerText = "🎛️ LAYOUT & RESET";
+        const layout = (APP.adminOverview && APP.adminOverview.menu_layout) || [["🛍️ Buy Products", "🤖 AI Assistant"], ["👤 My Profile", "💳 Deposit"], ["🔐 Get Code", "💬 Support"]];
+        box.innerHTML = `
+          <div class="card">
+            <h4 style="margin:0 0 8px">🎛️ Bot Main Menu Layout</h4>
+            <p style="font-size:11.5px;color:var(--muted)">Current active rows in Telegram Bot reply keyboard:</p>
+            <div style="background:var(--card-2);padding:10px;border-radius:12px;margin-bottom:10px;font-size:12.5px">
+              ${layout.map((r, i) => `<div style="margin-bottom:4px"><b>Row ${i+1}:</b> ${r.join(" | ")}</div>`).join("")}
+            </div>
+            <button class="btn-outline" style="width:100%" onclick="admResetMenuLayout()">🔄 Reset Default Menu Layout (with 🤖 AI Assistant)</button>
+          </div>
+
+          <div class="card" style="border-color:var(--red)">
+            <h4 style="margin:0 0 6px;color:var(--red)">⚠️ Factory Reset Store Data</h4>
+            <p style="font-size:12px;color:var(--muted)">Wipes all orders, stock, deposits and resets user balances to 0. Type <b>RESET</b> below to confirm:</p>
+            <input id="factoryResetInput" class="input" placeholder="Type RESET to confirm" />
+            <button class="btn-primary" style="background:var(--red)" onclick="admFactoryReset()">🔴 Confirm Factory Reset</button>
+          </div>
+        `;
+      }
+    }
+
+    function closeAdminSection() {
+      document.getElementById("admSubView").classList.add("hidden");
+      document.getElementById("admDashboardHome").classList.remove("hidden");
+      loadAdminOverview();
+    }
+
+    // Admin Stock Cascading Selectors
+    function admFilterStockBrands() {
+      const cid = document.getElementById("stkCatSel").value;
+      const groups = buildGroupedBrands().filter(g => g.category_id == cid);
+      const bSel = document.getElementById("stkBrandSel");
+      bSel.innerHTML = groups.map(g => `<option value="${g.sub_id}">${g.sub_name}</option>`).join("");
+      admFilterStockPlans();
+    }
+
+    function admFilterStockPlans() {
+      const sid = document.getElementById("stkBrandSel").value;
+      const plans = APP.products.filter(p => p.sub_id == sid);
+      const pSel = document.getElementById("stkPlanSel");
+      pSel.innerHTML = plans.map(p => `<option value="${p.id}">${p.name} (৳${p.price_bdt}) — Stock: ${p.in_stock}</option>`).join("");
+    }
+
+    async function admSubmitStock() {
+      const pid = document.getElementById("stkPlanSel").value;
+      const lines = document.getElementById("stkLinesInput").value.trim();
+      if (!pid || !lines) return showToast("⚠️ Select a plan and paste stock lines");
+      const r = await api("/api/admin/add_stock", { product_id: pid, lines });
+      if (r.ok) {
+        document.getElementById("stkLinesInput").value = "";
+        showToast(`✅ Added ${r.added} stock items! Total: ${r.total_stock}`);
+        await boot();
+        admFilterStockPlans();
+      }
+    }
+
+    async function admCatalogOp(action) {
+      let payload = { action };
+      if (action === "add_category") {
+        payload.name = document.getElementById("newCatName").value.trim();
+      } else if (action === "add_brand") {
+        payload.category_id = document.getElementById("newBrandCat").value;
+        payload.name = document.getElementById("newBrandName").value.trim();
+      } else if (action === "add_product") {
+        payload.sub_id = document.getElementById("newPlanSub").value;
+        payload.name = document.getElementById("newPlanName").value.trim();
+        payload.price_bdt = document.getElementById("newPlanPrice").value;
+        payload.description = document.getElementById("newPlanDesc").value.trim();
+      }
+      const r = await api("/api/admin/catalog_manage", payload);
+      if (r.ok) {
+        showToast("✅ Catalog updated!");
+        await boot();
+        openAdminSection("manage_buttons");
+      }
+    }
+
+    async function admToggleActive(pid) {
+      await api("/api/admin/product_update", { product_id: pid, toggle_active: true });
+      await boot();
+      openAdminSection("manage_buttons");
+    }
+
+    async function admSaveProdDetails(pid) {
+      const name = document.getElementById("ed_name_" + pid).value.trim();
+      const price_bdt = parseFloat(document.getElementById("ed_price_" + pid).value || 0);
+      const description = document.getElementById("ed_desc_" + pid).value.trim();
+      await api("/api/admin/product_update", { product_id: pid, name, price_bdt, description });
+      showToast("✅ Saved!");
+      await boot();
+    }
+
+    async function admDeleteProd(pid) {
+      await api("/api/admin/catalog_manage", { action: "delete_product", product_id: pid });
+      showToast("🗑️ Deleted!");
+      await boot();
+      openAdminSection("manage_buttons");
+    }
+
+    async function admSavePhoto(pid, applyBrand) {
+      const image_file_id = document.getElementById("pho_in_" + pid).value.trim();
+      await api("/api/admin/product_update", { product_id: pid, image_file_id, apply_to_brand: applyBrand });
+      showToast("🖼️ Photo updated!");
+      await boot();
+    }
+
+    async function admSavePaymentSettings() {
+      await api("/api/admin/payment_settings", {
+        bkash_number: document.getElementById("setBkash").value,
+        nagad_number: document.getElementById("setNagad").value,
+        binance_id: document.getElementById("setBinance").value,
+        min_deposit_manual: document.getElementById("setMinDep").value,
+        usdt_rate: document.getElementById("setUsdtRate").value
+      });
+      showToast("✅ Payment settings saved!");
+      await boot();
+    }
+
+    async function admDepAction(did, action) {
+      const r = await api("/api/admin/deposit_action", { deposit_id: did, action });
+      if (r.ok) {
+        showToast(`✅ Deposit #${did} ${action}d!`);
+        openAdminSection("pending_deposits");
+      }
+    }
+
+    async function admDeliverManualOrder(oid, isVpn) {
+      let payload = { order_id: oid };
+      if (isVpn) {
+        payload.vpn_email = document.getElementById("vpn_em_" + oid).value.trim();
+        payload.vpn_pass = document.getElementById("vpn_pw_" + oid).value.trim();
+        if (!payload.vpn_email || !payload.vpn_pass) return showToast("⚠️ Enter both VPN Email & Password");
+      } else {
+        payload.data = document.getElementById("prx_str_" + oid).value.trim();
+        if (!payload.data) return showToast("⚠️ Paste Proxy string");
+      }
+      const r = await api("/api/admin/deliver_order", payload);
+      if (r.ok) {
+        showToast("🚀 Order delivered with One-Tap Copy & PDF Receipt!");
+        openAdminSection("pending_orders");
+      }
+    }
+
+    async function admRefundOrder(oid) {
+      const r = await api("/api/admin/refund_order", { order_id: oid });
+      if (r.ok) {
+        showToast("❌ Order refunded!");
+        openAdminSection("pending_orders");
+      }
+    }
+
+    async function admVerifyReceipt(sendPdf) {
+      const code = document.getElementById("rcpCheckInput").value.trim();
+      if (!code) return;
+      const box = document.getElementById("rcpCheckResult");
+      const r = await api("/api/admin/check_receipt", { receipt_no: code, send_pdf: sendPdf });
+      if (r.ok && r.authentic) {
+        const o = r.order;
+        box.innerHTML = `
+          <div class="card" style="background:var(--green-soft);border-color:var(--green);margin:0">
+            <b style="color:var(--green)">✔ AUTHENTIC OFFICIAL RECEIPT</b>
+            <div style="font-size:12.5px;margin-top:6px;line-height:1.5">
+              <div><b>Receipt No:</b> <code>${o.receipt_no}</code></div>
+              <div><b>Customer:</b> ${o.customer_name || 'User'} (ID: <code>${o.user_id}</code>)</div>
+              <div><b>Product:</b> ${o.product_name} (x${o.quantity})</div>
+              <div><b>Total Paid:</b> ৳${o.total_bdt} BDT</div>
+              <div><b>Date:</b> ${o.order_date}</div>
+            </div>
+            <button class="btn-primary" style="margin-top:10px" onclick="admVerifyReceipt(true)">📥 Send PDF Receipt to My Inbox</button>
+          </div>
+        `;
+        if (sendPdf) showToast("🧾 PDF Receipt sent to your Telegram inbox!");
+      } else {
+        box.innerHTML = `<div class="card" style="background:var(--red-soft);border-color:var(--red);color:var(--red);margin:0"><b>${r.error || '❌ Invalid Receipt'}</b></div>`;
+      }
+    }
+
+    async function admModifyUserBal(action) {
+      const uid = document.getElementById("umUserId").value.trim();
+      const amt = parseFloat(document.getElementById("umAmount").value || 0);
+      if (!uid || !amt) return showToast("⚠️ Enter User ID and Amount");
+      const r = await api("/api/admin/user_balance", { user_id: uid, action, amount: amt });
+      if (r.ok) {
+        showToast(`✅ Balance updated!`);
+        openAdminSection("user_management");
+      }
+    }
+
+    // Step-by-Step Multi-Button Broadcast Wizard in WebApp
+    function renderAdminBroadcastWizard() {
+      const box = document.getElementById("admSubContent");
+      const st = APP.bcastStep;
+      const d = APP.bcastData;
+      if (st === 1) {
+        box.innerHTML = `
+          <div class="card">
+            <h4 style="margin:0 0 8px">📢 Step 1: Broadcast Message & Photo</h4>
+            <textarea id="bcMsgInput" rows="4" placeholder="Write announcement text (HTML supported)...">${d.message}</textarea>
+            <input id="bcPhotoInput" class="input" placeholder="Optional Photo URL or Telegram file_id" value="${d.photo}" />
+            <button class="btn-primary" onclick="bcNextStep1()">Next: Button Options ➔</button>
+          </div>
+        `;
+      } else if (st === 2) {
+        box.innerHTML = `
+          <div class="card">
+            <h4 style="margin:0 0 8px">🔢 Step 2: How Many Inline Buttons?</h4>
+            <p style="font-size:12px;color:var(--muted)">Enter 0 to send without buttons, or 1 to 5 to add buttons one by one:</p>
+            <div class="chip-row" style="justify-content:flex-start">
+              <button class="amt-chip" onclick="bcSetBtnCount(0)">0 (No Button)</button>
+              <button class="amt-chip" onclick="bcSetBtnCount(1)">1 Button</button>
+              <button class="amt-chip" onclick="bcSetBtnCount(2)">2 Buttons</button>
+              <button class="amt-chip" onclick="bcSetBtnCount(3)">3 Buttons</button>
+            </div>
+          </div>
+        `;
+      } else if (st === 3) {
+        const idx = d.curIdx + 1;
+        box.innerHTML = `
+          <div class="card">
+            <h4 style="margin:0 0 8px">🔘 Step 3: Button [${idx} / ${d.btnCount}]</h4>
+            <label style="font-size:11.5px;font-weight:700">Button #${idx} Label</label>
+            <input id="bcBtnName" class="input" placeholder="e.g. 🛍️ Open Store" />
+            <label style="font-size:11.5px;font-weight:700">Button #${idx} URL (https://...)</label>
+            <input id="bcBtnUrl" class="input" placeholder="https://t.me/..." />
+            <button class="btn-primary" onclick="bcSaveSingleButton()">
+              ${idx < d.btnCount ? `Save & Next Button (${idx + 1}/${d.btnCount}) ➔` : `🚀 Send Broadcast Now`}
+            </button>
+          </div>
+        `;
+      }
+    }
+
+    function bcNextStep1() {
+      const m = document.getElementById("bcMsgInput").value.trim();
+      const p = document.getElementById("bcPhotoInput").value.trim();
+      if (!m && !p) return showToast("⚠️ Enter a message or photo");
+      APP.bcastData.message = m;
+      APP.bcastData.photo = p;
+      APP.bcastStep = 2;
+      renderAdminBroadcastWizard();
+    }
+
+    async function bcSetBtnCount(cnt) {
+      APP.bcastData.btnCount = cnt;
+      APP.bcastData.buttons = [];
+      APP.bcastData.curIdx = 0;
+      if (cnt === 0) {
+        const r = await api("/api/admin/broadcast", { message: APP.bcastData.message, photo: APP.bcastData.photo, buttons: [] });
+        if (r.ok) {
+          showToast(`✅ Broadcast sent to ${r.total_targets} users!`);
+          closeAdminSection();
+        }
+      } else {
+        APP.bcastStep = 3;
+        renderAdminBroadcastWizard();
+      }
+    }
+
+    async function bcSaveSingleButton() {
+      const text = document.getElementById("bcBtnName").value.trim();
+      const url = document.getElementById("bcBtnUrl").value.trim();
+      if (!text || !url.startsWith("http")) return showToast("⚠️ Enter valid Button Name and https:// URL");
+      APP.bcastData.buttons.push({ text, url });
+      APP.bcastData.curIdx += 1;
+      if (APP.bcastData.curIdx < APP.bcastData.btnCount) {
+        renderAdminBroadcastWizard();
+      } else {
+        const r = await api("/api/admin/broadcast", {
+          message: APP.bcastData.message,
+          photo: APP.bcastData.photo,
+          buttons: APP.bcastData.buttons
+        });
+        if (r.ok) {
+          showToast(`🚀 Broadcast with ${APP.bcastData.buttons.length} button(s) sent!`);
+          closeAdminSection();
+        }
+      }
+    }
+
+    async function admAddBanner() {
+      await api("/api/admin/banners", {
+        action: "add",
+        title: document.getElementById("bnTitle").value,
+        subtitle: document.getElementById("bnSub").value,
+        badge_text: document.getElementById("bnBadge").value,
+        image_url: document.getElementById("bnImg").value,
+        target_sub_id: document.getElementById("bnTargetSub").value
+      });
+      showToast("✅ Banner added!");
+      await boot();
+      openAdminSection("banners_popup");
+    }
+
+    async function admDelBanner(bid) {
+      await api("/api/admin/banners", { action: "delete", banner_id: bid });
+      showToast("🗑️ Banner removed!");
+      await boot();
+      openAdminSection("banners_popup");
+    }
+
+    async function admSavePopup() {
+      await api("/api/admin/popup", {
+        enabled: document.getElementById("popEn").value,
+        title: document.getElementById("popTitle").value,
+        text: document.getElementById("popText").value,
+        image: document.getElementById("popImg").value
+      });
+      showToast("✅ Popup settings saved!");
+      await boot();
+    }
+
+    async function admCreateCoupon() {
+      const code = document.getElementById("newCoupCode").value.trim().toUpperCase();
+      const pct = parseFloat(document.getElementById("newCoupPct").value || 0);
+      if (!code || !pct) return showToast("⚠️ Enter code & discount %");
+      await api("/api/admin/coupon", { action: "add", code, discount_pct: pct });
+      showToast(`🎟️ Coupon ${code} (${pct}%) saved!`);
+    }
+
+    // 4-Step Custom Channel TX Wizard
+    function renderCustomTxWizard() {
+      const w = APP.txWizard;
+      const box = document.getElementById("customTxWizardCard");
+      if (!box) return;
+      if (w.step === 1) {
+        box.innerHTML = `
+          <h4 style="margin:0 0 8px">✍️ Custom Channel TX Post (Step 1/4)</h4>
+          <label style="font-size:11.5px;font-weight:700">Customer Name</label>
+          <input id="txStepIn" class="input" placeholder="e.g. Tanvir Ahmed" value="${w.customer_name}" />
+          <button class="btn-primary" onclick="txNextStep(1)">Next (Step 2/4) ➔</button>
+        `;
+      } else if (w.step === 2) {
+        box.innerHTML = `
+          <h4 style="margin:0 0 8px">📦 Custom Channel TX Post (Step 2/4)</h4>
+          <label style="font-size:11.5px;font-weight:700">Product Name</label>
+          <input id="txStepIn" class="input" placeholder="e.g. Nord VPN (30 Days)" value="${w.product_name}" />
+          <button class="btn-primary" onclick="txNextStep(2)">Next (Step 3/4) ➔</button>
+        `;
+      } else if (w.step === 3) {
+        box.innerHTML = `
+          <h4 style="margin:0 0 8px">🔢 Custom Channel TX Post (Step 3/4)</h4>
+          <label style="font-size:11.5px;font-weight:700">Quantity</label>
+          <input id="txStepIn" type="number" class="input" value="${w.quantity}" />
+          <button class="btn-primary" onclick="txNextStep(3)">Next (Step 4/4) ➔</button>
+        `;
+      } else if (w.step === 4) {
+        box.innerHTML = `
+          <h4 style="margin:0 0 8px">💰 Custom Channel TX Post (Step 4/4)</h4>
+          <label style="font-size:11.5px;font-weight:700">Total Paid Amount (BDT)</label>
+          <input id="txStepIn" type="number" class="input" value="${w.total_bdt}" />
+          <button class="btn-primary" onclick="txNextStep(4)">🚀 Post to Transaction Channel</button>
+        `;
+      }
+    }
+
+    async function txNextStep(cur) {
+      const val = document.getElementById("txStepIn").value.trim();
+      if (!val) return showToast("⚠️ Please fill in the field");
+      if (cur === 1) { APP.txWizard.customer_name = val; APP.txWizard.step = 2; renderCustomTxWizard(); }
+      else if (cur === 2) { APP.txWizard.product_name = val; APP.txWizard.step = 3; renderCustomTxWizard(); }
+      else if (cur === 3) { APP.txWizard.quantity = parseInt(val) || 1; APP.txWizard.step = 4; renderCustomTxWizard(); }
+      else if (cur === 4) {
+        APP.txWizard.total_bdt = parseFloat(val) || 50;
+        const r = await api("/api/admin/channel_tx", {
+          action: "custom_tx_post",
+          customer_name: APP.txWizard.customer_name,
+          product_name: APP.txWizard.product_name,
+          quantity: APP.txWizard.quantity,
+          total_bdt: APP.txWizard.total_bdt
+        });
+        if (r.ok) {
+          showToast(`✅ Posted ${r.receipt_no} to Channel!`);
+          APP.txWizard.step = 1;
+          renderCustomTxWizard();
+        }
+      }
+    }
+
+    async function admToggleAutoSales() {
+      const r = await api("/api/admin/channel_tx", { action: "toggle_autosales" });
+      if (r.ok) {
+        const btn = document.getElementById("btnToggleAutoSales");
+        btn.innerText = r.auto_sales_active ? "🟢 ON (Click to Turn OFF)" : "🔴 OFF (Click to Turn ON)";
+        showToast(r.auto_sales_active ? "🟢 Auto Sales Enabled" : "🔴 Auto Sales Paused");
+      }
+    }
+
+    async function admSaveGcSettings() {
+      await api("/api/admin/channel_tx", {
+        action: "save_gc_settings",
+        welcome_group_id: document.getElementById("gcWgrpId").value,
+        welcome_group_link: document.getElementById("gcWgrpLink").value,
+        transaction_channel_id: document.getElementById("gcTxId").value,
+        transaction_channel_link: document.getElementById("gcTxLink").value
+      });
+      showToast("✅ Group & Channel settings saved!");
+      await boot();
+    }
+
+    async function admResetMenuLayout() {
+      await api("/api/admin/menu_layout", { reset: true });
+      showToast("✅ Default bot menu layout restored!");
+      openAdminSection("layout_reset");
+    }
+
+    async function admFactoryReset() {
+      const code = document.getElementById("factoryResetInput").value.trim();
+      const r = await api("/api/admin/factory_reset", { confirm: code });
+      if (r.ok) {
+        showToast("✅ Factory reset completed!");
+        await boot();
+        closeAdminSection();
+      } else {
+        showToast("❌ " + (r.error || "Type RESET to confirm"));
+      }
+    }
+
+    // NOTIFICATIONS, NAVIGATION & PREFERENCES
+    async function openNotifs() {
+      openModal("notifModal");
+      document.getElementById("notifDot").style.display = "none";
+      const res = await api("/api/notifications");
+      const box = document.getElementById("notifList");
+      if (!res.items || !res.items.length) {
+        box.innerHTML = `<p style="color:var(--muted);text-align:center">No notifications yet.</p>`;
+        return;
+      }
+      box.innerHTML = res.items.map(n => `
+        <div class="card" style="padding:10px;margin-bottom:8px;box-shadow:none;background:var(--card-2)">
+          <b style="font-size:13px">${n.title}</b>
+          <div style="font-size:12px;color:var(--muted);margin:3px 0">${n.message}</div>
+          <small style="font-size:10px;color:var(--muted)">${n.created_at}</small>
+        </div>
+      `).join("");
+    }
+
+    function switchPage(p) {
+      ["home", "brand", "deposit", "tools", "profile", "referral", "admin"].forEach(x => {
+        const el = document.getElementById("page-" + x);
+        if (el) el.classList.toggle("hidden", x !== p);
+        const nav = document.getElementById("nav-" + x);
+        if (nav) nav.classList.toggle("active", x === p || (p === "brand" && x === "home") || (p === "referral" && x === "profile"));
+      });
+      if (p === "deposit") selectDepMethod(APP.depMethod);
+      if (p === "profile") { syncUserHeaderAndProfile(); loadHistory(); }
+      if (p === "referral") syncUserHeaderAndProfile();
+      if (p === "admin") { closeAdminSection(); }
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function openModal(id) { document.getElementById(id).classList.add("open"); }
+    function closeModal(id) { document.getElementById(id).classList.remove("open"); }
+
+    function toggleTheme() {
+      document.body.classList.toggle("dark");
+      APP.theme = document.body.classList.contains("dark") ? "dark" : "light";
+      try { localStorage.setItem("cn_theme", APP.theme); } catch (e) {}
+      syncUserHeaderAndProfile();
+    }
+
+    function toggleCurrency() {
+      APP.currency = APP.currency === "BDT" ? "USDT" : "BDT";
+      try { localStorage.setItem("cn_curr", APP.currency); } catch (e) {}
+      syncUserHeaderAndProfile();
+      renderTopSelling();
+      renderGroupedBrands();
+      if (APP.activeBrandGroup) recalcBrandOrder();
+    }
+
+    function toggleLang() {
+      APP.lang = APP.lang === "EN" ? "BN" : "EN";
+      try { localStorage.setItem("cn_lang", APP.lang); } catch (e) {}
+      api("/api/user/preferences", { language: APP.lang });
+      applyLanguageLabels();
+      syncUserHeaderAndProfile();
+    }
+
+    function applyLanguageLabels() {
+      const bn = APP.lang === "BN";
+      document.getElementById("searchInput").placeholder = bn ? "VPN, Proxy বা Mail ব্র্যান্ড খুঁজুন..." : "Search VPN, Proxy, Mail brands...";
+      document.getElementById("lblTopSelling").innerText = bn ? "🔥 টপ সেলিং" : "🔥 Top Selling";
+      document.getElementById("prodSecTitle").innerText = bn ? "🛍️ সব ব্র্যান্ড" : "🛍️ Brand Catalog";
+      document.getElementById("navLblHome").innerText = bn ? "হোম" : "Home";
+      document.getElementById("navLblTools").innerText = bn ? "টুলস" : "Tools";
+      document.getElementById("navLblDeposit").innerText = bn ? "ডিপোজিট" : "Deposit";
+      document.getElementById("navLblProfile").innerText = bn ? "প্রোফাইল" : "Profile";
+    }
+
+    function copyText(txt) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt).then(() => showToast("📋 Copied to clipboard!")).catch(() => fallbackCopy(txt));
+      } else {
+        fallbackCopy(txt);
+      }
+    }
+
+    function fallbackCopy(txt) {
+      const ta = document.createElement("textarea");
+      ta.value = txt;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); showToast("📋 Copied!"); } catch (e) {}
+      document.body.removeChild(ta);
+    }
+
+    boot();
+  </script>
+</body>
+</html>
