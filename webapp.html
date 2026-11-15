@@ -1029,7 +1029,7 @@
     <div class="splash-logo-wrap">
       <div class="splash-ring"></div>
       <div class="splash-ring-inner"></div>
-      <div class="splash-core">CN</div>
+      <div class="splash-core" id="splashCore" style="overflow:hidden">CN</div>
     </div>
     <h2 style="margin:0;font-size:20px;letter-spacing:0.4px">CyberNest Digital Mart</h2>
     <small id="splashStatus" style="opacity:0.8;margin-top:6px;font-size:12px">Initializing secure session...</small>
@@ -1099,7 +1099,7 @@
     <div id="topSellingSection">
       <div class="sec-title">
         <span id="lblTopSelling">🔥 Top Selling</span>
-        <small style="color:var(--muted);font-size:11px">Most popular plans</small>
+        <small id="lblTopSellingSub" style="color:var(--muted);font-size:11px">Most popular plans</small>
       </div>
       <div class="top-slider" id="topSellingSlider"></div>
     </div>
@@ -1117,7 +1117,7 @@
   <!-- ========================================================================= -->
   <div id="page-brand" class="container hidden">
     <div class="back-bar">
-      <button class="back-btn" onclick="switchPage('home')">← Back to Store</button>
+      <button class="back-btn" id="lblBackStore" onclick="switchPage('home')">← Back to Store</button>
       <span id="bdCatBadge" class="vip-pill" style="font-size:11px;padding:5px 10px">CATEGORY</span>
     </div>
 
@@ -1131,17 +1131,17 @@
 
       <!-- 3 Live Guarantee & Status Badges -->
       <div class="guarantee-row">
-        <span class="g-badge">⚡ Instant / Fast Delivery</span>
-        <span class="g-badge">✅ 100% Verified</span>
+        <span class="g-badge" id="lblBadgeFast">⚡ Instant / Fast Delivery</span>
+        <span class="g-badge" id="lblBadgeVer">✅ 100% Verified</span>
         <span class="g-badge" id="bdSoldBadge">🔥 0 sold</span>
       </div>
 
       <div style="margin-top:14px">
-        <label style="font-size:11.5px;font-weight:800;color:var(--muted);letter-spacing:0.4px">SELECT DATA PLAN / DURATION</label>
+        <label id="lblSelectPlan" style="font-size:11.5px;font-weight:800;color:var(--muted);letter-spacing:0.4px">SELECT DATA PLAN / DURATION</label>
         <div class="plan-grid" id="bdPlanGrid"></div>
       </div>
 
-      <label style="font-size:11.5px;font-weight:800;color:var(--muted)">QUANTITY</label>
+      <label id="lblQty" style="font-size:11.5px;font-weight:800;color:var(--muted)">QUANTITY</label>
       <div class="qty-box">
         <button class="qty-btn" onclick="changePlanQty(-1)">−</button>
         <input id="bdQtyInput" type="number" value="1" min="1" style="width:80px;text-align:center;font-weight:900;font-size:17px;border:none;background:transparent;color:var(--text)" oninput="recalcBrandOrder()" />
@@ -1163,15 +1163,15 @@
 
       <div class="card" style="background:var(--card-2);box-shadow:none;margin-bottom:12px;padding:12px">
         <div class="row-between" style="font-size:12.5px;margin-bottom:5px">
-          <span>Selected Plan Price</span>
+          <span id="lblSelPlanPrice">Selected Plan Price</span>
           <b id="bdUnitPrice">৳0</b>
         </div>
         <div class="row-between" style="font-size:13px;margin-bottom:5px">
-          <span>Total Payable</span>
+          <span id="lblTotalPayable">Total Payable</span>
           <b id="bdTotalPayable" style="font-size:18px;color:var(--accent)">৳0</b>
         </div>
         <div class="row-between" style="font-size:12px">
-          <span>Your Wallet Balance</span>
+          <span id="lblWalletBal">Your Wallet Balance</span>
           <b id="bdWalletBal">৳0</b>
         </div>
       </div>
@@ -1188,7 +1188,7 @@
     <div id="depStepCalc">
       <div class="card">
         <div class="row-between" style="margin-bottom:10px">
-          <h3 style="margin:0;font-size:17px">💳 Add Wallet Balance</h3>
+          <h3 id="lblAddBalance" style="margin:0;font-size:17px">💳 Add Wallet Balance</h3>
           <span style="font-size:11.5px;color:var(--muted)">Min: <b id="depMinLbl">৳20</b></span>
         </div>
 
@@ -1243,18 +1243,18 @@
           <button class="num-key" onclick="pressNumKey('BS')">⌫</button>
         </div>
 
-        <button class="btn-primary" onclick="proceedToPayStep()">➡️ Proceed to Pay</button>
+        <button class="btn-primary" id="lblProceedPay" onclick="proceedToPayStep()">➡️ Proceed to Pay</button>
       </div>
     </div>
 
     <!-- Step 2: Payment Number Copy & TrxID Verification Form -->
     <div id="depStepVerify" class="hidden">
       <div class="back-bar">
-        <button class="back-btn" onclick="backToCalcStep()">← Back to Calculator</button>
+        <button class="back-btn" id="lblBackCalc" onclick="backToCalcStep()">← Back to Calculator</button>
         <span class="vip-pill" id="verifyMethodBadge">bKash</span>
       </div>
       <div class="card">
-        <h3 style="margin:0 0 6px;font-size:17px">📲 Complete Your Payment</h3>
+        <h3 id="lblCompPay" style="margin:0 0 6px;font-size:17px">📲 Complete Your Payment</h3>
         <p style="font-size:12px;color:var(--muted);margin:0 0 12px">
           Send exactly <b id="verifyAmtShow" style="color:var(--accent)">৳100</b> to the official account below, then submit your Transaction ID (TrxID):
         </p>
@@ -1344,17 +1344,17 @@
 
       <!-- 7-Row User Details Table -->
       <table class="info-table">
-        <tr><td>Name</td><td id="tbName">---</td></tr>
-        <tr><td>Username</td><td id="tbUsername">---</td></tr>
-        <tr><td>Account ID</td><td id="tbAccId">---</td></tr>
-        <tr><td>Balance</td><td id="tbBalance" style="color:var(--accent)">৳0.00</td></tr>
-        <tr><td>Referred By</td><td id="tbRefBy">Direct</td></tr>
-        <tr><td>Joined At</td><td id="tbJoined">---</td></tr>
-        <tr><td>Language</td><td id="tbLang">EN</td></tr>
+        <tr><td id="tdLblName">Name</td><td id="tbName">---</td></tr>
+        <tr><td id="tdLblUser">Username</td><td id="tbUsername">---</td></tr>
+        <tr><td id="tdLblAcc">Account ID</td><td id="tbAccId">---</td></tr>
+        <tr><td id="tdLblBal">Balance</td><td id="tbBalance" style="color:var(--accent)">৳0.00</td></tr>
+        <tr><td id="tdLblRef">Referred By</td><td id="tbRefBy">Direct</td></tr>
+        <tr><td id="tdLblJoin">Joined At</td><td id="tbJoined">---</td></tr>
+        <tr><td id="tdLblLang">Language</td><td id="tbLang">EN</td></tr>
       </table>
 
       <!-- Orange Referral & Earnings Button -->
-      <button class="btn-primary" style="margin-top:12px;background:linear-gradient(135deg,#ff7a1a,#f59e0b)" onclick="switchPage('referral')">
+      <button class="btn-primary" id="lblRefDashBtn" style="margin-top:12px;background:linear-gradient(135deg,#ff7a1a,#f59e0b)" onclick="switchPage('referral')">
         👥 Referral & Earnings Dashboard ➔
       </button>
     </div>
@@ -1362,7 +1362,7 @@
     <!-- Enhanced Purchase History (3 Action Buttons per Order) -->
     <div class="card">
       <div class="row-between" style="margin-bottom:10px">
-        <b style="font-size:15px">📄 Purchase History</b>
+        <b id="lblPurHist" style="font-size:15px">📄 Purchase History</b>
         <button class="btn-outline" onclick="loadHistory()">🔄 Refresh</button>
       </div>
       <div id="historyList" style="font-size:13px"></div>
@@ -1374,7 +1374,7 @@
   <!-- ========================================================================= -->
   <div id="page-referral" class="container hidden">
     <div class="back-bar">
-      <button class="back-btn" onclick="switchPage('profile')">← Back to Profile</button>
+      <button class="back-btn" id="lblBackProf" onclick="switchPage('profile')">← Back to Profile</button>
       <span class="vip-pill">👥 Referral Program</span>
     </div>
 
@@ -1396,7 +1396,7 @@
     </div>
 
     <div class="card">
-      <b style="font-size:14px">🔗 Your Referral Link</b>
+      <b id="lblYourRefLink" style="font-size:14px">🔗 Your Referral Link</b>
       <div class="copy-box" style="margin-top:8px">
         <span id="refLinkBox" style="font-size:12px">Loading...</span>
         <button class="btn-outline" onclick="copyText(document.getElementById('refLinkBox').innerText)">📋 Copy</button>
@@ -1404,7 +1404,7 @@
     </div>
 
     <div class="card">
-      <b style="font-size:14px">💡 How It Works</b>
+      <b id="lblHowItWorks" style="font-size:14px">💡 How It Works</b>
       <ul style="margin:8px 0 0;padding-left:18px;font-size:12.5px;color:var(--muted);line-height:1.6">
         <li>Copy your unique referral link above and share it with friends.</li>
         <li>When a new user starts the bot using your link, they are permanently linked to your account.</li>
@@ -1413,7 +1413,7 @@
     </div>
 
     <div class="card">
-      <b style="font-size:14px">📋 Joined Referral Users</b>
+      <b id="lblJoinedRefs" style="font-size:14px">📋 Joined Referral Users</b>
       <div id="refUsersList" style="margin-top:10px;font-size:12.5px"></div>
     </div>
   </div>
@@ -1535,7 +1535,7 @@
   <div class="modal" id="filterModal">
     <div class="sheet">
       <div class="row-between" style="margin-bottom:12px">
-        <h3 style="margin:0;font-size:17px">⚙️ Filter & Sort Products</h3>
+        <h3 id="lblFilterTitle" style="margin:0;font-size:17px">⚙️ Filter & Sort Products</h3>
         <button class="btn-outline" onclick="closeModal('filterModal')">✕</button>
       </div>
 
@@ -1567,23 +1567,16 @@
     <div class="sheet">
       <div class="row-between" style="margin-bottom:10px">
         <div>
-          <h3 style="margin:0;font-size:16px">🤖 CyberNest Live AI Support</h3>
-          <small style="color:var(--muted)">Connected to live store prices, stock & payment DB</small>
+          <h3 id="lblAiTitle" style="margin:0;font-size:16px">🤖 CyberNest Live AI Support</h3>
+          <small id="lblAiSub" style="color:var(--muted)">Connected to live store prices, stock & payment DB</small>
         </div>
         <button class="btn-outline" onclick="closeModal('aiModal')">✕</button>
       </div>
 
       <div class="chat-box" id="aiChatHistory">
-        <div class="chat-msg bot">
-          👋 আসসালামু আলাইকুম! আমি CyberNest AI Assistant। প্রোডাক্টের লাইভ দাম, স্টক বা ডিপোজিট নিয়ে যেকোনো প্রশ্ন করুন অথবা নিচের চিপসে ট্যাপ করুন:
+        <div class="chat-msg bot" id="aiWelcomeMsg">
+          আসসালামু আলাইকুম! আপনার কোনো প্রশ্ন বা অসুবিধা থাকলে নিচে লিখে জিজ্ঞেস করুন—আমি সাথে সাথে সাহায্য করব।
         </div>
-      </div>
-
-      <div class="chip-row" style="justify-content:flex-start;margin-bottom:8px">
-        <button class="amt-chip" onclick="askAiChip('VPN Price List')">🛡️ VPN Price List</button>
-        <button class="amt-chip" onclick="askAiChip('Proxy Packages')">🌐 Proxy Packages</button>
-        <button class="amt-chip" onclick="askAiChip('Mail Stock')">✉️ Mail Stock</button>
-        <button class="amt-chip" onclick="askAiChip('How to Deposit?')">💳 How to Deposit?</button>
       </div>
 
       <div class="row-between">
@@ -1607,7 +1600,7 @@
   <div class="modal" id="notifModal">
     <div class="sheet">
       <div class="row-between" style="margin-bottom:10px">
-        <h3 style="margin:0;font-size:16px">🔔 Notifications</h3>
+        <h3 id="lblNotifTitle" style="margin:0;font-size:16px">🔔 Notifications</h3>
         <button class="btn-outline" onclick="closeModal('notifModal')">✕</button>
       </div>
       <div id="notifList"></div>
@@ -2446,11 +2439,6 @@
     }
 
     // 10. FLOATING AI SUPPORT CHATBOT
-    function askAiChip(qText) {
-      document.getElementById("aiInputBox").value = qText;
-      sendAiQuestion();
-    }
-
     async function sendAiQuestion() {
       const inp = document.getElementById("aiInputBox");
       const q = inp.value.trim();
@@ -3257,15 +3245,146 @@
       syncUserHeaderAndProfile();
     }
 
+    (function loadSplashBotLogo() {
+      const sc = document.getElementById("splashCore");
+      if (sc) {
+        sc.innerHTML = `<img src="/api/bot_photo" alt="CyberNest" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display='none';this.parentElement.innerText='CN'" />`;
+      }
+    })();
+
+    const I18N = {
+      EN: {
+        searchPh: "Search VPN, Proxy, Mail brands...",
+        topSelling: "🔥 Top Selling",
+        topSellingSub: "Most popular plans",
+        brandCatalog: "🛍️ Brand Catalog",
+        navHome: "Home",
+        navTools: "Tools",
+        navDeposit: "Deposit",
+        navProfile: "Profile",
+        backStore: "← Back to Store",
+        badgeFast: "⚡ Instant / Fast Delivery",
+        badgeVer: "✅ 100% Verified",
+        selPlan: "SELECT DATA PLAN / DURATION",
+        qty: "QUANTITY",
+        selPlanPrice: "Selected Plan Price",
+        totalPayable: "Total Payable",
+        walletBal: "Your Wallet Balance",
+        addBal: "💳 Add Wallet Balance",
+        proceedPay: "➡️ Proceed to Pay",
+        backCalc: "← Back to Calculator",
+        compPay: "📲 Complete Your Payment",
+        orders: "Orders",
+        spent: "Spent TK",
+        cancelled: "Cancelled",
+        purHist: "📄 Purchase History",
+        refDashBtn: "👥 Referral & Earnings Dashboard ➔",
+        backProf: "← Back to Profile",
+        yourRefLink: "🔗 Your Referral Link",
+        howWorks: "💡 How It Works",
+        joinedRefs: "📋 Joined Referral Users",
+        aiTitle: "🤖 CyberNest Live AI Support",
+        aiSub: "Ask any specific question in Bangla, Banglish, or English",
+        aiPh: "Type your question here...",
+        notifTitle: "🔔 Notifications",
+        filterTitle: "⚙️ Filter & Sort Products",
+        tdName: "Name",
+        tdUser: "Username",
+        tdAcc: "Account ID",
+        tdBal: "Balance",
+        tdRef: "Referred By",
+        tdJoin: "Joined At",
+        tdLang: "Language"
+      },
+      BN: {
+        searchPh: "VPN, Proxy বা Mail ব্র্যান্ড খুঁজুন...",
+        topSelling: "🔥 টপ সেলিং",
+        topSellingSub: "সবচেয়ে জনপ্রিয় প্ল্যানসমূহ",
+        brandCatalog: "🛍️ সব ব্র্যান্ড",
+        navHome: "হোম",
+        navTools: "টুলস",
+        navDeposit: "ডিপোজিট",
+        navProfile: "প্রোফাইল",
+        backStore: "← স্টোরে ফিরে যান",
+        badgeFast: "⚡ ইনস্ট্যান্ট / দ্রুত ডেলিভারি",
+        badgeVer: "✅ ১০০% ভেরিফায়েড",
+        selPlan: "প্ল্যান বা মেয়াদ নির্বাচন করুন",
+        qty: "পরিমাণ (QUANTITY)",
+        selPlanPrice: "নির্বাচিত প্ল্যানের মূল্য",
+        totalPayable: "মোট পরিশোধযোগ্য",
+        walletBal: "আপনার ওয়ালেট ব্যালেন্স",
+        addBal: "💳 ওয়ালেটে ব্যালেন্স যোগ করুন",
+        proceedPay: "➡️ পেমেন্ট করতে এগিয়ে যান",
+        backCalc: "← ক্যালকুলেটরে ফিরুন",
+        compPay: "📲 পেমেন্ট সম্পন্ন করুন",
+        orders: "মোট অর্ডার",
+        spent: "মোট খরচ",
+        cancelled: "বাতিল",
+        purHist: "📄 কেনাকাটার হিস্টোরি",
+        refDashBtn: "👥 রেফারেল ও আয় ড্যাশবোর্ড ➔",
+        backProf: "← প্রোফাইলে ফিরুন",
+        yourRefLink: "🔗 আপনার রেফারেল লিংক",
+        howWorks: "💡 যেভাবে কাজ করে",
+        joinedRefs: "📋 জয়েন করা রেফারেল ইউজার",
+        aiTitle: "🤖 সাইবারনেস্ট লাইভ AI সাপোর্ট",
+        aiSub: "বাংলা, বাংলিশ বা ইংরেজিতে যেকোনো প্রশ্ন করুন",
+        aiPh: "আপনার প্রশ্নটি এখানে লিখুন...",
+        notifTitle: "🔔 নোটিফিকেশন",
+        filterTitle: "⚙️ ফিল্টার ও সর্ট করুন",
+        tdName: "নাম",
+        tdUser: "ইউজারনেম",
+        tdAcc: "অ্যাকাউন্ট আইডি",
+        tdBal: "ব্যালেন্স",
+        tdRef: "রেফার করেছেন",
+        tdJoin: "যোগদানের তারিখ",
+        tdLang: "ভাষা"
+      }
+    };
+
     function applyLanguageLabels() {
-      const bn = APP.lang === "BN";
-      document.getElementById("searchInput").placeholder = bn ? "VPN, Proxy বা Mail ব্র্যান্ড খুঁজুন..." : "Search VPN, Proxy, Mail brands...";
-      document.getElementById("lblTopSelling").innerText = bn ? "🔥 টপ সেলিং" : "🔥 Top Selling";
-      document.getElementById("prodSecTitle").innerText = bn ? "🛍️ সব ব্র্যান্ড" : "🛍️ Brand Catalog";
-      document.getElementById("navLblHome").innerText = bn ? "হোম" : "Home";
-      document.getElementById("navLblTools").innerText = bn ? "টুলস" : "Tools";
-      document.getElementById("navLblDeposit").innerText = bn ? "ডিপোজিট" : "Deposit";
-      document.getElementById("navLblProfile").innerText = bn ? "প্রোফাইল" : "Profile";
+      const t = I18N[APP.lang] || I18N.EN;
+      const setTxt = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
+      document.getElementById("searchInput").placeholder = t.searchPh;
+      document.getElementById("aiInputBox").placeholder = t.aiPh;
+      setTxt("lblTopSelling", t.topSelling);
+      setTxt("lblTopSellingSub", t.topSellingSub);
+      setTxt("prodSecTitle", t.brandCatalog);
+      setTxt("navLblHome", t.navHome);
+      setTxt("navLblTools", t.navTools);
+      setTxt("navLblDeposit", t.navDeposit);
+      setTxt("navLblProfile", t.navProfile);
+      setTxt("lblBackStore", t.backStore);
+      setTxt("lblBadgeFast", t.badgeFast);
+      setTxt("lblBadgeVer", t.badgeVer);
+      setTxt("lblSelectPlan", t.selPlan);
+      setTxt("lblQty", t.qty);
+      setTxt("lblSelPlanPrice", t.selPlanPrice);
+      setTxt("lblTotalPayable", t.totalPayable);
+      setTxt("lblWalletBal", t.walletBal);
+      setTxt("lblAddBalance", t.addBal);
+      setTxt("lblProceedPay", t.proceedPay);
+      setTxt("lblBackCalc", t.backCalc);
+      setTxt("lblCompPay", t.compPay);
+      setTxt("lblOrders", t.orders);
+      setTxt("lblSpent", t.spent);
+      setTxt("lblCancelled", t.cancelled);
+      setTxt("lblPurHist", t.purHist);
+      setTxt("lblRefDashBtn", t.refDashBtn);
+      setTxt("lblBackProf", t.backProf);
+      setTxt("lblYourRefLink", t.yourRefLink);
+      setTxt("lblHowItWorks", t.howWorks);
+      setTxt("lblJoinedRefs", t.joinedRefs);
+      setTxt("lblAiTitle", t.aiTitle);
+      setTxt("lblAiSub", t.aiSub);
+      setTxt("lblNotifTitle", t.notifTitle);
+      setTxt("lblFilterTitle", t.filterTitle);
+      setTxt("tdLblName", t.tdName);
+      setTxt("tdLblUser", t.tdUser);
+      setTxt("tdLblAcc", t.tdAcc);
+      setTxt("tdLblBal", t.tdBal);
+      setTxt("tdLblRef", t.tdRef);
+      setTxt("tdLblJoin", t.tdJoin);
+      setTxt("tdLblLang", t.tdLang);
     }
 
     function copyText(txt) {
