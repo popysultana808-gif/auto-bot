@@ -274,10 +274,16 @@ def _build_live_store_context(user_id: Optional[int] = None) -> Dict[str, Any]:
         "user_name": user_name,
     }
 
-def _call_gemini_if_configured(question: str, ctx: Dict[str, Any]) -> Optional[str]:
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    if not api_key:
-        return None
+_AI_CHAT_HISTORY: Dict[int, List[Dict[str, str]]] = {}
+
+def _call_gemini_if_configured(question: str, ctx: Dict[str, Any], user_id: Optional[int] = None) -> Optional[str]:
+    raw_gemini = os.getenv("GEMINI_API_KEY", "").strip()
+    groq_key = os.getenv("GROQ_API_KEY", "").strip()
+
+    # Smart auto-detection: if user put gsk_ key inside GEMINI_API_KEY, use it for Groq
+    if not groq_key and raw_gemini.startswith("gsk_"):
+        groq_key = raw_gemini
+        raw_gemini = ""
 
     catalog_lines = []
     for p in ctx["prods"]:
@@ -288,75 +294,96 @@ def _call_gemini_if_configured(question: str, ctx: Dict[str, Any]) -> Optional[s
         catalog_lines.append(f"- {p['cat_name']} | {p['sub_name']} | {p['name']} = {format_price(p['price_bdt'])} BDT ({st_str})")
 
     sys_prompt = (
-        f"You are the friendly, intelligent AI Assistant for '{ctx['shop_name']}' Telegram Digital Shop.\n"
-        f"You can answer BOTH:\n"
-        f"1. Store-specific questions (prices, stock, how to buy, deposit numbers, 2FA/OTP tools, referrals, orders) using the LIVE STORE DATA below.\n"
-        f"2. General conversation, greetings ('ভাই কেমন আছো?', 'Assalamu Alaikum', 'Hello'), and general outside knowledge questions naturally like a smart peer.\n"
-        f"Language Rule: Reply in the exact language/style the user uses. If the user writes in Bangla or Banglish (Bengali in English letters), reply in clear, natural Bangla. If they write in English, reply in English.\n"
-        f"Keep answers helpful, accurate, and concise. Use Telegram HTML formatting only (<b>, <i>, <code>) — no Markdown asterisks or # headings.\n\n"
-        f"LIVE STORE DATA:\n"
-        f"- Customer Name: {ctx['user_name']}, Wallet Balance: {ctx['user_bal']:.2f} BDT\n"
-        f"- Payment Numbers: bKash={ctx['bkash']}, Nagad={ctx['nagad']}, Binance={ctx['binance']}\n"
-        f"- Min Deposit: {ctx['min_dep']} BDT, USDT Rate: 1 USDT = {ctx['usdt_rate']} BDT\n"
-        f"- Admin Support: {ctx['support']}\n"
-        f"- Live Products:\n" + "\n".join(catalog_lines[:70])
+        f"You are the highly intelligent, helpful, and friendly AI Assistant of '{ctx['shop_name']}' — a 24/7 Automated Telegram Digital Store & Mini App.\n"
+        f"Think carefully and give thoughtful, accurate, well-structured answers to ANY question the user asks:\n"
+        f"1. Store & Business Questions: Explain our A-to-Z features, live product prices, stock, how to buy, deposit methods, 2FA/Outlook OTP tools, referral system, or VIP badges using the LIVE DATA below.\n"
+        f"2. General & Outside Knowledge: Answer casual greetings, general knowledge, tech, study, or any everyday question naturally like an intelligent human collaborator.\n\n"
+        f"LANGUAGE RULE:\n"
+        f"- Reply in the exact language/style the user uses. If they write in Bangla or Banglish (Bengali written with English letters), reply in clear, natural Bangla. If they write in English, reply in English.\n"
+        f"- Use Telegram HTML formatting ONLY (<b>, <i>, <code>) when formatting lists or highlights. Never use Markdown ** or ###.\n\n"
+        f"COMPLETE A-TO-Z SHOP FEATURES:\n"
+        f"- Automated Bot & Premium Mini App (Open Shop): RGB animated search, Filter & Sort, Auto-sliding Promo Banners, Top Selling slider, Brand-grouped Plan Selector, Light/Dark Theme, EN/BN Language Switch, BDT/USDT Currency Switch.\n"
+        f"- Products: Premium VPNs (with Verified/Warranty), Residential Proxies (Ready to order), Fresh & Recovery-Added Mails (live stock count + instant .xlsx Excel backup).\n"
+        f"- Instant Delivery & Official Receipts: One-Tap Copy credential cards, Excel (.xlsx) bulk files, and Official PDF Receipts with QR code verification.\n"
+        f"- Free Tools: Live 2FA Authenticator (6-digit TOTP) & Outlook/Hotmail IMAP Live OTP Reader.\n"
+        f"- Wallet & Deposit: Calculator-style deposit with bKash, Nagad & Binance (USDT).\n"
+        f"- VIP Membership Badges: Automatic Bronze (৳100+), Silver (৳500+), Gold VIP (৳2000+) badges + Referral & Earnings tracking.\n\n"
+        f"LIVE DATABASE SNAPSHOT:\n"
+        f"- Customer: {ctx['user_name']} | Wallet Balance: {ctx['user_bal']:.2f} BDT\n"
+        f"- Payment Numbers: bKash={ctx['bkash']} | Nagad={ctx['nagad']} | Binance={ctx['binance']}\n"
+        f"- Min Deposit: {ctx['min_dep']} BDT | USDT Rate: 1 USDT = {ctx['usdt_rate']} BDT | Support: {ctx['support']}\n"
+        f"- Live Catalog:\n" + "\n".join(catalog_lines[:75])
     )
 
-    payload_dict = {
-        "system_instruction": {"parts": [{"text": sys_prompt}]},
-        "contents": [{"role": "user", "parts": [{"text": question}]}],
-        "generationConfig": {"temperature": 0.6, "maxOutputTokens": 600},
-    }
-    payload = json.dumps(payload_dict).encode("utf-8")
+    uid_key = int(user_id or 0)
+    history = _AI_CHAT_HISTORY.get(uid_key, [])[-6:]
 
-    # Try Vertex Express endpoint first if key starts with AQ., otherwise Google AI Studio endpoints
-    endpoints = []
-    if api_key.startswith("AQ."):
-        endpoints.append(f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash:generateContent?key={api_key}")
-        endpoints.append(f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.0-flash:generateContent?key={api_key}")
-    endpoints.extend([
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}",
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}",
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}",
-    ])
-
-    for url in endpoints:
-        try:
-            req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=12) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            cands = data.get("candidates", [])
-            if cands:
-                parts = cands[0].get("content", {}).get("parts", [])
-                if parts and parts[0].get("text"):
-                    return parts[0]["text"].strip()
-        except Exception as e:
-            logger.warning(f"Gemini endpoint attempt failed ({url.split('?')[0]}): {e}")
-            continue
-
-    # Optional GroqCloud Free API fallback if GROQ_API_KEY is set
-    groq_key = os.getenv("GROQ_API_KEY", "").strip()
+    # 1. GROQCLOUD FIRST (Ultra-fast ~0.5-1s response)
     if groq_key:
-        try:
-            g_payload = json.dumps({
-                "model": "llama-3.3-70b-versatile",
-                "messages": [
-                    {"role": "system", "content": sys_prompt},
-                    {"role": "user", "content": question},
-                ],
-                "temperature": 0.6,
-                "max_tokens": 600,
-            }).encode("utf-8")
-            g_req = urllib.request.Request(
-                "https://api.groq.com/openai/v1/chat/completions",
-                data=g_payload,
-                headers={"Content-Type": "application/json", "Authorization": f"Bearer {groq_key}"},
-            )
-            with urllib.request.urlopen(g_req, timeout=12) as resp:
-                g_data = json.loads(resp.read().decode("utf-8"))
-            return g_data["choices"][0]["message"]["content"].strip()
-        except Exception as e:
-            logger.warning(f"Groq AI fallback failed: {e}")
+        messages = [{"role": "system", "content": sys_prompt}]
+        for h in history:
+            messages.append(h)
+        messages.append({"role": "user", "content": question})
+
+        for model_name in ("llama-3.3-70b-versatile", "llama-3.1-8b-instant"):
+            try:
+                g_payload = json.dumps({
+                    "model": model_name,
+                    "messages": messages,
+                    "temperature": 0.65,
+                    "max_tokens": 700,
+                }).encode("utf-8")
+                g_req = urllib.request.Request(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    data=g_payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {groq_key}",
+                        "User-Agent": "CyberNestBot/2.0",
+                    },
+                )
+                with urllib.request.urlopen(g_req, timeout=10) as resp:
+                    g_data = json.loads(resp.read().decode("utf-8"))
+                ans = g_data["choices"][0]["message"]["content"].strip()
+                if ans:
+                    history.append({"role": "user", "content": question})
+                    history.append({"role": "assistant", "content": ans})
+                    _AI_CHAT_HISTORY[uid_key] = history[-6:]
+                    return ans
+            except Exception as e:
+                logger.warning(f"Groq model {model_name} failed: {e}")
+
+    # 2. GEMINI API (Only if valid AIza... key is set; skips slow invalid loops)
+    if raw_gemini.startswith("AIza"):
+        contents = []
+        for h in history:
+            role = "model" if h["role"] == "assistant" else "user"
+            contents.append({"role": role, "parts": [{"text": h["content"]}]})
+        contents.append({"role": "user", "parts": [{"text": question}]})
+
+        payload = json.dumps({
+            "system_instruction": {"parts": [{"text": sys_prompt}]},
+            "contents": contents,
+            "generationConfig": {"temperature": 0.65, "maxOutputTokens": 700},
+        }).encode("utf-8")
+
+        for g_model in ("gemini-2.5-flash", "gemini-2.0-flash"):
+            try:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{g_model}:generateContent?key={raw_gemini}"
+                req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json", "User-Agent": "CyberNestBot/2.0"})
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                cands = data.get("candidates", [])
+                if cands:
+                    parts = cands[0].get("content", {}).get("parts", [])
+                    if parts and parts[0].get("text"):
+                        ans = parts[0]["text"].strip()
+                        history.append({"role": "user", "content": question})
+                        history.append({"role": "assistant", "content": ans})
+                        _AI_CHAT_HISTORY[uid_key] = history[-6:]
+                        return ans
+            except Exception as e:
+                logger.warning(f"Gemini {g_model} failed: {e}")
 
     return None
 
@@ -367,7 +394,7 @@ def generate_smart_ai_reply(question: str, user_id: Optional[int] = None) -> str
     ctx = _build_live_store_context(user_id=user_id)
 
     # Try live Gemini API first if GEMINI_API_KEY is configured in Render
-    gemini_ans = _call_gemini_if_configured(raw_q, ctx)
+    gemini_ans = _call_gemini_if_configured(raw_q, ctx, user_id=user_id)
     if gemini_ans:
         return gemini_ans
 
