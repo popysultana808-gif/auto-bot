@@ -332,7 +332,7 @@ def _call_gemini_if_configured(question: str, ctx: Dict[str, Any], user_id: Opti
             messages.append(h)
         messages.append({"role": "user", "content": question})
 
-        for model_name in ("llama-3.3-70b-versatile", "llama-3.1-8b-instant"):
+        for model_name in ("openai/gpt-oss-120b", "openai/gpt-oss-20b", "llama-3.1-8b-instant"):
             try:
                 g_payload = json.dumps({
                     "model": model_name,
@@ -1615,22 +1615,25 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     if not test_key:
                         return self._send_json({"ok": False, "error": "No API Key found. Paste a Groq (gsk_...) or Gemini (AIza...) key."})
                     if test_key.startswith("gsk_"):
-                        try:
-                            tp = json.dumps({
-                                "model": "llama-3.3-70b-versatile",
-                                "messages": [{"role": "user", "content": "Say 'AI Connected Successfully!' in Bangla in 1 short sentence."}],
-                                "max_tokens": 60,
-                            }).encode("utf-8")
-                            tr = urllib.request.Request(
-                                "https://api.groq.com/openai/v1/chat/completions",
-                                data=tp,
-                                headers={"Content-Type": "application/json", "Authorization": f"Bearer {test_key}", "User-Agent": "CyberNestBot/2.0"},
-                            )
-                            with urllib.request.urlopen(tr, timeout=10) as resp:
-                                td = json.loads(resp.read().decode("utf-8"))
-                            return self._send_json({"ok": True, "provider": "GroqCloud", "reply": td["choices"][0]["message"]["content"].strip()})
-                        except Exception as e:
-                            return self._send_json({"ok": False, "error": f"Groq Error: {e}"})
+                        last_err = "Unknown error"
+                        for tm in ("openai/gpt-oss-120b", "openai/gpt-oss-20b", "llama-3.1-8b-instant"):
+                            try:
+                                tp = json.dumps({
+                                    "model": tm,
+                                    "messages": [{"role": "user", "content": "Say 'AI Connected Successfully!' in Bangla in 1 short sentence."}],
+                                    "max_tokens": 80,
+                                }).encode("utf-8")
+                                tr = urllib.request.Request(
+                                    "https://api.groq.com/openai/v1/chat/completions",
+                                    data=tp,
+                                    headers={"Content-Type": "application/json", "Authorization": f"Bearer {test_key}", "User-Agent": "CyberNestBot/2.0"},
+                                )
+                                with urllib.request.urlopen(tr, timeout=10) as resp:
+                                    td = json.loads(resp.read().decode("utf-8"))
+                                return self._send_json({"ok": True, "provider": f"GroqCloud ({tm})", "reply": td["choices"][0]["message"]["content"].strip()})
+                            except Exception as e:
+                                last_err = str(e)
+                        return self._send_json({"ok": False, "error": f"Groq Error: {last_err}"})
                     elif test_key.startswith("AIza"):
                         try:
                             tp = json.dumps({"contents": [{"role": "user", "parts": [{"text": "Say 'AI Connected Successfully!' in Bangla in 1 short sentence."}]}]}).encode("utf-8")
