@@ -278,40 +278,87 @@ def _call_gemini_if_configured(question: str, ctx: Dict[str, Any]) -> Optional[s
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         return None
-    try:
-        catalog_lines = []
-        for p in ctx["prods"]:
-            if not p["is_active"]:
-                continue
-            cat_low = p["cat_name"].lower()
-            st_str = f"Stock: {p['in_stock']}" if "mail" in cat_low else ("Ready to order" if "proxy" in cat_low else "Verified/Warranty")
-            catalog_lines.append(f"- {p['cat_name']} | {p['sub_name']} | {p['name']} = {format_price(p['price_bdt'])} BDT ({st_str})")
-        sys_prompt = (
-            f"You are the friendly, smart AI Assistant for '{ctx['shop_name']}' Telegram Digital Shop.\n"
-            f"Reply in the exact language/style the user uses: if the user writes in Bangla or Banglish (Bengali written in English letters), reply in clear, natural Bangla. If they write in English, reply in English.\n"
-            f"Answer ONLY what the user specifically asked—do NOT dump unrelated price lists or buttons. Keep answers concise, warm, and accurate.\n"
-            f"Use Telegram HTML formatting only (<b>, <i>, <code>).\n\n"
-            f"LIVE STORE DATA:\n"
-            f"- User Name: {ctx['user_name']}, Wallet Balance: {ctx['user_bal']:.2f} BDT\n"
-            f"- Payment Numbers: bKash={ctx['bkash']}, Nagad={ctx['nagad']}, Binance={ctx['binance']}\n"
-            f"- Min Deposit: {ctx['min_dep']} BDT, USDT Rate: 1 USDT = {ctx['usdt_rate']} BDT\n"
-            f"- Support: {ctx['support']}\n"
-            f"- Products:\n" + "\n".join(catalog_lines[:60])
-        )
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-        payload = json.dumps({
-            "system_instruction": {"parts": [{"text": sys_prompt}]},
-            "contents": [{"role": "user", "parts": [{"text": question}]}],
-            "generationConfig": {"temperature": 0.4, "maxOutputTokens": 450},
-        }).encode("utf-8")
-        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=12) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        return text if text else None
-    except Exception as e:
-        logger.warning(f"Gemini AI fallback triggered: {e}")
-        return None
+
+    catalog_lines = []
+    for p in ctx["prods"]:
+        if not p["is_active"]:
+            continue
+        cat_low = p["cat_name"].lower()
+        st_str = f"Stock: {p['in_stock']}" if "mail" in cat_low else ("Ready to order" if "proxy" in cat_low else "Verified/Warranty")
+        catalog_lines.append(f"- {p['cat_name']} | {p['sub_name']} | {p['name']} = {format_price(p['price_bdt'])} BDT ({st_str})")
+
+    sys_prompt = (
+        f"You are the friendly, intelligent AI Assistant for '{ctx['shop_name']}' Telegram Digital Shop.\n"
+        f"You can answer BOTH:\n"
+        f"1. Store-specific questions (prices, stock, how to buy, deposit numbers, 2FA/OTP tools, referrals, orders) using the LIVE STORE DATA below.\n"
+        f"2. General conversation, greetings ('ভাই কেমন আছো?', 'Assalamu Alaikum', 'Hello'), and general outside knowledge questions naturally like a smart peer.\n"
+        f"Language Rule: Reply in the exact language/style the user uses. If the user writes in Bangla or Banglish (Bengali in English letters), reply in clear, natural Bangla. If they write in English, reply in English.\n"
+        f"Keep answers helpful, accurate, and concise. Use Telegram HTML formatting only (<b>, <i>, <code>) — no Markdown asterisks or # headings.\n\n"
+        f"LIVE STORE DATA:\n"
+        f"- Customer Name: {ctx['user_name']}, Wallet Balance: {ctx['user_bal']:.2f} BDT\n"
+        f"- Payment Numbers: bKash={ctx['bkash']}, Nagad={ctx['nagad']}, Binance={ctx['binance']}\n"
+        f"- Min Deposit: {ctx['min_dep']} BDT, USDT Rate: 1 USDT = {ctx['usdt_rate']} BDT\n"
+        f"- Admin Support: {ctx['support']}\n"
+        f"- Live Products:\n" + "\n".join(catalog_lines[:70])
+    )
+
+    payload_dict = {
+        "system_instruction": {"parts": [{"text": sys_prompt}]},
+        "contents": [{"role": "user", "parts": [{"text": question}]}],
+        "generationConfig": {"temperature": 0.6, "maxOutputTokens": 600},
+    }
+    payload = json.dumps(payload_dict).encode("utf-8")
+
+    # Try Vertex Express endpoint first if key starts with AQ., otherwise Google AI Studio endpoints
+    endpoints = []
+    if api_key.startswith("AQ."):
+        endpoints.append(f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash:generateContent?key={api_key}")
+        endpoints.append(f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.0-flash:generateContent?key={api_key}")
+    endpoints.extend([
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}",
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}",
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}",
+    ])
+
+    for url in endpoints:
+        try:
+            req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            cands = data.get("candidates", [])
+            if cands:
+                parts = cands[0].get("content", {}).get("parts", [])
+                if parts and parts[0].get("text"):
+                    return parts[0]["text"].strip()
+        except Exception as e:
+            logger.warning(f"Gemini endpoint attempt failed ({url.split('?')[0]}): {e}")
+            continue
+
+    # Optional GroqCloud Free API fallback if GROQ_API_KEY is set
+    groq_key = os.getenv("GROQ_API_KEY", "").strip()
+    if groq_key:
+        try:
+            g_payload = json.dumps({
+                "model": "llama-3.3-70b-versatile",
+                "messages": [
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": question},
+                ],
+                "temperature": 0.6,
+                "max_tokens": 600,
+            }).encode("utf-8")
+            g_req = urllib.request.Request(
+                "https://api.groq.com/openai/v1/chat/completions",
+                data=g_payload,
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {groq_key}"},
+            )
+            with urllib.request.urlopen(g_req, timeout=12) as resp:
+                g_data = json.loads(resp.read().decode("utf-8"))
+            return g_data["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            logger.warning(f"Groq AI fallback failed: {e}")
+
+    return None
 
 def generate_smart_ai_reply(question: str, user_id: Optional[int] = None) -> str:
     """Conversational AI Assistant: understands Bangla, Banglish & English and answers the exact question."""
@@ -340,10 +387,10 @@ def generate_smart_ai_reply(question: str, user_id: Optional[int] = None) -> str
             f"ওয়ালাইকুম আসসালাম, {html.escape(ctx['user_name'])}! 😊\n"
             f"কেমন আছেন? আপনার কোনো প্রশ্ন বা অসুবিধা থাকলে আমাকে নির্দ্বিধায় জিজ্ঞেস করুন—আমি সাথে সাথে সাহায্য করব।"
         )
-    if q in ("hi", "hello", "hlw", "hey", "হ্যালো", "হাই", "কেমন আছেন", "kemon achen", "kemon asen"):
-        if is_bangla_ctx:
-            return f"হ্যালো {html.escape(ctx['user_name'])}! 😊 আলহামদুলিল্লাহ ভালো আছি। বলুন, আজ আপনাকে কীভাবে সাহায্য করতে পারি?"
-        return f"Hello {html.escape(ctx['user_name'])}! 😊 How can I help you today? Feel free to ask anything about our store, orders, or payments."
+    if any(g in q for g in ["হ্যালো", "হাই", "কেমন আছ", "kemon ach", "kemon as", "ki khobor", "কি খবর", "hello", "hlw", "hey", "how are you"]) or q == "hi":
+        if is_bangla_ctx or has_bn_chars:
+            return f"হ্যালো {html.escape(ctx['user_name'])}! 😊 আলহামদুলিল্লাহ ভালো আছি। আপনি কেমন আছেন? বলুন, আজ আপনাকে কীভাবে সাহায্য করতে পারি?"
+        return f"Hello {html.escape(ctx['user_name'])}! 😊 I'm doing great! How can I help you today?"
 
     # 2. How to Buy / Purchase Guide (Specific step-by-step instructions)
     is_how_to_buy = any(k in q for k in ["kivabe", "how to buy", "how to purchase", "purchase", "কিনব", "কিভাবে", "অর্ডার করব", "order korbo", "kinbo", "kinte"])
