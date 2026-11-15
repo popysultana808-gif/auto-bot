@@ -1501,6 +1501,18 @@
           <b>12. Layout & Reset</b>
           <small>Bot menu & Factory Reset</small>
         </div>
+        <div class="adm-tile" style="grid-column:span 2" onclick="openAdminSection('ai_settings')">
+          <div class="row-between">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div class="adm-tile-icon">🤖</div>
+              <div>
+                <b>13. AI Assistant Settings & Live Test</b>
+                <small style="display:block">Save Groq / Gemini API Key once — auto-fixes both Website & Bot AI</small>
+              </div>
+            </div>
+            <span>➔</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1944,7 +1956,7 @@
       }
       const sorted = [...APP.products].sort((a, b) => (b.sold_count || 0) - (a.sold_count || 0)).slice(0, 6);
       wrap.innerHTML = sorted.map(p => {
-        const img = prodImgUrl(p);
+        const img = prodImgUrl({ image_file_id: p.brand_image || p.image_file_id });
         return `
           <div class="top-hcard" onclick="openBrandPage(${p.sub_id}, ${p.id})">
             <div class="top-left">
@@ -1988,7 +2000,8 @@
             sub_name: p.sub_name,
             category_id: p.category_id,
             cat_name: p.cat_name,
-            image_file_id: p.image_file_id || "",
+            image_file_id: p.brand_image || p.image_file_id || "",
+            brand_image: p.brand_image || "",
             description: p.description || "",
             min_price: Number(p.price_bdt),
             max_price: Number(p.price_bdt),
@@ -1999,6 +2012,7 @@
           });
         }
         const g = map.get(key);
+        if (!g.brand_image && p.brand_image) { g.brand_image = p.brand_image; g.image_file_id = p.brand_image; }
         if (!g.image_file_id && p.image_file_id) g.image_file_id = p.image_file_id;
         if (!g.description && p.description) g.description = p.description;
         g.min_price = Math.min(g.min_price, Number(p.price_bdt));
@@ -2542,19 +2556,43 @@
         `;
       }
 
-      // 3. Manage Product Photos
+      // 3. Manage Brand Photos (1 Photo per Brand for Website; Bot keeps per-plan photos separate)
       else if (sec === "manage_photos") {
-        badge.innerText = "🖼️ PRODUCT PHOTOS";
-        box.innerHTML = APP.products.map(p => `
-          <div class="card">
-            <b>${p.sub_name} — ${p.name}</b>
-            <input id="pho_in_${p.id}" class="input" placeholder="Paste Image URL or Telegram file_id" value="${p.image_file_id || ''}" />
-            <div class="row-between">
-              <button class="btn-primary" style="flex:1" onclick="admSavePhoto(${p.id}, true)">🖼️ Save for Brand</button>
-              <button class="btn-outline" style="color:var(--red)" onclick="document.getElementById('pho_in_${p.id}').value='';admSavePhoto(${p.id}, true)">🗑️ Remove</button>
-            </div>
+        badge.innerText = "🖼️ BRAND PHOTOS";
+        const brands = buildGroupedBrands();
+        box.innerHTML = `
+          <div class="card" style="background:var(--accent-soft);border-color:var(--accent);font-size:12px">
+            <b>ℹ️ Website Brand Photos (1 Photo per Brand)</b><br>
+            এখানে প্রতিটি ব্র্যান্ডের জন্য ১টি ছবি গ্যালারি/ল্যাপটপ থেকে আপলোড করলেই ওয়েবসাইটে দেখাবে (বটের আলাদা সেকশনের ছবি আগের মতোই থাকবে)।
           </div>
-        `).join("");
+        ` + brands.map(g => {
+          const curImg = g.brand_image || g.image_file_id || "";
+          const prevSrc = prodImgUrl({ image_file_id: curImg });
+          return `
+            <div class="card">
+              <div class="row-between" style="margin-bottom:8px">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div class="prod-thumb" id="bpho_prev_${g.sub_id}">
+                    ${prevSrc ? `<img src="${prevSrc}">` : catIcon(g.cat_name)}
+                  </div>
+                  <div>
+                    <b style="font-size:14px">${g.sub_name}</b>
+                    <div style="font-size:11px;color:var(--muted)">${g.cat_name} • ${g.plans.length} Plans</div>
+                  </div>
+                </div>
+              </div>
+              <input type="file" accept="image/*" id="bpho_file_${g.sub_id}" class="hidden" onchange="admPickBrandFile(${g.sub_id}, this)" />
+              <div class="row-between" style="margin-bottom:8px">
+                <button class="btn-primary" style="flex:1" onclick="document.getElementById('bpho_file_${g.sub_id}').click()">📁 Choose from Gallery / PC</button>
+                <button class="btn-outline" style="color:var(--red)" onclick="admSaveBrandPhoto(${g.sub_id}, '')">🗑️ Remove</button>
+              </div>
+              <div class="row-between">
+                <input id="bpho_url_${g.sub_id}" class="input" style="margin:0;flex:1;font-size:11.5px" placeholder="Or paste Image URL / file_id" value="${curImg.startsWith('data:') ? '' : curImg}" />
+                <button class="btn-outline" onclick="admSaveBrandPhoto(${g.sub_id}, document.getElementById('bpho_url_${g.sub_id}').value.trim())">Save URL</button>
+              </div>
+            </div>
+          `;
+        }).join("");
       }
 
       // 4. Payment Settings
@@ -2692,7 +2730,11 @@
             <input id="bnTitle" class="input" placeholder="Banner Headline (e.g. Nord VPN 50% Off)" />
             <input id="bnSub" class="input" placeholder="Subtitle text" />
             <input id="bnBadge" class="input" placeholder="Badge tag (e.g. 🔥 HOT DEAL)" value="🔥 HOT OFFER" />
-            <input id="bnImg" class="input" placeholder="Image URL or Telegram file_id (optional)" />
+            <input type="file" accept="image/*" id="bnFilePick" class="hidden" onchange="admPickImageToInput(this, 'bnImg')" />
+            <div class="row-between" style="margin-bottom:6px">
+              <input id="bnImg" class="input" style="margin:0;flex:1" placeholder="Image URL, file_id, or upload ➔" />
+              <button class="btn-outline" onclick="document.getElementById('bnFilePick').click()">📁 Gallery</button>
+            </div>
             <label style="font-size:11px;font-weight:700">Click Target Brand</label>
             <select id="bnTargetSub" class="input">${subOpts}</select>
             <button class="btn-primary" onclick="admAddBanner()">➕ Add Ad Banner</button>
@@ -2714,7 +2756,11 @@
             </select>
             <input id="popTitle" class="input" placeholder="Popup Title" value="${APP.settings.popup_title || ''}" />
             <textarea id="popText" rows="2" placeholder="Popup Message">${APP.settings.popup_text || ''}</textarea>
-            <input id="popImg" class="input" placeholder="Popup Image URL or file_id" value="${APP.settings.popup_image || ''}" />
+            <input type="file" accept="image/*" id="popFilePick" class="hidden" onchange="admPickImageToInput(this, 'popImg')" />
+            <div class="row-between" style="margin-bottom:8px">
+              <input id="popImg" class="input" style="margin:0;flex:1" placeholder="Popup Image URL, file_id, or upload ➔" value="${(APP.settings.popup_image || '').startsWith('data:') ? '' : (APP.settings.popup_image || '')}" />
+              <button class="btn-outline" onclick="document.getElementById('popFilePick').click()">📁 Gallery</button>
+            </div>
             <button class="btn-primary" onclick="admSavePopup()">💾 Save Popup</button>
           </div>
 
@@ -2763,6 +2809,25 @@
           </div>
         `;
         renderCustomTxWizard();
+      }
+
+      // 13. AI Settings & Live Connection Test
+      else if (sec === "ai_settings") {
+        badge.innerText = "🤖 AI SETTINGS";
+        box.innerHTML = `
+          <div class="card">
+            <h4 style="margin:0 0 8px">🤖 AI Assistant API Key (Bot + Website Sync)</h4>
+            <p style="font-size:12px;color:var(--muted);line-height:1.5">
+              এখানে আপনার ফ্রি <b>GroqCloud (gsk_...)</b> অথবা <b>Google Gemini (AIza...)</b> API Key বসিয়ে <b>Save & Test</b> চাপলে ওয়েবসাইট ও টেলিগ্রাম বট—দুটোরই AI সাথে সাথে অটোমেটিক কাজ শুরু করবে।
+            </p>
+            <input id="admAiKeyIn" class="input" placeholder="Paste gsk_... or AIza... API Key" />
+            <div class="row-between">
+              <button class="btn-primary" style="flex:2" onclick="admSaveTestAi('save')">💾 Save & Test AI</button>
+              <button class="btn-outline" style="flex:1" onclick="admSaveTestAi('test')">⚡ Test Active</button>
+            </div>
+            <div id="admAiTestResult" style="margin-top:12px"></div>
+          </div>
+        `;
       }
 
       // 12. Menu Layout & Factory Reset
@@ -2867,11 +2932,64 @@
       openAdminSection("manage_buttons");
     }
 
-    async function admSavePhoto(pid, applyBrand) {
-      const image_file_id = document.getElementById("pho_in_" + pid).value.trim();
-      await api("/api/admin/product_update", { product_id: pid, image_file_id, apply_to_brand: applyBrand });
-      showToast("🖼️ Photo updated!");
-      await boot();
+    function compressImageFile(file, maxDim = 480) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => {
+            let w = img.width, h = img.height;
+            if (w > maxDim || h > maxDim) {
+              if (w > h) { h = Math.round((h * maxDim) / w); w = maxDim; }
+              else { w = Math.round((w * maxDim) / h); h = maxDim; }
+            }
+            const canvas = document.createElement("canvas");
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, w, h);
+            resolve(canvas.toDataURL("image/jpeg", 0.82));
+          };
+          img.onerror = reject;
+          img.src = e.target.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function admPickBrandFile(subId, inputEl) {
+      const file = inputEl.files && inputEl.files[0];
+      if (!file) return;
+      showToast("⏳ Uploading brand photo...");
+      try {
+        const dataUri = await compressImageFile(file, 480);
+        await admSaveBrandPhoto(subId, dataUri);
+      } catch (e) {
+        showToast("❌ Could not read image file");
+      }
+    }
+
+    async function admSaveBrandPhoto(subId, imgVal) {
+      const r = await api("/api/admin/brand_photo", { sub_id: subId, brand_image: imgVal });
+      if (r.ok) {
+        showToast(imgVal ? "🖼️ Brand photo saved!" : "🗑️ Brand photo removed!");
+        await boot();
+        openAdminSection("manage_photos");
+      } else {
+        showToast("❌ Failed to save photo");
+      }
+    }
+
+    async function admPickImageToInput(inputEl, targetInputId) {
+      const file = inputEl.files && inputEl.files[0];
+      if (!file) return;
+      try {
+        const dataUri = await compressImageFile(file, 720);
+        document.getElementById(targetInputId).value = dataUri;
+        showToast("✅ Photo ready! Now click Save.");
+      } catch (e) {
+        showToast("❌ Could not read image file");
+      }
     }
 
     async function admSavePaymentSettings() {
@@ -3171,6 +3289,19 @@
       await api("/api/admin/menu_layout", { reset: true });
       showToast("✅ Default bot menu layout restored!");
       openAdminSection("layout_reset");
+    }
+
+    async function admSaveTestAi(action) {
+      const key = document.getElementById("admAiKeyIn").value.trim();
+      const box = document.getElementById("admAiTestResult");
+      box.innerHTML = `<div class="card" style="background:var(--card-2);margin:0">⏳ Testing live AI connection...</div>`;
+      const r = await api("/api/admin/ai_settings", { action, ai_api_key: key });
+      if (r.ok) {
+        box.innerHTML = `<div class="card" style="background:var(--green-soft);border-color:var(--green);margin:0"><b>✅ ${r.provider || "AI"} Connected!</b><div style="font-size:12px;margin-top:4px">Test Reply: ${r.reply}</div></div>`;
+        showToast("✅ AI Connected for both Bot & Website!");
+      } else {
+        box.innerHTML = `<div class="card" style="background:var(--red-soft);border-color:var(--red);color:var(--red);margin:0"><b>❌ ${r.error || "Connection failed"}</b></div>`;
+      }
     }
 
     async function admFactoryReset() {
