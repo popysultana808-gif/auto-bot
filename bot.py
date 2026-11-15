@@ -394,6 +394,17 @@ def _call_gemini_if_configured(question: str, ctx: Dict[str, Any], user_id: Opti
 
     return None
 
+def _sanitize_ai_for_telegram(text: str) -> str:
+    import re as _re
+    s = (text or "").strip()
+    s = _re.sub(r"<br\s*/?>", "\n", s, flags=_re.IGNORECASE)
+    s = _re.sub(r"</?(?:ul|ol|p|div)>", "\n", s, flags=_re.IGNORECASE)
+    s = _re.sub(r"<li[^>]*>", "• ", s, flags=_re.IGNORECASE)
+    s = _re.sub(r"</li>", "\n", s, flags=_re.IGNORECASE)
+    s = _re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s)
+    s = _re.sub(r"\n{3,}", "\n\n", s)
+    return s.strip()
+
 def generate_smart_ai_reply(question: str, user_id: Optional[int] = None) -> str:
     """Conversational AI Assistant: understands Bangla, Banglish & English and answers the exact question."""
     raw_q = (question or "").strip()
@@ -4771,8 +4782,18 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     if state == "WAITING_AI_QUESTION":
-        reply_txt = generate_smart_ai_reply(text, user_id=user.id)
-        await update.message.reply_text(reply_txt, parse_mode=ParseMode.HTML)
+        try:
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+        except Exception:
+            pass
+        reply_txt = await asyncio.to_thread(generate_smart_ai_reply, text, user.id)
+        safe_txt = _sanitize_ai_for_telegram(reply_txt)
+        try:
+            await update.message.reply_text(safe_txt[:4000], parse_mode=ParseMode.HTML)
+        except Exception:
+            import re as _re
+            plain_txt = _re.sub(r"<[^>]+>", "", safe_txt)
+            await update.message.reply_text(plain_txt[:4000])
         return
 
     if state == "WAITING_OUTLOOK_STR":
@@ -4877,8 +4898,17 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if not is_admin(user.id):
         # Fallback for normal users typing questions directly in chat -> Smart AI Assistant
-        ans = generate_smart_ai_reply(text, user_id=user.id)
-        await update.message.reply_text(ans, parse_mode=ParseMode.HTML)
+        try:
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+        except Exception:
+            pass
+        ans = await asyncio.to_thread(generate_smart_ai_reply, text, user.id)
+        safe_ans = _sanitize_ai_for_telegram(ans)
+        try:
+            await update.message.reply_text(safe_ans[:4000], parse_mode=ParseMode.HTML)
+        except Exception:
+            import re as _re
+            await update.message.reply_text(_re.sub(r"<[^>]+>", "", safe_ans)[:4000])
         return
 
     if state == "ADMIN_WAITING_STOCK_INPUT":
