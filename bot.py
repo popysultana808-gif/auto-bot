@@ -787,13 +787,13 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             c.execute("SELECT id, name, icon, position FROM categories ORDER BY position ASC, id ASC")
             cats = [dict(r) for r in c.fetchall()]
 
-            c.execute("SELECT id, category_id, name, position FROM subcategories ORDER BY position ASC, id ASC")
+            c.execute("SELECT id, category_id, name, position, brand_image FROM subcategories ORDER BY position ASC, id ASC")
             subs = [dict(r) for r in c.fetchall()]
 
             c.execute("""
                 SELECT p.id, p.name, p.price_bdt, p.price_usdt, p.image_file_id, p.description,
                        COALESCE(p.is_active, 1) as is_active, s.id as sub_id, s.name as sub_name,
-                       s.category_id, cat.name as cat_name,
+                       s.brand_image as brand_image, s.category_id, cat.name as cat_name,
                        (SELECT COUNT(*) FROM stock st WHERE st.product_id = p.id AND st.is_sold = 0) as in_stock,
                        (SELECT COALESCE(SUM(o.quantity), 0) FROM orders o WHERE o.product_id = p.id AND o.status != 'refunded') as sold_count
                 FROM products p
@@ -1583,6 +1583,16 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                         asyncio.run_coroutine_threadsafe(_run_web_bcast(), _GLOBAL_EVENT_LOOP)
                     return self._send_json({"ok": True, "total_targets": len(all_u)})
 
+                # 6.5 Brand Photo Update (1 photo per brand for Website, keeps Bot's per-plan photos separate)
+                if path == "/api/admin/brand_photo":
+                    sid = int(body.get("sub_id", 0))
+                    img_val = str(body.get("brand_image", "")).strip() or None
+                    if sid:
+                        c.execute("UPDATE subcategories SET brand_image = ? WHERE id = ?", (img_val, sid))
+                        conn.commit()
+                    conn.close()
+                    return self._send_json({"ok": True})
+
                 # 7. Product & Catalog Management (Edit / Create / Delete Category, Brand, Plan)
                 if path == "/api/admin/product_update":
                     pid = int(body.get("product_id", 0))
@@ -1990,6 +2000,7 @@ def init_db():
         category_id INTEGER,
         name TEXT NOT NULL,
         position INTEGER DEFAULT 0,
+        brand_image TEXT DEFAULT NULL,
         FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE CASCADE
     )
     """)
@@ -2101,6 +2112,7 @@ def init_db():
         try:
             cursor.execute("ALTER TABLE categories ADD COLUMN IF NOT EXISTS position INTEGER DEFAULT 0")
             cursor.execute("ALTER TABLE subcategories ADD COLUMN IF NOT EXISTS position INTEGER DEFAULT 0")
+            cursor.execute("ALTER TABLE subcategories ADD COLUMN IF NOT EXISTS brand_image TEXT DEFAULT NULL")
             cursor.execute("ALTER TABLE stock ADD COLUMN IF NOT EXISTS stock_type TEXT DEFAULT 'account'")
             cursor.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS is_active INTEGER DEFAULT 1")
             cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by BIGINT DEFAULT NULL")
@@ -2118,6 +2130,7 @@ def init_db():
         for col_sql in (
             "ALTER TABLE stock ADD COLUMN stock_type TEXT DEFAULT 'account'",
             "ALTER TABLE products ADD COLUMN is_active INTEGER DEFAULT 1",
+            "ALTER TABLE subcategories ADD COLUMN brand_image TEXT DEFAULT NULL",
             "ALTER TABLE users ADD COLUMN referred_by BIGINT DEFAULT NULL",
             "ALTER TABLE users ADD COLUMN referral_earnings REAL DEFAULT 0.0",
             "ALTER TABLE users ADD COLUMN pending_referral_tk REAL DEFAULT 0.0",
