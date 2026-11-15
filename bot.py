@@ -237,14 +237,11 @@ def fetch_outlook_otp(account_str: str) -> dict:
         return {"ok": False, "error": str(e)}
 
 # ------------------------------------------------------------------------------
-# 2. SMART LIVE DATABASE-BACKED AI SUPPORT ENGINE (For Bot & WebApp)
+# 2. SMART LIVE DATABASE-BACKED AI SUPPORT ENGINE (Bangla / Banglish / English)
 # ------------------------------------------------------------------------------
-def generate_smart_ai_reply(question: str, user_id: Optional[int] = None) -> str:
-    """Answers customer questions dynamically using live database prices, stock & payment info."""
-    q = (question or "").strip().lower()
+def _build_live_store_context(user_id: Optional[int] = None) -> Dict[str, Any]:
     conn = get_db()
     c = conn.cursor()
-
     c.execute("""
         SELECT p.id, p.name, p.price_bdt, COALESCE(p.is_active, 1) as is_active,
                s.name as sub_name, cat.name as cat_name,
@@ -255,106 +252,268 @@ def generate_smart_ai_reply(question: str, user_id: Optional[int] = None) -> str
         ORDER BY cat.position ASC, s.position ASC, p.id ASC
     """)
     prods = [dict(r) for r in c.fetchall()]
-
-    bkash = get_setting("bkash_number", "N/A")
-    nagad = get_setting("nagad_number", "N/A")
-    binance = get_setting("binance_id", "N/A")
-    min_dep = get_setting("min_deposit_manual", "20")
-    usdt_rate = get_setting("usdt_rate", "125")
-    support_un = get_setting("support_username", "@Talha_juba098")
-
     user_bal = 0.0
+    user_name = "Customer"
     if user_id:
-        c.execute("SELECT balance_bdt FROM users WHERE user_id = ?", (user_id,))
+        c.execute("SELECT balance_bdt, name FROM users WHERE user_id = ?", (user_id,))
         urow = c.fetchone()
         if urow:
             user_bal = float(urow["balance_bdt"] or 0.0)
+            user_name = urow["name"] or "Customer"
     conn.close()
+    return {
+        "prods": prods,
+        "bkash": get_setting("bkash_number", "N/A"),
+        "nagad": get_setting("nagad_number", "N/A"),
+        "binance": get_setting("binance_id", "N/A"),
+        "min_dep": get_setting("min_deposit_manual", "20"),
+        "usdt_rate": get_setting("usdt_rate", "125"),
+        "support": get_setting("support_username", "@Talha_juba098"),
+        "shop_name": get_setting("shop_name", "CyberNest Market"),
+        "user_bal": user_bal,
+        "user_name": user_name,
+    }
 
-    # Deposit / Payment queries
-    if any(k in q for k in ["deposit", "payment", "bkash", "nagad", "binance", "ডিপোজিট", "বিকাশ", "নগদ", "বাইনান্স", "পেমেন্ট", "টাকা অ্যাড", "রিচার্জ"]):
+def _call_gemini_if_configured(question: str, ctx: Dict[str, Any]) -> Optional[str]:
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        return None
+    try:
+        catalog_lines = []
+        for p in ctx["prods"]:
+            if not p["is_active"]:
+                continue
+            cat_low = p["cat_name"].lower()
+            st_str = f"Stock: {p['in_stock']}" if "mail" in cat_low else ("Ready to order" if "proxy" in cat_low else "Verified/Warranty")
+            catalog_lines.append(f"- {p['cat_name']} | {p['sub_name']} | {p['name']} = {format_price(p['price_bdt'])} BDT ({st_str})")
+        sys_prompt = (
+            f"You are the friendly, smart AI Assistant for '{ctx['shop_name']}' Telegram Digital Shop.\n"
+            f"Reply in the exact language/style the user uses: if the user writes in Bangla or Banglish (Bengali written in English letters), reply in clear, natural Bangla. If they write in English, reply in English.\n"
+            f"Answer ONLY what the user specifically asked—do NOT dump unrelated price lists or buttons. Keep answers concise, warm, and accurate.\n"
+            f"Use Telegram HTML formatting only (<b>, <i>, <code>).\n\n"
+            f"LIVE STORE DATA:\n"
+            f"- User Name: {ctx['user_name']}, Wallet Balance: {ctx['user_bal']:.2f} BDT\n"
+            f"- Payment Numbers: bKash={ctx['bkash']}, Nagad={ctx['nagad']}, Binance={ctx['binance']}\n"
+            f"- Min Deposit: {ctx['min_dep']} BDT, USDT Rate: 1 USDT = {ctx['usdt_rate']} BDT\n"
+            f"- Support: {ctx['support']}\n"
+            f"- Products:\n" + "\n".join(catalog_lines[:60])
+        )
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+        payload = json.dumps({
+            "system_instruction": {"parts": [{"text": sys_prompt}]},
+            "contents": [{"role": "user", "parts": [{"text": question}]}],
+            "generationConfig": {"temperature": 0.4, "maxOutputTokens": 450},
+        }).encode("utf-8")
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        return text if text else None
+    except Exception as e:
+        logger.warning(f"Gemini AI fallback triggered: {e}")
+        return None
+
+def generate_smart_ai_reply(question: str, user_id: Optional[int] = None) -> str:
+    """Conversational AI Assistant: understands Bangla, Banglish & English and answers the exact question."""
+    raw_q = (question or "").strip()
+    q = raw_q.lower()
+    ctx = _build_live_store_context(user_id=user_id)
+
+    # Try live Gemini API first if GEMINI_API_KEY is configured in Render
+    gemini_ans = _call_gemini_if_configured(raw_q, ctx)
+    if gemini_ans:
+        return gemini_ans
+
+    prods = ctx["prods"]
+    has_bn_chars = any("\u0980" <= ch <= "\u09ff" for ch in raw_q)
+    banglish_words = [
+        "kivabe", "koto", "dam", "kinbo", "kinte", "chai", "lagbe", "ache", "ase",
+        "amar", "taka", "bhai", "vai", "assalamu", "salam", "walaikum", "kemon",
+        "achen", "ashen", "valo", "bhalo", "korbo", "korte", "parbo", "holo", "problem",
+        "somossa", "oshubidha", "bkash", "nagad", "kothay", "debo", "dibo", "nibo", "please"
+    ]
+    is_bangla_ctx = has_bn_chars or any(w in q for w in banglish_words)
+
+    # 1. Greetings (Salam, Hello, Hi, How are you)
+    if any(g in q for g in ["assalamu", "salam", "সালাম", "আসসালামু"]):
         return (
-            f"💳 <b>লাইভ পেমেন্ট ও ডিপোজিট তথ্য:</b>\n"
-            f"────────────────────────\n"
-            f"📱 <b>bKash:</b> <code>{bkash}</code>\n"
-            f"📱 <b>Nagad:</b> <code>{nagad}</code>\n"
-            f"💎 <b>Binance:</b> <code>{binance}</code>\n\n"
-            f"📌 <b>সর্বনিম্ন ডিপোজিট:</b> ৳{format_price(float(min_dep))} BDT\n"
-            f"💱 <b>USDT রেট:</b> 1 USDT = ৳{usdt_rate} BDT\n"
-            f"💰 <b>আপনার বর্তমান ব্যালেন্স:</b> ৳{user_bal:.2f} BDT\n\n"
-            f"✅ <i>বটের 💳 Deposit বাটনে অথবা মিনি অ্যাপের ক্যালকুলেটরে গিয়ে Send Money করে TrxID সাবমিট করলেই ব্যালেন্স যুক্ত হয়ে যাবে!</i>"
+            f"ওয়ালাইকুম আসসালাম, {html.escape(ctx['user_name'])}! 😊\n"
+            f"কেমন আছেন? আপনার কোনো প্রশ্ন বা অসুবিধা থাকলে আমাকে নির্দ্বিধায় জিজ্ঞেস করুন—আমি সাথে সাথে সাহায্য করব।"
+        )
+    if q in ("hi", "hello", "hlw", "hey", "হ্যালো", "হাই", "কেমন আছেন", "kemon achen", "kemon asen"):
+        if is_bangla_ctx:
+            return f"হ্যালো {html.escape(ctx['user_name'])}! 😊 আলহামদুলিল্লাহ ভালো আছি। বলুন, আজ আপনাকে কীভাবে সাহায্য করতে পারি?"
+        return f"Hello {html.escape(ctx['user_name'])}! 😊 How can I help you today? Feel free to ask anything about our store, orders, or payments."
+
+    # 2. How to Buy / Purchase Guide (Specific step-by-step instructions)
+    is_how_to_buy = any(k in q for k in ["kivabe", "how to buy", "how to purchase", "purchase", "কিনব", "কিভাবে", "অর্ডার করব", "order korbo", "kinbo", "kinte"])
+    if is_how_to_buy:
+        if any(k in q for k in ["vpn", "ভিপিএন", "nord", "express", "surfshark", "proton"]):
+            if is_bangla_ctx:
+                return (
+                    "🛡️ <b>VPN কেনার সম্পূর্ণ নিয়ম (Step-by-Step):</b>\n"
+                    "────────────────────────\n"
+                    "১. প্রথমে ওয়ালেটে ব্যালেন্স না থাকলে <b>💳 Deposit</b> থেকে টাকা অ্যাড করে নিন।\n"
+                    "২. এরপর বটের <b>🛍️ Buy Products</b> অথবা <b>Open Shop</b> (মিনি অ্যাপ)-এ যান।\n"
+                    "৩. <b>🛡️ VPN</b> ক্যাটাগরি থেকে আপনার পছন্দের ব্র্যান্ড (যেমন: Nord VPN, Express VPN) ও মেয়াদ (৩/৭/১৫/৩০ দিন) সিলেক্ট করুন।\n"
+                    "৪. <b>Confirm</b> বাটনে চাপলেই আপনার অর্ডার সম্পন্ন হবে এবং ১৫–৩০ মিনিটের মধ্যে আপনার ইনবক্সে Email, Password ও অফিশিয়াল PDF রিসিট পৌঁছে যাবে।"
+                )
+            return (
+                "🛡️ <b>How to Purchase a VPN (Step-by-Step):</b>\n"
+                "────────────────────────\n"
+                "1. Make sure you have sufficient wallet balance (use <b>💳 Deposit</b> if needed).\n"
+                "2. Open <b>🛍️ Buy Products</b> or the <b>Open Shop</b> Mini App.\n"
+                "3. Select <b>🛡️ VPN</b>, pick your preferred brand & duration, and tap <b>Confirm</b>.\n"
+                "4. You will receive your verified Email & Password plus an official PDF receipt in your inbox within 15–30 minutes."
+            )
+        if any(k in q for k in ["proxy", "প্রক্সি", "rapid", "9 proxy", "711"]):
+            if is_bangla_ctx:
+                return (
+                    "🌐 <b>Proxy কেনার সম্পূর্ণ নিয়ম:</b>\n"
+                    "────────────────────────\n"
+                    "১. <b>💳 Deposit</b> থেকে ওয়ালেটে পর্যাপ্ত ব্যালেন্স যুক্ত করুন।\n"
+                    "২. <b>Open Shop</b> বা <b>🛍️ Buy Products</b> থেকে <b>🌐 Proxy</b> ক্যাটাগরিতে যান।\n"
+                    "৩. আপনার পছন্দের ব্র্যান্ড ও ডাটা প্যাক (100 MB, 200 MB, 500 MB, 1 GB) সিলেক্ট করে <b>Confirm</b> করুন।\n"
+                    "৪. অর্ডার কনফার্ম হলেই আপনার ইনবক্সে One-Tap Copy ফরম্যাটে প্রক্সি ও PDF রিসিট ডেলিভারি পাবেন।"
+                )
+            return (
+                "🌐 <b>How to Purchase a Proxy:</b>\n"
+                "────────────────────────\n"
+                "1. Top up your wallet via <b>💳 Deposit</b>.\n"
+                "2. Go to <b>🌐 Proxy</b> in the bot menu or Mini App.\n"
+                "3. Choose your brand and data plan (100 MB – 1 GB) and tap <b>Confirm</b>.\n"
+                "4. Your proxy credentials (One-Tap Copy format) and PDF receipt will be delivered to your inbox."
+            )
+        if is_bangla_ctx:
+            return (
+                "🛍️ <b>কেনাকাটা করার সম্পূর্ণ গাইডলাইন:</b>\n"
+                "────────────────────────\n"
+                "১. প্রথমে <b>💳 Deposit</b> বাটনে ক্লিক করে bKash, Nagad বা Binance-এর মাধ্যমে ব্যালেন্স অ্যাড করুন।\n"
+                "২. এরপর <b>🛍️ Buy Products</b> অথবা বাম পাশের <b>Open Shop</b> মিনি অ্যাপ ওপেন করুন।\n"
+                "৩. পছন্দের প্রোডাক্ট ও প্ল্যান সিলেক্ট করে <b>Confirm</b> চাপুন।\n"
+                "৪. Mail সাথে সাথেই অটো-ডেলিভারি হয় (এক্সেল ফাইল ও PDF রিসিটসহ), আর VPN/Proxy ১৫–৩০ মিনিটের মধ্যে ইনবক্সে ডেলিভারি দেওয়া হয়।"
+            )
+        return (
+            "🛍️ <b>How to Purchase (Complete Guide):</b>\n"
+            "────────────────────────\n"
+            "1. Add balance to your wallet using <b>💳 Deposit</b> (bKash, Nagad, or Binance).\n"
+            "2. Open <b>🛍️ Buy Products</b> or the <b>Open Shop</b> Mini App.\n"
+            "3. Choose your product, select quantity/plan, and tap <b>Confirm</b>.\n"
+            "4. Mail accounts deliver instantly with Excel & PDF receipts; VPN & Proxy orders deliver within 15–30 mins."
         )
 
-    # VPN price / packages query
-    if any(k in q for k in ["vpn", "nord", "express", "surfshark", "ip vanish", "ipvanish", "turbo", "hma", "panda", "proton", "ভিপিএন"]):
+    # 3. Deposit / Payment queries
+    if any(k in q for k in ["deposit", "payment", "bkash", "nagad", "binance", "ডিপোজিট", "বিকাশ", "নগদ", "বাইনান্স", "পেমেন্ট", "টাকা", "রিচার্জ", "recharge"]):
+        if is_bangla_ctx:
+            return (
+                f"💳 <b>ডিপোজিট করার নিয়ম ও লাইভ নাম্বার:</b>\n"
+                f"────────────────────────\n"
+                f"📱 <b>bKash:</b> <code>{ctx['bkash']}</code>\n"
+                f"📱 <b>Nagad:</b> <code>{ctx['nagad']}</code>\n"
+                f"💎 <b>Binance:</b> <code>{ctx['binance']}</code>\n\n"
+                f"📌 সর্বনিম্ন ডিপোজিট: <b>৳{format_price(float(ctx['min_dep']))} BDT</b> (1 USDT = ৳{ctx['usdt_rate']})\n"
+                f"💰 আপনার বর্তমান ব্যালেন্স: <b>৳{ctx['user_bal']:.2f} BDT</b>\n\n"
+                f"👉 উপরের নাম্বারে Send Money করে <b>💳 Deposit</b> মেনুতে গিয়ে টাকার পরিমাণ ও TrxID সাবমিট করলেই ব্যালেন্স যুক্ত হয়ে যাবে।"
+            )
+        return (
+            f"💳 <b>Deposit Instructions & Live Numbers:</b>\n"
+            f"────────────────────────\n"
+            f"📱 <b>bKash:</b> <code>{ctx['bkash']}</code>\n"
+            f"📱 <b>Nagad:</b> <code>{ctx['nagad']}</code>\n"
+            f"💎 <b>Binance:</b> <code>{ctx['binance']}</code>\n\n"
+            f"📌 Min Deposit: <b>৳{format_price(float(ctx['min_dep']))} BDT</b> (1 USDT = ৳{ctx['usdt_rate']})\n"
+            f"💰 Your Balance: <b>৳{ctx['user_bal']:.2f} BDT</b>\n\n"
+            f"Send Money to any number above, then submit the amount & TrxID in the <b>💳 Deposit</b> tab."
+        )
+
+    # 4. Check if user asked about a SPECIFIC Brand (e.g. "Rapid Proxy", "Nord VPN", "Hotmail")
+    brand_matches = []
+    seen_subs = set()
+    for p in prods:
+        if not p["is_active"]:
+            continue
+        sub_low = p["sub_name"].lower()
+        tokens = [t for t in sub_low.split() if len(t) > 2]
+        if sub_low in q or any(t in q for t in tokens):
+            if p["sub_id"] if "sub_id" in p else p["sub_name"] not in seen_subs:
+                brand_matches.append(p)
+    if brand_matches:
+        grouped_b: Dict[str, List[dict]] = {}
+        for p in brand_matches:
+            grouped_b.setdefault(p["sub_name"], []).append(p)
+        lines = []
+        for bname, plist in grouped_b.items():
+            lines.append(f"🏷️ <b>{bname}</b> ({plist[0]['cat_name']}):")
+            for pl in plist:
+                cat_l = pl["cat_name"].lower()
+                extra = f" — Stock: {pl['in_stock']}" if "mail" in cat_l else ""
+                lines.append(f"   • {pl['name']}: <b>৳{format_price(pl['price_bdt'])} BDT</b>{extra}")
+        return "\n".join(lines)
+
+    # 5. Category-specific Price / Stock Queries
+    if any(k in q for k in ["vpn", "ভিপিএন"]):
         vpn_items = [p for p in prods if "vpn" in p["cat_name"].lower() and p["is_active"]]
         grouped: Dict[str, List[str]] = {}
         for p in vpn_items:
             grouped.setdefault(p["sub_name"], []).append(f"{p['name']}: ৳{format_price(p['price_bdt'])}")
-        lines = ["🛡️ <b>লাইভ প্রিমিয়াম VPN প্রাইস লিস্ট:</b>", "────────────────────────"]
+        lines = ["🛡️ <b>লাইভ VPN প্রাইস লিস্ট:</b>" if is_bangla_ctx else "🛡️ <b>Live VPN Price List:</b>", "────────────────────────"]
         for brand, plans in grouped.items():
             lines.append(f"🔹 <b>{brand}:</b> " + " | ".join(plans))
-        lines.append("\n⚡ <i>সব VPN ১০০% ভেরিফায়েড ও ওয়ারেন্টি যুক্ত। অর্ডার করার ১৫-৩০ মিনিটের মধ্যে ইনবক্সে ডেলিভারি পাবেন।</i>")
         return "\n".join(lines)
 
-    # Proxy price / packages query
-    if any(k in q for k in ["proxy", "9 proxy", "9proxy", "rapid", "711", "প্রক্সি"]):
+    if any(k in q for k in ["proxy", "প্রক্সি"]):
         proxy_items = [p for p in prods if "proxy" in p["cat_name"].lower() and p["is_active"]]
         grouped_p: Dict[str, List[str]] = {}
         for p in proxy_items:
             grouped_p.setdefault(p["sub_name"], []).append(f"{p['name']}: ৳{format_price(p['price_bdt'])}")
-        lines = ["🌐 <b>লাইভ রেসিডেনশিয়াল Proxy প্যাকেজসমূহ:</b>", "────────────────────────"]
+        lines = ["🌐 <b>লাইভ Proxy প্যাকেজ ও দাম:</b>" if is_bangla_ctx else "🌐 <b>Live Proxy Packages & Prices:</b>", "────────────────────────"]
         for brand, plans in grouped_p.items():
             lines.append(f"🔸 <b>{brand}:</b> " + " | ".join(plans))
-        lines.append("\n✅ <i>সব প্রক্সি হাই-স্পিড ও Ready to Order! কিনলে ইনবক্সে One-Tap Copy ফরম্যাটে ও PDF রিসিটসহ পাবেন।</i>")
         return "\n".join(lines)
 
-    # Mail / Hotmail / Outlook stock & price query
     if any(k in q for k in ["mail", "hotmail", "outlook", "recovery", "মেইল", "হটমেইল", "আউটলুক", "স্টক", "stock"]):
         mail_items = [p for p in prods if "mail" in p["cat_name"].lower() and p["is_active"]]
-        lines = ["✉️ <b>লাইভ Mail প্রাইস ও স্টক আপডেট:</b>", "────────────────────────"]
+        lines = ["✉️ <b>লাইভ Mail দাম ও স্টক:</b>" if is_bangla_ctx else "✉️ <b>Live Mail Prices & Stock:</b>", "────────────────────────"]
         for p in mail_items:
-            st_txt = f"🟢 In Stock ({p['in_stock']} pcs)" if p["in_stock"] > 0 else "🔴 Out of Stock"
+            st_txt = f"🟢 Stock: {p['in_stock']} pcs" if p["in_stock"] > 0 else "🔴 Out of Stock"
             lines.append(f"📧 <b>{p['sub_name']} ({p['name']}):</b> ৳{format_price(p['price_bdt'])} — {st_txt}")
-        lines.append("\n⚡ <i>মেইল কেনার সাথে সাথেই ইনস্ট্যান্ট ডেলিভারি এবং .xlsx এক্সেল ব্যাকআপ ফাইল পাবেন!</i>")
         return "\n".join(lines)
 
-    # 2FA / OTP / Code query
-    if any(k in q for k in ["2fa", "otp", "code", "কোড", "ওটিপি", "ভেরিফিকেশন"]):
+    # 6. Balance, 2FA / OTP, Referral, Support
+    if any(k in q for k in ["balance", "ব্যালেন্স", "tk", "taka"]):
         return (
-            "🔐 <b>ফ্রি 2FA ও Mail OTP টুলস:</b>\n"
-            "────────────────────────\n"
-            "১. বটের <b>🔐 Get Code</b> মেনুতে অথবা ওয়েব অ্যাপের <b>Tools</b> ট্যাবে যান।\n"
-            "২. <b>Outlook / Hotmail OTP:</b> আপনার <code>email|password|refresh_token|client_id</code> পেস্ট করলেই সরাসরি ইনবক্স থেকে সর্বশেষ OTP কোড দেখিয়ে দেবে।\n"
-            "৩. <b>2FA Live Code:</b> যেকোনো Secret Key পেস্ট করলেই লাইভ ৬-ডিজিট কোড ও টাইমার পাবেন।"
+            f"💰 আপনার বর্তমান ওয়ালেট ব্যালেন্স: <b>৳{ctx['user_bal']:.2f} BDT</b>।"
+            if is_bangla_ctx
+            else f"💰 Your current wallet balance is <b>৳{ctx['user_bal']:.2f} BDT</b>."
         )
 
-    # Referral query
-    if any(k in q for k in ["refer", "referral", "রেফার", "রেফারেল", "আয়", "earn"]):
+    if any(k in q for k in ["2fa", "otp", "code", "কোড", "ওটিপি"]):
         return (
-            "👥 <b>রেফারেল ও আর্নিং প্রোগ্রাম:</b>\n"
-            "────────────────────────\n"
-            "• আপনার প্রোফাইল বা ওয়েব অ্যাপের <b>Referral & Earnings</b> পেজ থেকে আপনার রেফারেল লিংক কপি করে বন্ধুদের শেয়ার করুন।\n"
-            "• আপনার লিংকে কেউ জয়েন করলে আপনার রেফারেল কাউন্টার ও লিস্টে সাথে সাথে তার নাম, ইউজারনেম ও আইডি যুক্ত হয়ে যাবে!"
+            "🔐 ফ্রি 2FA ও Mail OTP পেতে বটের <b>🔐 Get Code</b> মেনু অথবা ওয়েব অ্যাপের <b>Tools</b> ট্যাবে যান। সেখানে Secret Key বা Outlook টোকেন দিলেই সাথে সাথে কোড পাবেন।"
+            if is_bangla_ctx
+            else "🔐 For free 2FA or Mail OTP codes, open <b>🔐 Get Code</b> in the bot or the <b>Tools</b> tab in the Mini App."
         )
 
-    # Full price list or general greeting
-    lines = [
-        "🤖 <b>CyberNest AI Support Assistant</b>",
-        "────────────────────────",
-        "আসসালামু আলাইকুম! আমি বটের লাইভ ডাটাবেসের সাথে যুক্ত। আমাদের স্টোরের সংক্ষিপ্ত লাইভ তথ্য নিচে দেওয়া হলো:\n",
-    ]
-    vpn_cnt = len([p for p in prods if "vpn" in p["cat_name"].lower() and p["is_active"]])
-    prx_cnt = len([p for p in prods if "proxy" in p["cat_name"].lower() and p["is_active"]])
-    mail_stock = sum(int(p["in_stock"] or 0) for p in prods if "mail" in p["cat_name"].lower())
+    if any(k in q for k in ["refer", "referral", "রেফার", "রেফারেল"]):
+        return (
+            "👥 প্রোফাইলের <b>Referral & Earnings</b> পেজ থেকে আপনার রেফারেল লিংক কপি করে বন্ধুদের শেয়ার করুন—তারা জয়েন করলেই আপনার লিস্টে লাইভ দেখতে পাবেন!"
+            if is_bangla_ctx
+            else "👥 Copy your invite link from the <b>Referral & Earnings</b> page in your Profile to track every friend who joins."
+        )
 
-    lines.append(f"🛡️ <b>প্রিমিয়াম VPN প্ল্যান:</b> {vpn_cnt} টি (৳১৫ থেকে শুরু)")
-    lines.append(f"🌐 <b>প্রিমিয়াম Proxy প্ল্যান:</b> {prx_cnt} টি (৳১০ থেকে শুরু)")
-    lines.append(f"✉️ <b>রেডি Mail স্টক:</b> {mail_stock} পিস (৳০.৬৫ থেকে শুরু)")
-    lines.append(f"💳 <b>পেমেন্ট মেথড:</b> bKash, Nagad ও Binance (Min: ৳{format_price(float(min_dep))})")
-    lines.append(f"💰 <b>আপনার ব্যালেন্স:</b> ৳{user_bal:.2f} BDT\n")
-    lines.append(f"💡 <i>আপনি নির্দিষ্ট করে <b>\"VPN Price\"</b>, <b>\"Proxy Price\"</b>, <b>\"Mail Stock\"</b> বা <b>\"How to Deposit\"</b> লিখে প্রশ্ন করতে পারেন, অথবা সরাসরি এডমিন সাপোর্টে যোগাযোগ করুন: {support_un}</i>")
-    return "\n".join(lines)
+    # 7. Polite conversational fallback
+    if is_bangla_ctx:
+        return (
+            f"আমি আপনার প্রশ্নটি পুরোপুরি বুঝতে পারিনি। আপনি নির্দিষ্ট করে জিজ্ঞেস করতে পারেন—যেমন:\n"
+            f"• <i>&quot;VPN কীভাবে কিনব?&quot;</i>\n"
+            f"• <i>&quot;Rapid Proxy-এর দাম কত?&quot;</i>\n"
+            f"• <i>&quot;ডিপোজিট করব কীভাবে?&quot;</i>\n\n"
+            f"অথবা সরাসরি এডমিনের সাথে কথা বলুন: {ctx['support']}"
+        )
+    return (
+        f"I didn't quite catch that. Could you ask more specifically—for example, about a specific VPN/Proxy price, how to purchase, or how to deposit?\n"
+        f"For direct help, you can also message our admin: {ctx['support']}"
+    )
 
 # ------------------------------------------------------------------------------
 # 3. RENDER WEB SERVICE & MINI APP API SERVER (Serves external webapp.html)
@@ -441,6 +600,57 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 self.send_header("Cache-Control", "public, max-age=86400")
                 self.end_headers()
                 self.wfile.write(img_bytes)
+            except Exception:
+                self.send_response(404)
+                self.end_headers()
+            return
+
+        # Serve Bot's Official Profile Picture / Logo for Splash Screen (/api/bot_photo)
+        if path == "/api/bot_photo":
+            now_ts = time.time()
+            cached_bot = _USER_PHOTO_CACHE.get(0)
+            if cached_bot and (now_ts - cached_bot[2] < 3600):
+                self.send_response(200)
+                self.send_header("Content-type", cached_bot[1])
+                self.send_header("Cache-Control", "public, max-age=3600")
+                self.end_headers()
+                self.wfile.write(cached_bot[0])
+                return
+            try:
+                bot_id = None
+                if _GLOBAL_BOT_APP and _GLOBAL_BOT_APP.bot:
+                    bot_id = _GLOBAL_BOT_APP.bot.id
+                if not bot_id:
+                    me_raw, _ = _http_get_bytes(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe", timeout=6)
+                    bot_id = json.loads(me_raw.decode("utf-8"))["result"]["id"]
+                raw_photos, _ = _http_get_bytes(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/getUserProfilePhotos?user_id={bot_id}&limit=1",
+                    timeout=8,
+                )
+                pdata = json.loads(raw_photos.decode("utf-8"))
+                photos_list = pdata.get("result", {}).get("photos", [])
+                if photos_list:
+                    best_fid = photos_list[0][-1]["file_id"]
+                    raw_finfo, _ = _http_get_bytes(f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={best_fid}", timeout=8)
+                    fpath = json.loads(raw_finfo.decode("utf-8"))["result"]["file_path"]
+                    img_bytes, ctype = _http_get_bytes(f"https://api.telegram.org/file/bot{BOT_TOKEN}/{fpath}", timeout=10)
+                    _USER_PHOTO_CACHE[0] = (img_bytes, ctype, now_ts)
+                    self.send_response(200)
+                    self.send_header("Content-type", ctype)
+                    self.send_header("Cache-Control", "public, max-age=3600")
+                    self.end_headers()
+                    self.wfile.write(img_bytes)
+                    return
+            except Exception:
+                pass
+            # Fallback to embedded official CyberNest logo JPEG
+            try:
+                logo_bytes = base64.b64decode(CYBERNEST_LOGO_BASE64)
+                self.send_response(200)
+                self.send_header("Content-type", "image/jpeg")
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.end_headers()
+                self.wfile.write(logo_bytes)
             except Exception:
                 self.send_response(404)
                 self.end_headers()
@@ -2487,24 +2697,12 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def ai_assistant_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     set_user_state(user.id, "WAITING_AI_QUESTION", {})
-    kb = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🛡️ VPN Price List", callback_data="ai_q_vpn"),
-            InlineKeyboardButton("🌐 Proxy Packages", callback_data="ai_q_proxy"),
-        ],
-        [
-            InlineKeyboardButton("✉️ Mail Stock", callback_data="ai_q_mail"),
-            InlineKeyboardButton("💳 How to Deposit?", callback_data="ai_q_deposit"),
-        ],
-        [InlineKeyboardButton("❌ Exit AI Mode", callback_data="ai_q_exit")],
-    ])
     txt = (
-        "🤖 <b>CyberNest Smart AI Assistant</b>\n"
+        "🤖 <b>CyberNest AI Assistant</b>\n"
         "─────────────────────────────\n"
-        "আপনি প্রোডাক্টের লাইভ দাম, স্টক, পেমেন্ট নাম্বার বা অর্ডার করার নিয়ম নিয়ে যেকোনো প্রশ্ন লিখে পাঠান—আমি ডাটাবেস চেক করে সাথে সাথে উত্তর দেব!\n\n"
-        "👇 অথবা নিচের কুইক বাটনে চাপ দিন:"
+        "আসসালামু আলাইকুম! আপনার কোনো প্রশ্ন বা অসুবিধা থাকলে নিচে লিখে জিজ্ঞেস করুন—আমি সাথে সাথে সাহায্য করব।"
     )
-    await update.message.reply_text(txt, parse_mode=ParseMode.HTML, reply_markup=kb)
+    await update.message.reply_text(txt, parse_mode=ParseMode.HTML)
 
 async def check_user_membership(bot, user_id: int) -> Tuple[bool, bool]:
     if user_id == SUPER_ADMIN_ID:
@@ -2753,7 +2951,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
             return
         if q_type == "open":
             set_user_state(user_id, "WAITING_AI_QUESTION", {})
-            await query.message.reply_text("🤖 আপনার প্রশ্নটি লিখে পাঠান (যেমন: VPN Price, Proxy Price, Mail Stock, Deposit):")
+            await query.message.reply_text("🤖 আসসালামু আলাইকুম! আপনার কোনো প্রশ্ন বা অসুবিধা থাকলে নিচে লিখে জিজ্ঞেস করুন।")
             return
         map_q = {
             "vpn": "vpn price list",
@@ -4430,18 +4628,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if state == "WAITING_AI_QUESTION":
         reply_txt = generate_smart_ai_reply(text, user_id=user.id)
-        kb = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("🛡️ VPN Price List", callback_data="ai_q_vpn"),
-                InlineKeyboardButton("🌐 Proxy Packages", callback_data="ai_q_proxy"),
-            ],
-            [
-                InlineKeyboardButton("✉️ Mail Stock", callback_data="ai_q_mail"),
-                InlineKeyboardButton("💳 How to Deposit?", callback_data="ai_q_deposit"),
-            ],
-            [InlineKeyboardButton("❌ Exit AI Mode", callback_data="ai_q_exit")],
-        ])
-        await update.message.reply_text(reply_txt, parse_mode=ParseMode.HTML, reply_markup=kb)
+        await update.message.reply_text(reply_txt, parse_mode=ParseMode.HTML)
         return
 
     if state == "WAITING_OUTLOOK_STR":
