@@ -2811,10 +2811,20 @@
         renderCustomTxWizard();
       }
 
-      // 13. AI Settings & Live Connection Test
+      // 13. AI Settings, Custom Rules & Live Connection Test
       else if (sec === "ai_settings") {
         badge.innerText = "🤖 AI SETTINGS";
+        const savedRules = (APP.adminOverview && APP.adminOverview.ai_custom_rules) || "";
         box.innerHTML = `
+          <div class="card">
+            <h4 style="margin:0 0 8px">📜 Custom AI Rules / Instructions (Admin Command)</h4>
+            <p style="font-size:12px;color:var(--muted);line-height:1.5">
+              এখানে আপনি AI-কে যেকোনো কমান্ড/নিয়ম লিখে দিতে পারেন (যেমন: <i>"ডিপোজিট করতে অবশ্যই bKash-এ Payment করতে হবে, Send Money করা যাবে না"</i>)। AI আপনার এই নিয়মটি হুবহু ঠিক রেখে বাকি কথা নিজের মতো সুন্দরভাবে সাজিয়ে কাস্টমারদের বুঝিয়ে বলবে।
+            </p>
+            <textarea id="admAiRulesIn" rows="4" placeholder="উদাহরণ: bKash-এ অবশ্যই Payment করতে হবে, Send Money করা যাবে না। ডেলিভারি টাইম সকাল ১০টা থেকে রাত ১২টা।">${savedRules}</textarea>
+            <button class="btn-primary" onclick="admSaveAiRules()">💾 Save AI Rules (Bot + Website)</button>
+          </div>
+
           <div class="card">
             <h4 style="margin:0 0 8px">🤖 AI Assistant API Key (Bot + Website Sync)</h4>
             <p style="font-size:12px;color:var(--muted);line-height:1.5">
@@ -3289,6 +3299,17 @@
       await api("/api/admin/menu_layout", { reset: true });
       showToast("✅ Default bot menu layout restored!");
       openAdminSection("layout_reset");
+    }
+
+    async function admSaveAiRules() {
+      const rules = document.getElementById("admAiRulesIn").value.trim();
+      const r = await api("/api/admin/ai_settings", { action: "save_rules", ai_custom_rules: rules });
+      if (r.ok) {
+        if (APP.adminOverview) APP.adminOverview.ai_custom_rules = rules;
+        showToast("✅ AI Rules saved for both Bot & Website!");
+      } else {
+        showToast("❌ Failed to save AI rules");
+      }
     }
 
     async function admSaveTestAi(action) {
