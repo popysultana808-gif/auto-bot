@@ -272,6 +272,7 @@ def _build_live_store_context(user_id: Optional[int] = None) -> Dict[str, Any]:
         "shop_name": get_setting("shop_name", "CyberNest Market"),
         "user_bal": user_bal,
         "user_name": user_name,
+        "custom_rules": get_setting("ai_custom_rules", "").strip(),
     }
 
 _AI_CHAT_HISTORY: Dict[int, List[Dict[str, str]]] = {}
@@ -320,6 +321,7 @@ def _call_gemini_if_configured(question: str, ctx: Dict[str, Any], user_id: Opti
         f"- Payment Numbers: bKash={ctx['bkash']} | Nagad={ctx['nagad']} | Binance={ctx['binance']}\n"
         f"- Min Deposit: {ctx['min_dep']} BDT | USDT Rate: 1 USDT = {ctx['usdt_rate']} BDT | Support: {ctx['support']}\n"
         f"- Live Catalog:\n" + "\n".join(catalog_lines[:75])
+        + (f"\n\nMANDATORY ADMIN INSTRUCTIONS (Strictly obey these rules without contradicting them, and craft a helpful, natural explanation around them):\n{ctx['custom_rules']}" if ctx.get("custom_rules") else "")
     )
 
     uid_key = int(user_id or 0)
@@ -882,6 +884,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 "banners": banners,
                 "settings": sdict,
                 "menu_layout": get_menu_layout(),
+                        "ai_custom_rules": get_setting("ai_custom_rules", ""),
                 "unread_notifs": unread_n,
             })
 
@@ -967,6 +970,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 "coupons": coupons_list,
                 "banners": banners_list,
                 "menu_layout": get_menu_layout(),
+                        "ai_custom_rules": get_setting("ai_custom_rules", ""),
             })
 
         self.send_response(200)
@@ -1615,6 +1619,11 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 if path == "/api/admin/ai_settings":
                     act = str(body.get("action", "save"))
                     new_key = str(body.get("ai_api_key", "")).strip()
+                    if act == "save_rules":
+                        rules_txt = str(body.get("ai_custom_rules", "")).strip()
+                        set_setting("ai_custom_rules", rules_txt)
+                        conn.close()
+                        return self._send_json({"ok": True, "message": "Custom AI Instructions saved!"})
                     if act == "save" and new_key:
                         set_setting("ai_api_key", new_key)
                     elif act == "clear":
