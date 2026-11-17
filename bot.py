@@ -186,8 +186,43 @@ def verify_tg_init_data(init_data: str) -> Optional[dict]:
         logger.warning(f"initData verify failed: {e}")
     return None
 
+def _decode_mime_hdr(raw_val: str) -> str:
+    if not raw_val:
+        return ""
+    try:
+        from email.header import decode_header
+        parts = decode_header(raw_val)
+        out = []
+        for chunk, enc in parts:
+            if isinstance(chunk, bytes):
+                out.append(chunk.decode(enc or "utf-8", errors="ignore"))
+            else:
+                out.append(str(chunk))
+        return "".join(out).strip()
+    except Exception:
+        return str(raw_val).strip()
+
+def _extract_otp_from_text(subject: str, clean_body: str) -> str:
+    import re as _re
+    combined = f"{subject} {clean_body}"
+    # 1. Contextual match near OTP/verification words (6-8 digits first, then 4-5)
+    ctx_m = _re.search(r"(?:code|otp|pin|verify|verification|confirm|login|use|security)[^0-9]{0,25}\b(\d{6,8})\b", combined, flags=_re.IGNORECASE)
+    if ctx_m:
+        return ctx_m.group(1)
+    # 2. Standalone 6-8 digit code in subject or body
+    m68 = _re.search(r"\b(\d{6,8})\b", combined)
+    if m68:
+        return m68.group(1)
+    # 3. 4-5 digit code (skipping common years 2020-2035)
+    for m45 in _re.finditer(r"\b(\d{4,5})\b", combined):
+        val = m45.group(1)
+        if not (2020 <= int(val) <= 2035):
+            return val
+    return ""
+
 def fetch_outlook_otp(account_str: str) -> dict:
-    parts = [p.strip() for p in account_str.split("|") if p.strip()]
+    first_line = next((ln.strip() for ln in (account_str or "").splitlines() if ln.strip()), "")
+    parts = [p.strip() for p in first_line.split("|") if p.strip()]
     if len(parts) < 4:
         return {"ok": False, "error": "Format must be: email|password|refresh_token|client_id"}
     mail_addr, _, refresh_token, client_id = parts[0], parts[1], parts[2], parts[3]
@@ -201,7 +236,15 @@ def fetch_outlook_otp(account_str: str) -> dict:
         }, timeout=15)
         access_token = tdata.get("access_token")
         if not access_token:
+            tdata = _http_post_json(token_url, {
+                "client_id": client_id,
+                "refresh_token": refresh_token,
+                "grant_type": "refresh_token"
+            }, timeout=15)
+            access_token = tdata.get("access_token")
+        if not access_token:
             return {"ok": False, "error": tdata.get("error_description", "Token refresh failed")}
+
         auth_string = f"user={mail_addr}\x01auth=Bearer {access_token}\x01\x01"
         imap = imaplib.IMAP4_SSL("outlook.office365.com", 993)
         imap.authenticate("XOAUTH2", lambda x: auth_string.encode("utf-8"))
@@ -211,28 +254,74 @@ def fetch_outlook_otp(account_str: str) -> dict:
         if not ids:
             imap.logout()
             return {"ok": False, "error": "Inbox is empty (no emails found yet)."}
-        latest_id = ids[-1]
-        typ, msg_data = imap.fetch(latest_id, "(RFC822)")
-        raw_email = msg_data[0][1]
-        msg = email_lib.message_from_bytes(raw_email)
-        subject = str(msg.get("Subject", "Inbox Message"))
-        body = ""
-        if msg.is_multipart():
-            for part in msg.walk():
-                ctype = part.get_content_type()
-                if ctype in ("text/plain", "text/html"):
-                    try:
-                        body += part.get_payload(decode=True).decode(errors="ignore")
-                    except Exception:
-                        pass
-        else:
-            body = msg.get_payload(decode=True).decode(errors="ignore")
-        imap.logout()
+
         import re as _re
-        clean_txt = _re.sub(r"<[^>]+>", " ", body)
-        m = _re.search(r"\b(\d{4,8})\b", clean_txt)
-        code_found = m.group(1) if m else clean_txt.strip()[:80]
-        return {"ok": True, "subject": subject, "code": code_found}
+        from email.utils import parseaddr
+        recent_ids = list(reversed(ids[-6:]))
+        messages_out = []
+
+        for mid in recent_ids:
+            typ, msg_data = imap.fetch(mid, "(RFC822)")
+            if not msg_data or not msg_data[0]:
+                continue
+            raw_email = msg_data[0][1]
+            msg = email_lib.message_from_bytes(raw_email)
+            subject = _decode_mime_hdr(msg.get("Subject", "Inbox Message")) or "Inbox Message"
+            from_raw = _decode_mime_hdr(msg.get("From", ""))
+            s_name, s_email = parseaddr(from_raw)
+            s_name = s_name or (s_email.split("@")[0] if "@" in s_email else "Sender")
+            date_str = str(msg.get("Date", "")).strip()[:25]
+
+            body_plain = ""
+            body_html = ""
+            if msg.is_multipart():
+                for part in msg.walk():
+                    ctype = part.get_content_type()
+                    if ctype == "text/plain" and not body_plain:
+                        try:
+                            body_plain = part.get_payload(decode=True).decode(errors="ignore")
+                        except Exception:
+                            pass
+                    elif ctype == "text/html" and not body_html:
+                        try:
+                            body_html = part.get_payload(decode=True).decode(errors="ignore")
+                        except Exception:
+                            pass
+            else:
+                try:
+                    raw_b = msg.get_payload(decode=True).decode(errors="ignore")
+                    if "<html" in raw_b.lower():
+                        body_html = raw_b
+                    else:
+                        body_plain = raw_b
+                except Exception:
+                    pass
+
+            raw_text = body_plain or _re.sub(r"<[^>]+>", " ", body_html)
+            clean_txt = _re.sub(r"\s+", " ", raw_text).strip()
+            code_found = _extract_otp_from_text(subject, clean_txt)
+            messages_out.append({
+                "sender_name": s_name,
+                "sender_email": s_email or from_raw,
+                "subject": subject,
+                "preview": clean_txt[:140] + ("..." if len(clean_txt) > 140 else ""),
+                "body": clean_txt[:2000],
+                "date": date_str,
+                "code": code_found,
+            })
+
+        imap.logout()
+        if not messages_out:
+            return {"ok": False, "error": "Could not parse inbox messages."}
+
+        latest_code = next((m["code"] for m in messages_out if m["code"]), "") or messages_out[0]["preview"][:40]
+        return {
+            "ok": True,
+            "email": mail_addr,
+            "subject": messages_out[0]["subject"],
+            "code": latest_code,
+            "messages": messages_out,
+        }
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
