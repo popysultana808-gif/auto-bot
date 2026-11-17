@@ -1020,6 +1020,56 @@
       border: 1px solid rgba(255,255,255,0.15);
     }
     .toast.show { display: block; animation: slideUp 0.2s ease; }
+
+    /* MAILCODE STYLE OUTLOOK / HOTMAIL OTP READER */
+    .mail-extracted-pill {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: var(--green-soft);
+      border: 1px solid var(--green);
+      color: var(--green);
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 10px;
+    }
+    .otp-hero-box {
+      background: var(--green-soft);
+      border: 1px solid var(--green);
+      border-radius: 14px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .otp-digits {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+    .otp-digit {
+      width: 34px;
+      height: 40px;
+      border-radius: 9px;
+      background: var(--card);
+      border: 1.5px solid var(--green);
+      color: var(--green);
+      font-size: 18px;
+      font-weight: 900;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 6px rgba(16, 185, 129, 0.12);
+    }
+    .inbox-msg-card {
+      background: var(--card-2);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
   </style>
 </head>
 <body>
@@ -1285,13 +1335,14 @@
     <div id="tool-outlook" class="card">
       <h3 style="margin-top:0;font-size:16px">✉️ Live Outlook / Hotmail OTP Reader</h3>
       <p style="font-size:12px;color:var(--muted)">Paste full string <code>email|password|refresh_token|client_id</code> below:</p>
-      <textarea id="outlookInput" rows="4" placeholder="email|password|refresh_token|client_id"></textarea>
+      <textarea id="outlookInput" rows="4" oninput="extractOutlookEmail()" placeholder="email|password|refresh_token|client_id"></textarea>
+      <div id="outlookEmailPill" class="mail-extracted-pill hidden"></div>
       <div class="row-between" style="margin-bottom:10px">
         <button class="btn-outline" style="flex:1" onclick="pasteTo('outlookInput')">📋 Paste</button>
         <button class="btn-outline" style="flex:1" onclick="clearTool('outlook')">❌ Clear</button>
       </div>
-      <button class="btn-primary" onclick="getOutlookCode()">🔄 Fetch Latest OTP</button>
-      <div id="outlookResult" class="hidden" style="margin-top:12px"></div>
+      <button class="btn-primary" onclick="getOutlookCode()">⚡ Get Code</button>
+      <div id="outlookResult" class="hidden" style="margin-top:14px"></div>
     </div>
 
     <div id="tool-2fa" class="card hidden">
@@ -1439,7 +1490,7 @@
         </div>
       </div>
 
-      <!-- 11-Button Grid Dashboard -->
+      <!-- 13-Button Grid Dashboard -->
       <div class="admin-btn-grid">
         <div class="adm-tile" onclick="openAdminSection('add_stock')">
           <div class="adm-tile-icon">📥</div>
@@ -1608,6 +1659,17 @@
     </div>
   </div>
 
+  <!-- Full Email Message Modal (Outlook/Hotmail Reader) -->
+  <div class="modal center" id="inboxMsgModal" onclick="if(event.target===this)closeModal('inboxMsgModal')">
+    <div class="sheet">
+      <div class="row-between" style="margin-bottom:10px">
+        <h3 id="inboxMsgTitle" style="margin:0;font-size:16px">Email Message</h3>
+        <button class="btn-outline" onclick="closeModal('inboxMsgModal')">✕</button>
+      </div>
+      <div id="inboxMsgBody"></div>
+    </div>
+  </div>
+
   <!-- Notifications Modal -->
   <div class="modal" id="notifModal">
     <div class="sheet">
@@ -1685,6 +1747,15 @@
     };
 
     if (APP.theme === "dark") document.body.classList.add("dark");
+
+    function escHtml(str) {
+      return String(str || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
 
     function showToast(msg) {
       const t = document.getElementById("toastBox");
@@ -1860,10 +1931,10 @@
         rList.innerHTML = u.referral_list.map(ru => `
           <div class="row-between" style="padding:8px 0;border-bottom:1px solid var(--border)">
             <div>
-              <b>${ru.name || "User"}</b>
-              <div style="font-size:11px;color:var(--muted)">@${ru.username || "N/A"} • ID: <code>${ru.user_id}</code></div>
+              <b>${escHtml(ru.name || "User")}</b>
+              <div style="font-size:11px;color:var(--muted)">@${escHtml(ru.username || "N/A")} • ID: <code>${ru.user_id}</code></div>
             </div>
-            <small style="color:var(--green);font-weight:700">${ru.joined_date || ""}</small>
+            <small style="color:var(--green);font-weight:700">${escHtml(ru.joined_date || "")}</small>
           </div>
         `).join("");
       } else {
@@ -1937,7 +2008,7 @@
       const row = document.getElementById("catRow");
       let html = `<button class="cat-pill ${APP.selectedCat === 'all' ? 'active' : ''}" onclick="selectCat('all')">📦 All Brands</button>`;
       APP.categories.forEach(c => {
-        html += `<button class="cat-pill ${APP.selectedCat == c.id ? 'active' : ''}" onclick="selectCat(${c.id})">${c.name}</button>`;
+        html += `<button class="cat-pill ${APP.selectedCat == c.id ? 'active' : ''}" onclick="selectCat(${c.id})">${escHtml(c.name)}</button>`;
       });
       row.innerHTML = html;
     }
@@ -1962,7 +2033,7 @@
             <div class="top-left">
               <div class="prod-thumb">${img ? `<img src="${img}">` : catIcon(p.cat_name)}</div>
               <div style="min-width:0">
-                <b style="font-size:12.5px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.sub_name} • ${p.name}</b>
+                <b style="font-size:12.5px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(p.sub_name)} • ${escHtml(p.name)}</b>
                 <div style="font-size:12px;color:var(--accent);font-weight:800">${fmtPrice(p.price_bdt)} <span style="color:var(--muted);font-weight:500;font-size:10.5px">🔥 ${p.sold_count || 0}</span></div>
               </div>
             </div>
@@ -1983,7 +2054,6 @@
       if (catLow.includes("vpn")) {
         return `<span class="st-vpn">🛡️ Verified / Warranty</span>`;
       }
-      // Mail category shows live stock count
       if (group.total_stock > 0) {
         return `<span class="st-in">● Stock: ${group.total_stock}</span>`;
       }
@@ -2073,8 +2143,8 @@
                 <button class="fav-btn" onclick="toggleFavBrand(event, ${g.sub_id})">${isFav ? "❤️" : "🤍"}</button>
                 <span class="plan-count-tag">${g.plans.length} ${g.plans.length > 1 ? "Plans" : "Plan"}</span>
               </div>
-              <div class="p-cat-tag">${g.cat_name}</div>
-              <div class="p-name">${g.sub_name}</div>
+              <div class="p-cat-tag">${escHtml(g.cat_name)}</div>
+              <div class="p-name">${escHtml(g.sub_name)}</div>
               <div class="p-price">${priceLabel}</div>
               <div class="p-meta">${badgeHtml} <span>🔥 ${g.total_sold}</span></div>
             </div>
@@ -2156,7 +2226,6 @@
         : "✉️ Fresh & verified Mail account with instant automatic delivery and Excel (.xlsx) backup.";
       document.getElementById("bdDesc").innerText = plan.description || g.description || defaultDesc;
 
-      // Stock Badge Rule on Plan Page
       let ruleHtml = "";
       if (!plan.is_active) ruleHtml = `<span class="st-out">● Unavailable</span>`;
       else if (catLow.includes("proxy")) ruleHtml = `<span class="st-in">● Ready to order</span>`;
@@ -2164,7 +2233,6 @@
       else ruleHtml = plan.in_stock > 0 ? `<span class="st-in">● Stock: ${plan.in_stock} pcs</span>` : `<span class="st-out">● Out of stock</span>`;
       document.getElementById("bdRuleBadge").innerHTML = ruleHtml;
 
-      // Render Plan Grid Boxes
       const grid = document.getElementById("bdPlanGrid");
       grid.innerHTML = g.plans.map(p => {
         const isSel = p.id === plan.id;
@@ -2173,7 +2241,7 @@
           : (catLow.includes("proxy") ? "Ready to order" : "Verified Plan");
         return `
           <div class="plan-box ${isSel ? 'active' : ''} ${!p.is_active ? 'disabled' : ''}" onclick="selectPlanInBrand(${p.id})">
-            <span class="plan-title">${p.name}</span>
+            <span class="plan-title">${escHtml(p.name)}</span>
             <span class="plan-price">${fmtPrice(p.price_bdt)}</span>
             <span class="plan-sub">${subLine}</span>
           </div>
@@ -2226,7 +2294,7 @@
       } else {
         APP.discountPct = 0;
         APP.appliedCoupon = "";
-        msg.innerHTML = `<span style="color:var(--red)">❌ ${res.error || "Invalid coupon"}</span>`;
+        msg.innerHTML = `<span style="color:var(--red)">❌ ${escHtml(res.error || "Invalid coupon")}</span>`;
         recalcBrandOrder();
       }
     }
@@ -2259,7 +2327,6 @@
       });
       document.getElementById("calcMethodTag").innerText = m;
       updateCalcDisplay();
-      // Add "Deposit started" notification to bell
       document.getElementById("notifDot").style.display = "block";
       api("/api/notifications/add", {
         title: "💳 Deposit Started",
@@ -2337,7 +2404,7 @@
       }
     }
 
-    // 8. TOOLS: OUTLOOK & 2FA
+    // 8. TOOLS: OUTLOOK / HOTMAIL MAILCODE READER & 2FA
     function switchTool(t) {
       document.getElementById("tool-outlook").classList.toggle("hidden", t !== "outlook");
       document.getElementById("tool-2fa").classList.toggle("hidden", t !== "2fa");
@@ -2349,18 +2416,32 @@
       b2fa.style.color = t === "2fa" ? "var(--accent)" : "var(--text)";
     }
 
+    function extractOutlookEmail() {
+      const raw = (document.getElementById("outlookInput").value || "").trim();
+      const pill = document.getElementById("outlookEmailPill");
+      if (!pill) return;
+      const firstLine = raw.split(/\r?\n/).find(l => l.trim()) || "";
+      const emailPart = (firstLine.split("|")[0] || "").trim();
+      if (emailPart && emailPart.includes("@")) {
+        pill.classList.remove("hidden");
+        pill.innerHTML = `<span style="overflow:hidden;text-overflow:ellipsis">✅ ${escHtml(emailPart)}</span><button class="btn-outline" style="padding:4px 10px;font-size:12px" onclick="copyText('${escHtml(emailPart)}')">📋 Copy</button>`;
+      } else {
+        pill.classList.add("hidden");
+        pill.innerHTML = "";
+      }
+    }
+
     async function pasteTo(id) {
       try {
-        const txt = await navigator.clipboard.readText();
-        if (txt) document.getElementById(id).value = txt;
-      } catch (e) {
-        showToast("Long-press inside the box to paste");
-      }
+        document.getElementById(id).value = await navigator.clipboard.readText();
+        if (id === "outlookInput") extractOutlookEmail();
+      } catch { showToast("Long-press box to paste"); }
     }
 
     function clearTool(t) {
       if (t === "outlook") {
         document.getElementById("outlookInput").value = "";
+        extractOutlookEmail();
         document.getElementById("outlookResult").classList.add("hidden");
       } else {
         document.getElementById("tfaInput").value = "";
@@ -2368,20 +2449,88 @@
       }
     }
 
+    function renderOtpDigitsHtml(code) {
+      const clean = String(code || "").trim();
+      if (!clean) return "";
+      if (/^\d{4,8}$/.test(clean)) {
+        return `<div class="otp-digits">${clean.split("").map(d => `<div class="otp-digit">${d}</div>`).join("")}</div>`;
+      }
+      return `<b>${escHtml(clean)}</b>`;
+    }
+
+    let _LAST_INBOX_MSGS = [];
+    function openFullInboxMsg(idx) {
+      const m = _LAST_INBOX_MSGS[idx];
+      if (!m) return;
+      document.getElementById("inboxMsgTitle").innerText = m.subject || "Email Message";
+      document.getElementById("inboxMsgBody").innerHTML = `
+        <div class="card" style="box-shadow:none;margin:0">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:8px">
+            <b>From:</b> ${escHtml(m.sender_name)} &lt;${escHtml(m.sender_email)}&gt;<br>
+            <b>Date:</b> ${escHtml(m.date)}
+          </div>
+          ${m.code ? `<div style="margin-bottom:10px">${renderOtpDigitsHtml(m.code)}</div>` : ''}
+          <div style="font-size:13px;line-height:1.55;white-space:pre-wrap;word-break:break-word">${escHtml(m.body || m.preview)}</div>
+        </div>
+      `;
+      openModal("inboxMsgModal");
+    }
+
     async function getOutlookCode() {
       const raw = document.getElementById("outlookInput").value.trim();
       if (!raw) return;
+      extractOutlookEmail();
       const box = document.getElementById("outlookResult");
       box.classList.remove("hidden");
-      box.innerHTML = "⏳ Connecting to Outlook IMAP...";
+      box.innerHTML = `<div class="card" style="margin:0;text-align:center">⏳ Connecting to Outlook IMAP & reading inbox...</div>`;
       const res = await api("/api/tools/outlook", { account: raw });
       if (res.ok) {
-        box.innerHTML = `
-          <div style="font-size:12px;color:var(--muted)">Subject: ${res.subject || "Inbox"}</div>
-          <div class="copy-box"><b>${res.code}</b><button class="btn-outline" onclick="copyText('${res.code}')">📋 Copy</button></div>
+        const msgs = res.messages || [];
+        _LAST_INBOX_MSGS = msgs;
+        const latestCode = res.code || "";
+        const emailAddr = res.email || "";
+        let htmlOut = `
+          <div style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card-2);font-size:12.5px;font-weight:700;margin-bottom:10px">
+            <span>@ ${escHtml(emailAddr)}</span>
+          </div>
+          <div class="otp-hero-box">
+            <div style="font-size:11px;font-weight:800;color:var(--green);letter-spacing:0.6px;margin-bottom:8px">🛡️ LATEST CODE</div>
+            <div class="row-between" style="flex-wrap:wrap;gap:10px">
+              ${renderOtpDigitsHtml(latestCode)}
+              <div style="display:flex;gap:6px">
+                <button class="btn-outline" style="padding:6px 10px;font-size:12px" onclick="copyText('${escHtml(latestCode)}')">📋 Copy</button>
+                <button class="btn-outline" style="padding:6px 10px;font-size:12px" onclick="getOutlookCode()">🔄 Sync</button>
+                <button class="btn-outline" style="padding:6px 10px;font-size:12px;color:var(--red)" onclick="clearTool('outlook')">🗑️ Clear</button>
+              </div>
+            </div>
+          </div>
         `;
+        if (msgs.length) {
+          htmlOut += `<div style="font-size:11.5px;font-weight:800;color:var(--muted);margin:10px 0 8px">📥 INBOX (${msgs.length})</div>`;
+          htmlOut += msgs.map((m, idx) => `
+            <div class="inbox-msg-card">
+              <div class="row-between" style="align-items:flex-start;margin-bottom:6px">
+                <div>
+                  <b style="font-size:13.5px">${escHtml(m.sender_name)}</b>
+                  <div style="font-size:11px;color:var(--muted)">${escHtml(m.sender_email)}</div>
+                </div>
+                <small style="font-size:10.5px;color:var(--muted)">${escHtml(m.date)}</small>
+              </div>
+              <div style="font-weight:700;font-size:13px;margin-bottom:4px">${escHtml(m.subject)}</div>
+              <div style="font-size:11.5px;color:var(--muted);margin-bottom:8px">${escHtml(m.preview)}</div>
+              <div class="row-between" style="flex-wrap:wrap;gap:8px">
+                <div style="display:flex;align-items:center;gap:6px">
+                  ${m.code ? renderOtpDigitsHtml(m.code) : ''}
+                  ${m.code ? `<button class="btn-outline" style="padding:5px 9px;font-size:12px" onclick="copyText('${escHtml(m.code)}')">📋</button>` : ''}
+                </div>
+                <button class="btn-outline" style="padding:5px 10px;font-size:11.5px" onclick="openFullInboxMsg(${idx})">View Full ↗</button>
+              </div>
+            </div>
+          `).join("");
+        }
+        box.innerHTML = htmlOut;
       } else {
-        box.innerHTML = `<span style="color:var(--red)">❌ ${res.error || "Failed"}</span>`;
+        box.innerHTML = `<div class="card" style="background:var(--red-soft);border-color:var(--red);color:var(--red);margin:0">❌ ${escHtml(res.error || "Failed")}</div>`;
       }
     }
 
@@ -2393,11 +2542,11 @@
       const res = await api("/api/tools/2fa", { secret });
       if (res.ok) {
         box.innerHTML = `
-          <div class="copy-box"><b style="font-size:20px;letter-spacing:2px">${res.code}</b><button class="btn-outline" onclick="copyText('${res.code}')">📋 Copy</button></div>
+          <div class="copy-box"><b style="font-size:20px;letter-spacing:2px">${escHtml(res.code)}</b><button class="btn-outline" onclick="copyText('${escHtml(res.code)}')">📋 Copy</button></div>
           <small style="color:var(--muted)">⏳ Valid for ${res.remaining} seconds</small>
         `;
       } else {
-        box.innerHTML = `<span style="color:var(--red)">❌ ${res.error || "Invalid key"}</span>`;
+        box.innerHTML = `<span style="color:var(--red)">❌ ${escHtml(res.error || "Invalid key")}</span>`;
       }
     }
 
@@ -2412,12 +2561,12 @@
       list.innerHTML = res.orders.map(o => `
         <div style="border-bottom:1px solid var(--border);padding:12px 0">
           <div class="row-between">
-            <b>${o.product_name} (x${o.quantity})</b>
+            <b>${escHtml(o.product_name)} (x${o.quantity})</b>
             <b style="color:var(--accent)">${fmtPrice(o.total_bdt)}</b>
           </div>
           <div class="row-between" style="font-size:11px;color:var(--muted);margin-top:3px">
-            <span>Receipt: <code>${o.receipt_no || ('#' + o.id)}</code> • ${o.created_at}</span>
-            <span style="color:${o.status === 'completed' ? 'var(--green)' : 'var(--accent)'};font-weight:800">${(o.status || '').toUpperCase()}</span>
+            <span>Receipt: <code>${escHtml(o.receipt_no || ('#' + o.id))}</code> • ${escHtml(o.created_at)}</span>
+            <span style="color:${o.status === 'completed' ? 'var(--green)' : 'var(--accent)'};font-weight:800">${escHtml((o.status || '').toUpperCase())}</span>
           </div>
           <div style="display:flex;gap:6px;margin-top:9px;flex-wrap:wrap">
             <button class="btn-outline" style="flex:1;padding:7px 8px;font-size:11.5px" onclick="resendOrderProduct(${o.id})">📦 Get Product</button>
@@ -2459,7 +2608,7 @@
       if (!q) return;
       inp.value = "";
       const box = document.getElementById("aiChatHistory");
-      box.innerHTML += `<div class="chat-msg user">${q.replace(/</g, "&lt;")}</div>`;
+      box.innerHTML += `<div class="chat-msg user">${escHtml(q)}</div>`;
       box.scrollTop = box.scrollHeight;
 
       const r = await api("/api/ai_support", { question: q });
@@ -2470,7 +2619,7 @@
       box.scrollTop = box.scrollHeight;
     }
 
-    // 11. BUTTON-BASED SUPER ADMIN PANEL (12 DEDICATED SUB-VIEWS)
+    // 11. BUTTON-BASED SUPER ADMIN PANEL (13 DEDICATED SUB-VIEWS)
     async function loadAdminOverview() {
       const res = await api("/api/admin/overview");
       if (res && res.ok) {
@@ -2491,7 +2640,7 @@
       // 1. Add Stock (Category -> Brand -> Plan)
       if (sec === "add_stock") {
         badge.innerText = "📥 ADD STOCK";
-        const catOpts = APP.categories.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+        const catOpts = APP.categories.map(c => `<option value="${c.id}">${escHtml(c.name)}</option>`).join("");
         box.innerHTML = `
           <div class="card">
             <h4 style="margin:0 0 10px">📥 Add Live Stock (Category ➔ Brand ➔ Plan)</h4>
@@ -2512,8 +2661,8 @@
       // 2. Manage Buttons & Price
       else if (sec === "manage_buttons") {
         badge.innerText = "🏷️ BUTTONS & PRICE";
-        const catOpts = APP.categories.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
-        const subOpts = buildGroupedBrands().map(g => `<option value="${g.sub_id}">${g.cat_name} ➔ ${g.sub_name}</option>`).join("");
+        const catOpts = APP.categories.map(c => `<option value="${c.id}">${escHtml(c.name)}</option>`).join("");
+        const subOpts = buildGroupedBrands().map(g => `<option value="${g.sub_id}">${escHtml(g.cat_name)} ➔ ${escHtml(g.sub_name)}</option>`).join("");
         box.innerHTML = `
           <div class="card">
             <h4 style="margin:0 0 8px">➕ Create Category / Brand / Plan</h4>
@@ -2538,14 +2687,14 @@
             ${APP.products.map(p => `
               <div class="card">
                 <div class="row-between">
-                  <b>${p.sub_name} — ${p.name}</b>
+                  <b>${escHtml(p.sub_name)} — ${escHtml(p.name)}</b>
                   <button class="btn-outline" onclick="admToggleActive(${p.id})">${p.is_active ? "🟢 Active" : "🔴 Inactive"}</button>
                 </div>
                 <div class="row-between" style="margin-top:8px">
-                  <input id="ed_name_${p.id}" class="input" style="margin:0;flex:1" value="${p.name}" />
+                  <input id="ed_name_${p.id}" class="input" style="margin:0;flex:1" value="${escHtml(p.name)}" />
                   <input id="ed_price_${p.id}" type="number" class="input" style="margin:0;width:95px" value="${p.price_bdt}" />
                 </div>
-                <input id="ed_desc_${p.id}" class="input" placeholder="Custom description..." value="${p.description || ''}" />
+                <input id="ed_desc_${p.id}" class="input" placeholder="Custom description..." value="${escHtml(p.description || '')}" />
                 <div class="row-between">
                   <button class="btn-primary" style="flex:1" onclick="admSaveProdDetails(${p.id})">💾 Save Changes</button>
                   <button class="btn-outline" style="color:var(--red)" onclick="admDeleteProd(${p.id})">🗑️</button>
@@ -2576,8 +2725,8 @@
                     ${prevSrc ? `<img src="${prevSrc}">` : catIcon(g.cat_name)}
                   </div>
                   <div>
-                    <b style="font-size:14px">${g.sub_name}</b>
-                    <div style="font-size:11px;color:var(--muted)">${g.cat_name} • ${g.plans.length} Plans</div>
+                    <b style="font-size:14px">${escHtml(g.sub_name)}</b>
+                    <div style="font-size:11px;color:var(--muted)">${escHtml(g.cat_name)} • ${g.plans.length} Plans</div>
                   </div>
                 </div>
               </div>
@@ -2587,7 +2736,7 @@
                 <button class="btn-outline" style="color:var(--red)" onclick="admSaveBrandPhoto(${g.sub_id}, '')">🗑️ Remove</button>
               </div>
               <div class="row-between">
-                <input id="bpho_url_${g.sub_id}" class="input" style="margin:0;flex:1;font-size:11.5px" placeholder="Or paste Image URL / file_id" value="${curImg.startsWith('data:') ? '' : curImg}" />
+                <input id="bpho_url_${g.sub_id}" class="input" style="margin:0;flex:1;font-size:11.5px" placeholder="Or paste Image URL / file_id" value="${curImg.startsWith('data:') ? '' : escHtml(curImg)}" />
                 <button class="btn-outline" onclick="admSaveBrandPhoto(${g.sub_id}, document.getElementById('bpho_url_${g.sub_id}').value.trim())">Save URL</button>
               </div>
             </div>
@@ -2602,11 +2751,11 @@
           <div class="card">
             <h4 style="margin:0 0 10px">💳 Edit Payment Numbers & Rates</h4>
             <label style="font-size:11.5px;font-weight:700">📱 bKash Number</label>
-            <input id="setBkash" class="input" value="${APP.settings.bkash_number || ''}" />
+            <input id="setBkash" class="input" value="${escHtml(APP.settings.bkash_number || '')}" />
             <label style="font-size:11.5px;font-weight:700">📱 Nagad Number</label>
-            <input id="setNagad" class="input" value="${APP.settings.nagad_number || ''}" />
+            <input id="setNagad" class="input" value="${escHtml(APP.settings.nagad_number || '')}" />
             <label style="font-size:11.5px;font-weight:700">💎 Binance Pay ID / TRC20</label>
-            <input id="setBinance" class="input" value="${APP.settings.binance_id || ''}" />
+            <input id="setBinance" class="input" value="${escHtml(APP.settings.binance_id || '')}" />
             <label style="font-size:11.5px;font-weight:700">📌 Minimum Deposit (BDT)</label>
             <input id="setMinDep" type="number" class="input" value="${APP.settings.min_deposit_manual || 20}" />
             <label style="font-size:11.5px;font-weight:700">💱 USDT Rate (1 USDT = ? BDT)</label>
@@ -2623,11 +2772,11 @@
         box.innerHTML = deps.length ? deps.map(d => `
           <div class="card">
             <div class="row-between">
-              <b>Deposit #${d.id} — ${d.method}</b>
+              <b>Deposit #${d.id} — ${escHtml(d.method)}</b>
               <b style="color:var(--accent)">৳${d.amount}</b>
             </div>
             <div style="font-size:12px;color:var(--muted);margin:4px 0">
-              User: ${d.user_name || 'User'} (<code>${d.user_id}</code>) • TrxID: <code>${d.trx_id}</code>
+              User: ${escHtml(d.user_name || 'User')} (<code>${d.user_id}</code>) • TrxID: <code>${escHtml(d.trx_id)}</code>
             </div>
             <div class="row-between" style="margin-top:8px">
               <button class="btn-primary" style="flex:1" onclick="admDepAction(${d.id}, 'approve')">✅ Approve</button>
@@ -2637,7 +2786,7 @@
         `).join("") : `<div class="card" style="text-align:center;color:var(--muted)">✅ No pending deposits right now.</div>`;
       }
 
-      // 6. Pending Manual Orders (Separate Email & Pass for VPN, String for Proxy)
+      // 6. Pending Manual Orders
       else if (sec === "pending_orders") {
         badge.innerText = "📦 PENDING ORDERS";
         const ords = (APP.adminOverview && APP.adminOverview.pending_orders) || [];
@@ -2645,9 +2794,9 @@
           const isVpn = (o.category_name || "").toLowerCase().includes("vpn") || (o.product_name || "").toLowerCase().includes("vpn");
           return `
             <div class="card">
-              <b>Order #${o.id} — ${o.product_name} (x${o.quantity})</b>
+              <b>Order #${o.id} — ${escHtml(o.product_name)} (x${o.quantity})</b>
               <div style="font-size:12px;color:var(--muted);margin:3px 0 8px">
-                User: ${o.user_name || 'Customer'} (<code>${o.user_id}</code>) • Paid: ৳${o.total_bdt} • Receipt: <code>${o.receipt_no}</code>
+                User: ${escHtml(o.user_name || 'Customer')} (<code>${o.user_id}</code>) • Paid: ৳${o.total_bdt} • Receipt: <code>${escHtml(o.receipt_no)}</code>
               </div>
               ${isVpn ? `
                 <input id="vpn_em_${o.id}" class="input" placeholder="📧 VPN Email / Username" />
@@ -2697,7 +2846,7 @@
               ${ulist.map(u => `
                 <div class="row-between" style="padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px">
                   <div>
-                    <b>${u.name || 'User'}</b> <small style="color:var(--muted)">@${u.username || 'N/A'}</small>
+                    <b>${escHtml(u.name || 'User')}</b> <small style="color:var(--muted)">@${escHtml(u.username || 'N/A')}</small>
                     <div style="font-size:11px;color:var(--muted)">ID: <code>${u.user_id}</code></div>
                   </div>
                   <div style="text-align:right">
@@ -2722,7 +2871,7 @@
       // 10. Manage Rotating Ads Banner, Welcome Popup & Coupons
       else if (sec === "banners_popup") {
         badge.innerText = "🎨 BANNERS & POPUP";
-        const subOpts = `<option value="0">None (Home)</option>` + buildGroupedBrands().map(g => `<option value="${g.sub_id}">${g.sub_name}</option>`).join("");
+        const subOpts = `<option value="0">None (Home)</option>` + buildGroupedBrands().map(g => `<option value="${g.sub_id}">${escHtml(g.sub_name)}</option>`).join("");
         const banners = (APP.adminOverview && APP.adminOverview.banners) || APP.banners;
         box.innerHTML = `
           <div class="card">
@@ -2741,7 +2890,7 @@
             <div style="margin-top:12px">
               ${banners.map(b => `
                 <div class="row-between" style="padding:7px 0;border-bottom:1px solid var(--border);font-size:12px">
-                  <div><b>${b.title}</b><div style="color:var(--muted);font-size:11px">${b.badge_text || ''}</div></div>
+                  <div><b>${escHtml(b.title)}</b><div style="color:var(--muted);font-size:11px">${escHtml(b.badge_text || '')}</div></div>
                   <button class="btn-outline" style="color:var(--red)" onclick="admDelBanner(${b.id})">🗑️ Delete</button>
                 </div>
               `).join("")}
@@ -2754,11 +2903,11 @@
               <option value="1" ${APP.settings.popup_enabled === "1" ? "selected" : ""}>🟢 Enabled</option>
               <option value="0" ${APP.settings.popup_enabled !== "1" ? "selected" : ""}>🔴 Disabled</option>
             </select>
-            <input id="popTitle" class="input" placeholder="Popup Title" value="${APP.settings.popup_title || ''}" />
-            <textarea id="popText" rows="2" placeholder="Popup Message">${APP.settings.popup_text || ''}</textarea>
+            <input id="popTitle" class="input" placeholder="Popup Title" value="${escHtml(APP.settings.popup_title || '')}" />
+            <textarea id="popText" rows="2" placeholder="Popup Message">${escHtml(APP.settings.popup_text || '')}</textarea>
             <input type="file" accept="image/*" id="popFilePick" class="hidden" onchange="admPickImageToInput(this, 'popImg')" />
             <div class="row-between" style="margin-bottom:8px">
-              <input id="popImg" class="input" style="margin:0;flex:1" placeholder="Popup Image URL, file_id, or upload ➔" value="${(APP.settings.popup_image || '').startsWith('data:') ? '' : (APP.settings.popup_image || '')}" />
+              <input id="popImg" class="input" style="margin:0;flex:1" placeholder="Popup Image URL, file_id, or upload ➔" value="${(APP.settings.popup_image || '').startsWith('data:') ? '' : escHtml(APP.settings.popup_image || '')}" />
               <button class="btn-outline" onclick="document.getElementById('popFilePick').click()">📁 Gallery</button>
             </div>
             <button class="btn-primary" onclick="admSavePopup()">💾 Save Popup</button>
@@ -2775,7 +2924,7 @@
         `;
       }
 
-      // 11. Channel TX & Group Settings (with 4-Step Custom Channel TX Builder)
+      // 11. Channel TX & Group Settings
       else if (sec === "channel_tx") {
         badge.innerText = "⚡ CHANNEL TX & GROUP";
         APP.txWizard = { step: 1, customer_name: "", product_name: "", quantity: 1, total_bdt: 50 };
@@ -2798,13 +2947,13 @@
           <div class="card">
             <h4 style="margin:0 0 8px">⚙️ Group & Channel ID / Link Settings</h4>
             <label style="font-size:11px;font-weight:700">👥 Update Group ID</label>
-            <input id="gcWgrpId" class="input" value="${APP.settings.welcome_group_id || ''}" />
+            <input id="gcWgrpId" class="input" value="${escHtml(APP.settings.welcome_group_id || '')}" />
             <label style="font-size:11px;font-weight:700">🔗 Update Group Link</label>
-            <input id="gcWgrpLink" class="input" value="${APP.settings.welcome_group_link || ''}" />
+            <input id="gcWgrpLink" class="input" value="${escHtml(APP.settings.welcome_group_link || '')}" />
             <label style="font-size:11px;font-weight:700">📢 Transaction Channel ID</label>
-            <input id="gcTxId" class="input" value="${APP.settings.transaction_channel_id || ''}" />
+            <input id="gcTxId" class="input" value="${escHtml(APP.settings.transaction_channel_id || '')}" />
             <label style="font-size:11px;font-weight:700">🔗 Transaction Channel Link</label>
-            <input id="gcTxLink" class="input" value="${APP.settings.transaction_channel_link || ''}" />
+            <input id="gcTxLink" class="input" value="${escHtml(APP.settings.transaction_channel_link || '')}" />
             <button class="btn-primary" onclick="admSaveGcSettings()">💾 Save Group & Channel Settings</button>
           </div>
         `;
@@ -2821,7 +2970,7 @@
             <p style="font-size:12px;color:var(--muted);line-height:1.5">
               এখানে আপনি AI-কে যেকোনো কমান্ড/নিয়ম লিখে দিতে পারেন (যেমন: <i>"ডিপোজিট করতে অবশ্যই bKash-এ Payment করতে হবে, Send Money করা যাবে না"</i>)। AI আপনার এই নিয়মটি হুবহু ঠিক রেখে বাকি কথা নিজের মতো সুন্দরভাবে সাজিয়ে কাস্টমারদের বুঝিয়ে বলবে।
             </p>
-            <textarea id="admAiRulesIn" rows="4" placeholder="উদাহরণ: bKash-এ অবশ্যই Payment করতে হবে, Send Money করা যাবে না। ডেলিভারি টাইম সকাল ১০টা থেকে রাত ১২টা।">${savedRules}</textarea>
+            <textarea id="admAiRulesIn" rows="4" placeholder="উদাহরণ: bKash-এ অবশ্যই Payment করতে হবে, Send Money করা যাবে না। ডেলিভারি টাইম সকাল ১০টা থেকে রাত ১২টা।">${escHtml(savedRules)}</textarea>
             <button class="btn-primary" onclick="admSaveAiRules()">💾 Save AI Rules (Bot + Website)</button>
           </div>
 
@@ -2849,7 +2998,7 @@
             <h4 style="margin:0 0 8px">🎛️ Bot Main Menu Layout</h4>
             <p style="font-size:11.5px;color:var(--muted)">Current active rows in Telegram Bot reply keyboard:</p>
             <div style="background:var(--card-2);padding:10px;border-radius:12px;margin-bottom:10px;font-size:12.5px">
-              ${layout.map((r, i) => `<div style="margin-bottom:4px"><b>Row ${i+1}:</b> ${r.join(" | ")}</div>`).join("")}
+              ${layout.map((r, i) => `<div style="margin-bottom:4px"><b>Row ${i+1}:</b> ${escHtml(r.join(" | "))}</div>`).join("")}
             </div>
             <button class="btn-outline" style="width:100%" onclick="admResetMenuLayout()">🔄 Reset Default Menu Layout (with 🤖 AI Assistant)</button>
           </div>
@@ -2870,12 +3019,11 @@
       loadAdminOverview();
     }
 
-    // Admin Stock Cascading Selectors
     function admFilterStockBrands() {
       const cid = document.getElementById("stkCatSel").value;
       const groups = buildGroupedBrands().filter(g => g.category_id == cid);
       const bSel = document.getElementById("stkBrandSel");
-      bSel.innerHTML = groups.map(g => `<option value="${g.sub_id}">${g.sub_name}</option>`).join("");
+      bSel.innerHTML = groups.map(g => `<option value="${g.sub_id}">${escHtml(g.sub_name)}</option>`).join("");
       admFilterStockPlans();
     }
 
@@ -2883,7 +3031,7 @@
       const sid = document.getElementById("stkBrandSel").value;
       const plans = APP.products.filter(p => p.sub_id == sid);
       const pSel = document.getElementById("stkPlanSel");
-      pSel.innerHTML = plans.map(p => `<option value="${p.id}">${p.name} (৳${p.price_bdt}) — Stock: ${p.in_stock}</option>`).join("");
+      pSel.innerHTML = plans.map(p => `<option value="${p.id}">${escHtml(p.name)} (৳${p.price_bdt}) — Stock: ${p.in_stock}</option>`).join("");
     }
 
     async function admSubmitStock() {
@@ -3058,18 +3206,18 @@
           <div class="card" style="background:var(--green-soft);border-color:var(--green);margin:0">
             <b style="color:var(--green)">✔ AUTHENTIC OFFICIAL RECEIPT</b>
             <div style="font-size:12.5px;margin-top:6px;line-height:1.5">
-              <div><b>Receipt No:</b> <code>${o.receipt_no}</code></div>
-              <div><b>Customer:</b> ${o.customer_name || 'User'} (ID: <code>${o.user_id}</code>)</div>
-              <div><b>Product:</b> ${o.product_name} (x${o.quantity})</div>
+              <div><b>Receipt No:</b> <code>${escHtml(o.receipt_no)}</code></div>
+              <div><b>Customer:</b> ${escHtml(o.customer_name || 'User')} (ID: <code>${o.user_id}</code>)</div>
+              <div><b>Product:</b> ${escHtml(o.product_name)} (x${o.quantity})</div>
               <div><b>Total Paid:</b> ৳${o.total_bdt} BDT</div>
-              <div><b>Date:</b> ${o.order_date}</div>
+              <div><b>Date:</b> ${escHtml(o.order_date)}</div>
             </div>
             <button class="btn-primary" style="margin-top:10px" onclick="admVerifyReceipt(true)">📥 Send PDF Receipt to My Inbox</button>
           </div>
         `;
         if (sendPdf) showToast("🧾 PDF Receipt sent to your Telegram inbox!");
       } else {
-        box.innerHTML = `<div class="card" style="background:var(--red-soft);border-color:var(--red);color:var(--red);margin:0"><b>${r.error || '❌ Invalid Receipt'}</b></div>`;
+        box.innerHTML = `<div class="card" style="background:var(--red-soft);border-color:var(--red);color:var(--red);margin:0"><b>${escHtml(r.error || '❌ Invalid Receipt')}</b></div>`;
       }
     }
 
@@ -3093,8 +3241,8 @@
         box.innerHTML = `
           <div class="card">
             <h4 style="margin:0 0 8px">📢 Step 1: Broadcast Message & Photo</h4>
-            <textarea id="bcMsgInput" rows="4" placeholder="Write announcement text (HTML supported)...">${d.message}</textarea>
-            <input id="bcPhotoInput" class="input" placeholder="Optional Photo URL or Telegram file_id" value="${d.photo}" />
+            <textarea id="bcMsgInput" rows="4" placeholder="Write announcement text (HTML supported)...">${escHtml(d.message)}</textarea>
+            <input id="bcPhotoInput" class="input" placeholder="Optional Photo URL or Telegram file_id" value="${escHtml(d.photo)}" />
             <button class="btn-primary" onclick="bcNextStep1()">Next: Button Options ➔</button>
           </div>
         `;
@@ -3215,7 +3363,6 @@
       showToast(`🎟️ Coupon ${code} (${pct}%) saved!`);
     }
 
-    // 4-Step Custom Channel TX Wizard
     function renderCustomTxWizard() {
       const w = APP.txWizard;
       const box = document.getElementById("customTxWizardCard");
@@ -3224,14 +3371,14 @@
         box.innerHTML = `
           <h4 style="margin:0 0 8px">✍️ Custom Channel TX Post (Step 1/4)</h4>
           <label style="font-size:11.5px;font-weight:700">Customer Name</label>
-          <input id="txStepIn" class="input" placeholder="e.g. Tanvir Ahmed" value="${w.customer_name}" />
+          <input id="txStepIn" class="input" placeholder="e.g. Tanvir Ahmed" value="${escHtml(w.customer_name)}" />
           <button class="btn-primary" onclick="txNextStep(1)">Next (Step 2/4) ➔</button>
         `;
       } else if (w.step === 2) {
         box.innerHTML = `
           <h4 style="margin:0 0 8px">📦 Custom Channel TX Post (Step 2/4)</h4>
           <label style="font-size:11.5px;font-weight:700">Product Name</label>
-          <input id="txStepIn" class="input" placeholder="e.g. Nord VPN (30 Days)" value="${w.product_name}" />
+          <input id="txStepIn" class="input" placeholder="e.g. Nord VPN (30 Days)" value="${escHtml(w.product_name)}" />
           <button class="btn-primary" onclick="txNextStep(2)">Next (Step 3/4) ➔</button>
         `;
       } else if (w.step === 3) {
@@ -3318,10 +3465,10 @@
       box.innerHTML = `<div class="card" style="background:var(--card-2);margin:0">⏳ Testing live AI connection...</div>`;
       const r = await api("/api/admin/ai_settings", { action, ai_api_key: key });
       if (r.ok) {
-        box.innerHTML = `<div class="card" style="background:var(--green-soft);border-color:var(--green);margin:0"><b>✅ ${r.provider || "AI"} Connected!</b><div style="font-size:12px;margin-top:4px">Test Reply: ${r.reply}</div></div>`;
+        box.innerHTML = `<div class="card" style="background:var(--green-soft);border-color:var(--green);margin:0"><b>✅ ${escHtml(r.provider || "AI")} Connected!</b><div style="font-size:12px;margin-top:4px">Test Reply: ${escHtml(r.reply)}</div></div>`;
         showToast("✅ AI Connected for both Bot & Website!");
       } else {
-        box.innerHTML = `<div class="card" style="background:var(--red-soft);border-color:var(--red);color:var(--red);margin:0"><b>❌ ${r.error || "Connection failed"}</b></div>`;
+        box.innerHTML = `<div class="card" style="background:var(--red-soft);border-color:var(--red);color:var(--red);margin:0"><b>❌ ${escHtml(r.error || "Connection failed")}</b></div>`;
       }
     }
 
@@ -3349,9 +3496,9 @@
       }
       box.innerHTML = res.items.map(n => `
         <div class="card" style="padding:10px;margin-bottom:8px;box-shadow:none;background:var(--card-2)">
-          <b style="font-size:13px">${n.title}</b>
-          <div style="font-size:12px;color:var(--muted);margin:3px 0">${n.message}</div>
-          <small style="font-size:10px;color:var(--muted)">${n.created_at}</small>
+          <b style="font-size:13px">${escHtml(n.title)}</b>
+          <div style="font-size:12px;color:var(--muted);margin:3px 0">${escHtml(n.message)}</div>
+          <small style="font-size:10px;color:var(--muted)">${escHtml(n.created_at)}</small>
         </div>
       `).join("");
     }
