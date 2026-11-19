@@ -2662,7 +2662,8 @@
       else if (sec === "manage_buttons") {
         badge.innerText = "🏷️ BUTTONS & PRICE";
         const catOpts = APP.categories.map(c => `<option value="${c.id}">${escHtml(c.name)}</option>`).join("");
-        const subOpts = buildGroupedBrands().map(g => `<option value="${g.sub_id}">${escHtml(g.cat_name)} ➔ ${escHtml(g.sub_name)}</option>`).join("");
+        const allBrands = buildGroupedBrands();
+        const subOpts = allBrands.map(g => `<option value="${g.sub_id}">${escHtml(g.cat_name)} ➔ ${escHtml(g.sub_name)}</option>`).join("");
         box.innerHTML = `
           <div class="card">
             <h4 style="margin:0 0 8px">➕ Create Category / Brand / Plan</h4>
@@ -2683,6 +2684,29 @@
             <input id="newPlanDesc" class="input" placeholder="Custom Description (optional)" />
             <button class="btn-primary" onclick="admCatalogOp('add_product')">➕ Add Plan</button>
           </div>
+
+          <div class="card">
+            <h4 style="margin:0 0 8px">✏️ Rename or Delete Categories & Brands</h4>
+            <label style="font-size:11.5px;font-weight:700">Select Category</label>
+            <select id="renCatSel" class="input" onchange="document.getElementById('renCatInput').value=this.options[this.selectedIndex].text">${catOpts}</select>
+            <div class="row-between" style="margin-bottom:10px">
+              <input id="renCatInput" class="input" style="margin:0;flex:1" value="${escHtml((APP.categories[0] && APP.categories[0].name) || '')}" placeholder="New Category Name" />
+              <button class="btn-primary" style="width:auto;padding:10px 12px" onclick="admRenameCategory()">✏️ Rename</button>
+              <button class="btn-outline" style="color:var(--red);padding:10px 12px" onclick="admDeleteCategory()">🗑️</button>
+            </div>
+
+            <hr style="border:none;border-top:1px solid var(--border);margin:10px 0">
+            <label style="font-size:11.5px;font-weight:700">Select Brand (e.g. Nord VPN)</label>
+            <select id="renBrandSel" class="input" onchange="document.getElementById('renBrandInput').value=this.options[this.selectedIndex].getAttribute('data-name')">
+              ${allBrands.map(g => `<option value="${g.sub_id}" data-name="${escHtml(g.sub_name)}">${escHtml(g.cat_name)} ➔ ${escHtml(g.sub_name)}</option>`).join("")}
+            </select>
+            <div class="row-between">
+              <input id="renBrandInput" class="input" style="margin:0;flex:1" value="${escHtml((allBrands[0] && allBrands[0].sub_name) || '')}" placeholder="New Brand Name" />
+              <button class="btn-primary" style="width:auto;padding:10px 12px" onclick="admRenameBrand()">✏️ Rename</button>
+              <button class="btn-outline" style="color:var(--red);padding:10px 12px" onclick="admDeleteBrand()">🗑️</button>
+            </div>
+          </div>
+
           <div id="admProductsEditList">
             ${APP.products.map(p => `
               <div class="card">
@@ -3088,6 +3112,52 @@
       showToast("🗑️ Deleted!");
       await boot();
       openAdminSection("manage_buttons");
+    }
+
+    async function admRenameCategory() {
+      const cid = document.getElementById("renCatSel").value;
+      const name = document.getElementById("renCatInput").value.trim();
+      if (!cid || !name) return showToast("⚠️ Enter category name");
+      const r = await api("/api/admin/catalog_manage", { action: "rename_category", category_id: cid, name });
+      if (r.ok) {
+        showToast("✅ Category renamed!");
+        await boot();
+        openAdminSection("manage_buttons");
+      }
+    }
+
+    async function admDeleteCategory() {
+      const cid = document.getElementById("renCatSel").value;
+      if (!cid) return;
+      const r = await api("/api/admin/catalog_manage", { action: "delete_category", category_id: cid });
+      if (r.ok) {
+        showToast("🗑️ Category deleted!");
+        await boot();
+        openAdminSection("manage_buttons");
+      }
+    }
+
+    async function admRenameBrand() {
+      const sid = document.getElementById("renBrandSel").value;
+      const name = document.getElementById("renBrandInput").value.trim();
+      if (!sid || !name) return showToast("⚠️ Enter brand name");
+      const r = await api("/api/admin/catalog_manage", { action: "rename_brand", sub_id: sid, name });
+      if (r.ok) {
+        showToast("✅ Brand renamed!");
+        await boot();
+        openAdminSection("manage_buttons");
+      }
+    }
+
+    async function admDeleteBrand() {
+      const sid = document.getElementById("renBrandSel").value;
+      if (!sid) return;
+      const r = await api("/api/admin/catalog_manage", { action: "delete_brand", sub_id: sid });
+      if (r.ok) {
+        showToast("🗑️ Brand deleted!");
+        await boot();
+        openAdminSection("manage_buttons");
+      }
     }
 
     function compressImageFile(file, maxDim = 480) {
