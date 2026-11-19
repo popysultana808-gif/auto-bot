@@ -63,6 +63,8 @@ from telegram.ext import (
     filters,
 )
 
+_TOOL_CACHE: Dict[str, str] = {}
+
 CYBERNEST_LOGO_BASE64 = "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"
 
 # ------------------------------------------------------------------------------
@@ -205,15 +207,12 @@ def _decode_mime_hdr(raw_val: str) -> str:
 def _extract_otp_from_text(subject: str, clean_body: str) -> str:
     import re as _re
     combined = f"{subject} {clean_body}"
-    # 1. Contextual match near OTP/verification words (6-8 digits first, then 4-5)
     ctx_m = _re.search(r"(?:code|otp|pin|verify|verification|confirm|login|use|security)[^0-9]{0,25}\b(\d{6,8})\b", combined, flags=_re.IGNORECASE)
     if ctx_m:
         return ctx_m.group(1)
-    # 2. Standalone 6-8 digit code in subject or body
     m68 = _re.search(r"\b(\d{6,8})\b", combined)
     if m68:
         return m68.group(1)
-    # 3. 4-5 digit code (skipping common years 2020-2035)
     for m45 in _re.finditer(r"\b(\d{4,5})\b", combined):
         val = m45.group(1)
         if not (2020 <= int(val) <= 2035):
@@ -377,7 +376,6 @@ def _call_gemini_if_configured(question: str, ctx: Dict[str, Any], user_id: Opti
         elif db_ai_key.startswith("AIza"):
             raw_gemini = db_ai_key
 
-    # Smart auto-detection: if user put gsk_ key inside GEMINI_API_KEY, use it for Groq
     if not groq_key and raw_gemini.startswith("gsk_"):
         groq_key = raw_gemini
         raw_gemini = ""
@@ -416,7 +414,6 @@ def _call_gemini_if_configured(question: str, ctx: Dict[str, Any], user_id: Opti
     uid_key = int(user_id or 0)
     history = _AI_CHAT_HISTORY.get(uid_key, [])[-6:]
 
-    # 1. GROQCLOUD FIRST (Ultra-fast ~0.5-1s response)
     if groq_key:
         messages = [{"role": "system", "content": sys_prompt}]
         for h in history:
@@ -451,7 +448,6 @@ def _call_gemini_if_configured(question: str, ctx: Dict[str, Any], user_id: Opti
             except Exception as e:
                 logger.warning(f"Groq model {model_name} failed: {e}")
 
-    # 2. GEMINI API (Only if valid AIza... key is set; skips slow invalid loops)
     if raw_gemini.startswith("AIza"):
         contents = []
         for h in history:
@@ -502,7 +498,6 @@ def generate_smart_ai_reply(question: str, user_id: Optional[int] = None) -> str
     q = raw_q.lower()
     ctx = _build_live_store_context(user_id=user_id)
 
-    # Try live Gemini API first if GEMINI_API_KEY is configured in Render
     gemini_ans = _call_gemini_if_configured(raw_q, ctx, user_id=user_id)
     if gemini_ans:
         return gemini_ans
@@ -517,7 +512,6 @@ def generate_smart_ai_reply(question: str, user_id: Optional[int] = None) -> str
     ]
     is_bangla_ctx = has_bn_chars or any(w in q for w in banglish_words)
 
-    # 1. Greetings (Salam, Hello, Hi, How are you)
     if any(g in q for g in ["assalamu", "salam", "সালাম", "আসসালামু"]):
         return (
             f"ওয়ালাইকুম আসসালাম, {html.escape(ctx['user_name'])}! 😊\n"
@@ -528,7 +522,6 @@ def generate_smart_ai_reply(question: str, user_id: Optional[int] = None) -> str
             return f"হ্যালো {html.escape(ctx['user_name'])}! 😊 আলহামদুলিল্লাহ ভালো আছি। আপনি কেমন আছেন? বলুন, আজ আপনাকে কীভাবে সাহায্য করতে পারি?"
         return f"Hello {html.escape(ctx['user_name'])}! 😊 I'm doing great! How can I help you today?"
 
-    # 2. How to Buy / Purchase Guide (Specific step-by-step instructions)
     is_how_to_buy = any(k in q for k in ["kivabe", "how to buy", "how to purchase", "purchase", "কিনব", "কিভাবে", "অর্ডার করব", "order korbo", "kinbo", "kinte"])
     if is_how_to_buy:
         if any(k in q for k in ["vpn", "ভিপিএন", "nord", "express", "surfshark", "proton"]):
@@ -585,7 +578,6 @@ def generate_smart_ai_reply(question: str, user_id: Optional[int] = None) -> str
             "4. Mail accounts deliver instantly with Excel & PDF receipts; VPN & Proxy orders deliver within 15–30 mins."
         )
 
-    # 3. Deposit / Payment queries
     if any(k in q for k in ["deposit", "payment", "bkash", "nagad", "binance", "ডিপোজিট", "বিকাশ", "নগদ", "বাইনান্স", "পেমেন্ট", "টাকা", "রিচার্জ", "recharge"]):
         if is_bangla_ctx:
             return (
@@ -609,7 +601,6 @@ def generate_smart_ai_reply(question: str, user_id: Optional[int] = None) -> str
             f"Send Money to any number above, then submit the amount & TrxID in the <b>💳 Deposit</b> tab."
         )
 
-    # 4. Check if user asked about a SPECIFIC Brand (e.g. "Rapid Proxy", "Nord VPN", "Hotmail")
     brand_matches = []
     seen_subs = set()
     for p in prods:
@@ -633,7 +624,6 @@ def generate_smart_ai_reply(question: str, user_id: Optional[int] = None) -> str
                 lines.append(f"   • {pl['name']}: <b>৳{format_price(pl['price_bdt'])} BDT</b>{extra}")
         return "\n".join(lines)
 
-    # 5. Category-specific Price / Stock Queries
     if any(k in q for k in ["vpn", "ভিপিএন"]):
         vpn_items = [p for p in prods if "vpn" in p["cat_name"].lower() and p["is_active"]]
         grouped: Dict[str, List[str]] = {}
@@ -662,7 +652,6 @@ def generate_smart_ai_reply(question: str, user_id: Optional[int] = None) -> str
             lines.append(f"📧 <b>{p['sub_name']} ({p['name']}):</b> ৳{format_price(p['price_bdt'])} — {st_txt}")
         return "\n".join(lines)
 
-    # 6. Balance, 2FA / OTP, Referral, Support
     if any(k in q for k in ["balance", "ব্যালেন্স", "tk", "taka"]):
         return (
             f"💰 আপনার বর্তমান ওয়ালেট ব্যালেন্স: <b>৳{ctx['user_bal']:.2f} BDT</b>।"
@@ -684,7 +673,6 @@ def generate_smart_ai_reply(question: str, user_id: Optional[int] = None) -> str
             else "👥 Copy your invite link from the <b>Referral & Earnings</b> page in your Profile to track every friend who joins."
         )
 
-    # 7. Polite conversational fallback
     if is_bangla_ctx:
         return (
             f"আমি আপনার প্রশ্নটি পুরোপুরি বুঝতে পারিনি। আপনি নির্দিষ্ট করে জিজ্ঞেস করতে পারেন—যেমন:\n"
@@ -755,7 +743,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
-        # Serve webapp.html on /app or /webapp.html
         if path in ("/app", "/app/", "/webapp.html"):
             content = load_webapp_html_bytes()
             self.send_response(200)
@@ -765,7 +752,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             self.wfile.write(content)
             return
 
-        # Serve Product / Banner Photo from Telegram file_id
         if path == "/api/tg_photo":
             qs = urllib.parse.parse_qs(parsed.query)
             fid = qs.get("file_id", [""])[0]
@@ -788,7 +774,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        # Serve Bot's Official Profile Picture / Logo for Splash Screen (/api/bot_photo)
         if path == "/api/bot_photo":
             now_ts = time.time()
             cached_bot = _USER_PHOTO_CACHE.get(0)
@@ -826,7 +811,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     return
             except Exception:
                 pass
-            # Fallback to embedded official CyberNest logo JPEG
             try:
                 logo_bytes = base64.b64decode(CYBERNEST_LOGO_BASE64)
                 self.send_response(200)
@@ -839,7 +823,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        # NEW API: Load User's Real Telegram Profile Picture (/api/user_photo)
         if path == "/api/user_photo":
             qs = urllib.parse.parse_qs(parsed.query)
             uid_str = qs.get("user_id", [""])[0]
@@ -883,7 +866,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        # Full Store & User Init API (/api/init)
         if path == "/api/init":
             uid, tg_u = self._get_auth_user()
             if not uid:
@@ -973,7 +955,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 "banners": banners,
                 "settings": sdict,
                 "menu_layout": get_menu_layout(),
-                        "ai_custom_rules": get_setting("ai_custom_rules", ""),
+                "ai_custom_rules": get_setting("ai_custom_rules", ""),
                 "unread_notifs": unread_n,
             })
 
@@ -1059,7 +1041,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 "coupons": coupons_list,
                 "banners": banners_list,
                 "menu_layout": get_menu_layout(),
-                        "ai_custom_rules": get_setting("ai_custom_rules", ""),
+                "ai_custom_rules": get_setting("ai_custom_rules", ""),
             })
 
         self.send_response(200)
@@ -1081,7 +1063,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             if not uid:
                 return self._send_json({"ok": False, "error": "Unauthorized"}, 401)
 
-            # Notification add (e.g. "Deposit started" when calculator opens)
             if path == "/api/notifications/add":
                 title = str(body.get("title", "🔔 Notification")).strip()
                 msg = str(body.get("message", "")).strip()
@@ -1089,7 +1070,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     add_notification(uid, title, msg)
                 return self._send_json({"ok": True})
 
-            # Save User Language preference
             if path == "/api/user/preferences":
                 lang = str(body.get("language", "EN")).strip().upper()
                 conn = get_db()
@@ -1099,13 +1079,11 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 conn.close()
                 return self._send_json({"ok": True, "language": lang})
 
-            # Live AI Support Chatbot Endpoint
             if path == "/api/ai_support":
                 question = str(body.get("question", "")).strip()
                 ans = generate_smart_ai_reply(question, user_id=uid)
                 return self._send_json({"ok": True, "reply": ans})
 
-            # Coupon Verification
             if path == "/api/coupon/check":
                 code_str = str(body.get("code", "")).strip().upper()
                 conn = get_db()
@@ -1117,7 +1095,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     return self._send_json({"ok": True, "discount_pct": row["discount_pct"]})
                 return self._send_json({"ok": False, "error": "Invalid or expired coupon"})
 
-            # 2FA Live OTP Generator
             if path == "/api/tools/2fa":
                 sec = str(body.get("secret", "")).replace(" ", "").upper()
                 try:
@@ -1127,12 +1104,10 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 except Exception:
                     return self._send_json({"ok": False, "error": "Invalid 2FA Secret Key"})
 
-            # Outlook / Hotmail IMAP OTP Reader
             if path == "/api/tools/outlook":
                 res = fetch_outlook_otp(str(body.get("account", "")))
                 return self._send_json(res)
 
-            # NEW API: Resend Purchased Product to Telegram Inbox (/api/order/resend_product)
             if path == "/api/order/resend_product":
                 oid = int(body.get("order_id", 0))
                 conn = get_db()
@@ -1177,7 +1152,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                             pass
                 return self._send_json({"ok": True, "message": "📦 প্রোডাক্টটি আপনার টেলিগ্রাম ইনবক্সে আবার পাঠানো হয়েছে!"})
 
-            # NEW API: Resend Official PDF Receipt to Telegram Inbox (/api/order/resend_pdf)
             if path == "/api/order/resend_pdf":
                 oid = int(body.get("order_id", 0))
                 conn = get_db()
@@ -1215,7 +1189,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     )
                 return self._send_json({"ok": True, "message": "🧾 অফিশিয়াল PDF রিসিট আপনার টেলিগ্রাম ইনবক্সে পাঠানো হয়েছে!"})
 
-            # Deposit Request Submission
             if path == "/api/deposit":
                 method = str(body.get("method", "bKash"))
                 amount = float(body.get("amount", 0))
@@ -1256,7 +1229,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     )
                 return self._send_json({"ok": True})
 
-            # Order Placement from Mini App (with Full Bot Inbox Delivery + PDF Receipt + Excel + Channel Post)
             if path == "/api/order":
                 pid = int(body.get("product_id", 0))
                 qty = max(1, int(body.get("quantity", 1)))
@@ -1456,16 +1428,12 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                         asyncio.run_coroutine_threadsafe(_notify_web_manual(), _GLOBAL_EVENT_LOOP)
                     return self._send_json({"ok": True, "message": f"🎉 অর্ডার #{oid} গ্রহণ করা হয়েছে! অফিশিয়াল PDF রিসিট আপনার ইনবক্সে পাঠানো হয়েছে এবং ১৫-৩০ মিনিটের মধ্যে ডেলিভারি পাবেন।"})
 
-            # ==================================================================
-            # SUPER ADMIN API ROUTES (/api/admin/*) — Restricted to 8919985167
-            # ==================================================================
             if path.startswith("/api/admin/"):
                 if not is_admin(uid):
                     return self._send_json({"ok": False, "error": "Forbidden"}, 403)
                 conn = get_db()
                 c = conn.cursor()
 
-                # 1. Manual Order Delivery (Supports separate VPN email/pass or Proxy string + PDF receipt)
                 if path == "/api/admin/deliver_order":
                     oid = int(body.get("order_id", 0))
                     ddata = str(body.get("data", "")).strip()
@@ -1520,7 +1488,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                         asyncio.run_coroutine_threadsafe(_send_manual_deliv(), _GLOBAL_EVENT_LOOP)
                     return self._send_json({"ok": True})
 
-                # 2. Refund Pending Order
                 if path == "/api/admin/refund_order":
                     oid = int(body.get("order_id", 0))
                     c.execute("SELECT * FROM orders WHERE id = ?", (oid,))
@@ -1542,7 +1509,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     conn.close()
                     return self._send_json({"ok": True})
 
-                # 3. Approve / Reject Deposit
                 if path == "/api/admin/deposit_action":
                     did = int(body.get("deposit_id", 0))
                     act = body.get("action")
@@ -1569,7 +1535,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     conn.close()
                     return self._send_json({"ok": True})
 
-                # 4. NEW API: Receipt Checker & One-Click PDF Download (/api/admin/check_receipt)
                 if path == "/api/admin/check_receipt":
                     rcode = str(body.get("receipt_no", "")).strip().upper()
                     send_pdf = bool(body.get("send_pdf", False))
@@ -1611,7 +1576,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                         )
                     return self._send_json({"ok": True, "authentic": True, "order": order_dict})
 
-                # 5. NEW API: Rotating Ad Banners Management (/api/admin/banners)
                 if path == "/api/admin/banners":
                     action = str(body.get("action", "add"))
                     if action == "add":
@@ -1640,7 +1604,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     conn.close()
                     return self._send_json({"ok": True, "banners": blist})
 
-                # 6. NEW API: Step-by-Step Multi-Button Broadcast from WebApp (/api/admin/broadcast)
                 if path == "/api/admin/broadcast":
                     msg_text = str(body.get("message", "")).strip()
                     photo_id = str(body.get("photo", "")).strip() or None
@@ -1694,7 +1657,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                         asyncio.run_coroutine_threadsafe(_run_web_bcast(), _GLOBAL_EVENT_LOOP)
                     return self._send_json({"ok": True, "total_targets": len(all_u)})
 
-                # 6.5 Brand Photo Update (1 photo per brand for Website, keeps Bot's per-plan photos separate)
                 if path == "/api/admin/brand_photo":
                     sid = int(body.get("sub_id", 0))
                     img_val = str(body.get("brand_image", "")).strip() or None
@@ -1704,7 +1666,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     conn.close()
                     return self._send_json({"ok": True})
 
-                # 6.6 AI API Key Settings & Live Connection Test (Syncs Bot + Website automatically)
                 if path == "/api/admin/ai_settings":
                     act = str(body.get("action", "save"))
                     new_key = str(body.get("ai_api_key", "")).strip()
@@ -1759,7 +1720,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     else:
                         return self._send_json({"ok": False, "error": "Invalid Key format. Groq keys start with gsk_ and Gemini keys start with AIza."})
 
-                # 7. Product & Catalog Management (Edit / Create / Delete Category, Brand, Plan)
                 if path == "/api/admin/product_update":
                     pid = int(body.get("product_id", 0))
                     if body.get("toggle_active"):
@@ -1836,7 +1796,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     conn.close()
                     return self._send_json({"ok": True})
 
-                # 8. Add Stock
                 if path == "/api/admin/add_stock":
                     pid = int(body.get("product_id", 0))
                     lines = [ln.strip() for ln in str(body.get("lines", "")).splitlines() if ln.strip()]
@@ -1848,7 +1807,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     conn.close()
                     return self._send_json({"ok": True, "added": len(lines), "total_stock": total_now})
 
-                # 9. Payment Settings Update
                 if path == "/api/admin/payment_settings":
                     for k in ("bkash_number", "nagad_number", "binance_id", "min_deposit_manual", "usdt_rate", "support_username"):
                         if k in body and body[k] is not None:
@@ -1856,7 +1814,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     conn.close()
                     return self._send_json({"ok": True})
 
-                # 10. User Management (Search + Add/Deduct Balance)
                 if path == "/api/admin/user_balance":
                     target_uid = int(body.get("user_id", 0))
                     action = str(body.get("action", "add"))
@@ -1879,7 +1836,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     conn.close()
                     return self._send_json({"ok": True, "user": dict(updated_u) if updated_u else None})
 
-                # 11. Channel TX & Group Settings + 4-Step Custom Channel TX Post
                 if path == "/api/admin/channel_tx":
                     act = str(body.get("action", ""))
                     if act == "toggle_autosales":
@@ -1909,7 +1865,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     conn.close()
                     return self._send_json({"ok": False, "error": "Invalid action"})
 
-                # 12. Menu Layout & Factory Reset
                 if path == "/api/admin/menu_layout":
                     if body.get("reset"):
                         save_menu_layout([list(r) for r in DEFAULT_MENU_LAYOUT])
@@ -1931,7 +1886,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     conn.close()
                     return self._send_json({"ok": True})
 
-                # 13. Popup & Coupon Controls
                 if path == "/api/admin/popup":
                     set_setting("popup_enabled", str(body.get("enabled", "0")))
                     set_setting("popup_title", str(body.get("title", "")))
@@ -2273,7 +2227,6 @@ def init_db():
     )
     """)
 
-    # Safe Schema Migrations for Existing Databases
     if conn.is_pg:
         try:
             cursor.execute("ALTER TABLE categories ADD COLUMN IF NOT EXISTS position INTEGER DEFAULT 0")
@@ -2343,7 +2296,6 @@ def init_db():
 
     sync_vpn_catalog_v3(conn, cursor)
 
-    # Seed Default Rotating Ad Banners if empty
     cursor.execute("SELECT COUNT(*) as cnt FROM ad_banners")
     b_row = cursor.fetchone()
     b_cnt = b_row["cnt"] if isinstance(b_row, dict) else b_row[0]
@@ -2553,7 +2505,6 @@ def get_menu_layout() -> List[List[str]]:
         try:
             parsed = json.loads(raw)
             if isinstance(parsed, list) and parsed:
-                # Ensure 🤖 AI Assistant is present at least once unless admin explicitly customized after v2
                 flat = [btn for r in parsed for btn in r]
                 if "🤖 AI Assistant" not in flat and not get_setting("ai_btn_migrated", ""):
                     parsed[0].append("🤖 AI Assistant")
@@ -3195,7 +3146,6 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
             logger.error(f"Verification button error: {e}", exc_info=True)
         return
 
-    # AI Quick Question Callbacks
     if data.startswith("ai_q_"):
         q_type = data.replace("ai_q_", "")
         if q_type == "exit":
@@ -3261,7 +3211,14 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         for cat in cats:
             keyboard.append([InlineKeyboardButton(cat["name"], callback_data=f"usr_cat_{cat['id']}")])
         keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="usr_cancel_home")])
-        await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
+        if getattr(query.message, "photo", None):
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            await query.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     if data.startswith("usr_sub_"):
@@ -3304,7 +3261,14 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
             kb.append([InlineKeyboardButton(btn_text, callback_data=f"usr_prod_{p['id']}")])
         back_cat_id = meta["category_id"] if meta else 1
         kb.append([InlineKeyboardButton("< Back", callback_data=f"usr_cat_{back_cat_id}")])
-        await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+        if getattr(query.message, "photo", None):
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            await query.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+        else:
+            await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
         return
 
     if data.startswith("usr_prod_"):
@@ -3427,6 +3391,61 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
             "আপনার মেইল স্ট্রিংটি <code>email|password|refresh_token|client_id</code> ফরম্যাটে পেস্ট করে পাঠান:",
             parse_mode=ParseMode.HTML,
         )
+        return
+
+    if data.startswith("tool_ref_mail_"):
+        tok_key = data.replace("tool_ref_mail_", "", 1)
+        raw_str = _TOOL_CACHE.get(tok_key)
+        if not raw_str:
+            await query.message.reply_text("⚠️ সেশন শেষ হয়ে গেছে। অনুগ্রহ করে মেইল স্ট্রিংটি আবার পেস্ট করুন।")
+            return
+        res = await asyncio.to_thread(fetch_outlook_otp, raw_str)
+        now_t = datetime.datetime.now().strftime("%I:%M:%S %p")
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 Refresh Code", callback_data=f"tool_ref_mail_{tok_key}")]
+        ])
+        if res.get("ok"):
+            new_txt = (
+                f"✉️ <b>Outlook / Hotmail OTP Found!</b>\n"
+                f"📧 <b>Email:</b> <code>{html.escape(str(res.get('email', '')))}</code>\n"
+                f"📌 <b>Subject:</b> {html.escape(str(res.get('subject', 'Inbox')))}\n"
+                f"🔢 <b>Code / Message:</b> <code>{html.escape(str(res.get('code', '')))}</code>\n"
+                f"🕒 <i>Refreshed at: {now_t}</i>"
+            )
+        else:
+            new_txt = (
+                f"❌ <b>Refresh Error:</b> {html.escape(str(res.get('error', 'Failed')))}\n"
+                f"🕒 <i>Checked at: {now_t}</i>"
+            )
+        try:
+            await query.edit_message_text(new_txt, parse_mode=ParseMode.HTML, reply_markup=kb)
+        except Exception:
+            pass
+        return
+
+    if data.startswith("tool_ref_2fa_"):
+        tok_key = data.replace("tool_ref_2fa_", "", 1)
+        sec = _TOOL_CACHE.get(tok_key)
+        if not sec:
+            await query.message.reply_text("⚠️ সেশন শেষ হয়ে গেছে। অনুগ্রহ করে 2FA Secret Key আবার দিন।")
+            return
+        try:
+            totp = pyotp.TOTP(sec)
+            code_2fa = totp.now()
+            time_remaining = 30 - (int(time.time()) % 30)
+            now_t = datetime.datetime.now().strftime("%I:%M:%S %p")
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Refresh 2FA Code", callback_data=f"tool_ref_2fa_{tok_key}")]
+            ])
+            new_txt = (
+                f"🔑 <b>2FA Live Code</b>\n\n"
+                f"🔢 কোড: <code>{code_2fa}</code>\n"
+                f"⏳ মেয়াদ বাকি: <b>{time_remaining} সেকেন্ড</b>\n"
+                f"🕒 <i>Refreshed at: {now_t}</i>"
+            )
+            await query.edit_message_text(new_txt, parse_mode=ParseMode.HTML, reply_markup=kb)
+        except Exception:
+            pass
         return
 
     if data == "prof_purchases":
@@ -3702,6 +3721,31 @@ async def render_purchase_summary(query_or_message, prod_id: int, quantity: int 
     ]
     reply_markup = InlineKeyboardMarkup(kb)
 
+    if p["image_file_id"]:
+        if edit and hasattr(query_or_message, "message") and query_or_message.message:
+            if getattr(query_or_message.message, "photo", None):
+                try:
+                    await query_or_message.edit_message_caption(caption=text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+                    return
+                except Exception:
+                    pass
+            else:
+                try:
+                    await query_or_message.message.delete()
+                except Exception:
+                    pass
+                try:
+                    await query_or_message.message.reply_photo(photo=p["image_file_id"], caption=text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+                    return
+                except Exception:
+                    pass
+        try:
+            target = query_or_message.message if hasattr(query_or_message, "message") else query_or_message
+            await target.reply_photo(photo=p["image_file_id"], caption=text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+            return
+        except Exception:
+            pass
+
     if edit and hasattr(query_or_message, "edit_message_text"):
         try:
             await query_or_message.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
@@ -3709,14 +3753,8 @@ async def render_purchase_summary(query_or_message, prod_id: int, quantity: int 
         except Exception:
             pass
 
-    if p["image_file_id"]:
-        try:
-            await query_or_message.reply_photo(photo=p["image_file_id"], caption=text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
-            return
-        except Exception:
-            pass
-
-    await query_or_message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+    target = query_or_message.message if hasattr(query_or_message, "message") else query_or_message
+    await target.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
 
 async def process_order(query, prod_id: int, quantity: int):
     try:
@@ -4085,7 +4123,6 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         await query.message.reply_text("✍️ <b>কাস্টম ট্রানজ্যাকশন (ধাপ ১/৪):</b>\nকাস্টমারের নাম লিখে পাঠান:", parse_mode=ParseMode.HTML)
         return
 
-    # Step-by-step Multi-Button Broadcast
     if data == "adm_broadcast_start":
         set_user_state(user_id, "ADMIN_WAITING_BCAST_MSG", {})
         await query.message.reply_text(
@@ -4898,11 +4935,20 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         res = fetch_outlook_otp(text)
         set_user_state(user.id, None)
         if res.get("ok"):
+            tok_key = secrets.token_hex(4)
+            _TOOL_CACHE[tok_key] = text
+            if len(_TOOL_CACHE) > 300:
+                _TOOL_CACHE.pop(next(iter(_TOOL_CACHE)))
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Refresh Code", callback_data=f"tool_ref_mail_{tok_key}")]
+            ])
             await update.message.reply_text(
                 f"✉️ <b>Outlook / Hotmail OTP Found!</b>\n"
+                f"📧 <b>Email:</b> <code>{html.escape(str(res.get('email', '')))}</code>\n"
                 f"📌 <b>Subject:</b> {html.escape(str(res.get('subject', 'Inbox')))}\n"
                 f"🔢 <b>Code / Message:</b> <code>{html.escape(str(res.get('code', '')))}</code>",
                 parse_mode=ParseMode.HTML,
+                reply_markup=kb,
             )
         else:
             await update.message.reply_text(f"❌ <b>Error:</b> {html.escape(str(res.get('error', 'Failed')))}", parse_mode=ParseMode.HTML)
@@ -4973,9 +5019,17 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             code_2fa = totp.now()
             time_remaining = 30 - (int(time.time()) % 30)
             set_user_state(user.id, None)
+            tok_key = secrets.token_hex(4)
+            _TOOL_CACHE[tok_key] = secret
+            if len(_TOOL_CACHE) > 300:
+                _TOOL_CACHE.pop(next(iter(_TOOL_CACHE)))
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Refresh 2FA Code", callback_data=f"tool_ref_2fa_{tok_key}")]
+            ])
             await update.message.reply_text(
                 f"🔑 <b>2FA Live Code</b>\n\n🔢 কোড: <code>{code_2fa}</code>\n⏳ মেয়াদ বাকি: <b>{time_remaining} সেকেন্ড</b>",
                 parse_mode=ParseMode.HTML,
+                reply_markup=kb,
             )
         except Exception:
             await update.message.reply_text("❌ অবৈধ 2FA Secret Key! দয়া করে সঠিক কি দিন।")
@@ -4995,7 +5049,6 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     if not is_admin(user.id):
-        # Fallback for normal users typing questions directly in chat -> Smart AI Assistant
         try:
             await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
         except Exception:
@@ -5442,7 +5495,6 @@ async def photo_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text(f"✅ নতুন ফটো সফলভাবে সেভ হয়েছে!\n📋 File ID: <code>{photo_file_id}</code>", parse_mode=ParseMode.HTML)
         return
 
-    # Convenience: Admin sends any photo outside state -> return its Telegram file_id for Web Admin use
     photo_file_id = update.message.photo[-1].file_id
     await update.message.reply_text(
         f"🖼️ <b>Telegram Photo File ID:</b>\n<code>{photo_file_id}</code>\n\n"
