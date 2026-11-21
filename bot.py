@@ -140,6 +140,20 @@ def _http_get_bytes(url: str, timeout: int = 10):
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read(), resp.headers.get("Content-Type", "image/jpeg")
 
+def _fetch_2fa_live_fallback(cleaned_secret: str) -> Optional[str]:
+    """Fallback to 2fa.live public TOTP API if local Base32 fails on unusual keys."""
+    try:
+        url = f"https://2fa.live/tok/{urllib.parse.quote(cleaned_secret)}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 CyberNestBot/3.0"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+            tok = str(data.get("token", "")).strip()
+            if tok and tok.isdigit():
+                return tok
+    except Exception:
+        pass
+    return None
+
 def generate_universal_2fa_codes(raw_input: str) -> List[Dict[str, Any]]:
     """Universal 2FA TOTP parser supporting Facebook, Instagram, Twitter/X, Google, otpauth:// URIs & multi-line keys."""
     import re as _re
@@ -152,13 +166,11 @@ def generate_universal_2fa_codes(raw_input: str) -> List[Dict[str, Any]]:
         label = ""
         secret_candidate = ln
 
-        # Extract secret from otpauth://totp/...?secret=XXXX
         if "secret=" in ln.lower():
             m_sec = _re.search(r"secret=([A-Za-z0-9\s\-_]+)", ln, flags=_re.IGNORECASE)
             if m_sec:
                 secret_candidate = m_sec.group(1)
         elif "|" in ln:
-            # Handle user|pass|2fa_secret format
             parts = [p.strip() for p in ln.split("|") if p.strip()]
             label = parts[0] if len(parts) >= 2 else ""
             secret_candidate = parts[-1]
@@ -167,29 +179,44 @@ def generate_universal_2fa_codes(raw_input: str) -> List[Dict[str, Any]]:
             label = parts[0] if len(parts) >= 2 else ""
             secret_candidate = parts[-1]
 
-        # Clean spaces, hyphens & normalize Base32 characters (0->O, 1->I, 8->B)
-        cleaned = _re.sub(r"[\s\-_]+", "", secret_candidate).upper()
-        cleaned = cleaned.replace("0", "O").replace("1", "I").replace("8", "B")
-        cleaned = _re.sub(r"[^A-Z2-7=]", "", cleaned)
-        cleaned = cleaned.rstrip("=")
-        if len(cleaned) < 6:
+        # Clean spaces/hyphens; keep A-Z and 0-9 first to test valid Base32 directly
+        raw_clean = _re.sub(r"[\s\-_]+", "", secret_candidate).upper().rstrip("=")
+        if len(raw_clean) < 6:
             continue
 
-        # Fix Base32 padding to multiple of 8
-        pad_len = (8 - (len(cleaned) % 8)) % 8
-        padded_secret = cleaned + ("=" * pad_len)
+        # Normalize ambiguous characters: 0->O, 1->L (or I), 8->B, 9->G
+        norm_variants = [
+            raw_clean,
+            raw_clean.replace("0", "O").replace("1", "L").replace("8", "B").replace("9", "G"),
+            raw_clean.replace("0", "O").replace("1", "I").replace("8", "B").replace("9", "G"),
+        ]
 
-        try:
-            totp = pyotp.TOTP(padded_secret)
-            code_now = totp.now()
+        code_now = None
+        used_secret = raw_clean
+        for variant in norm_variants:
+            b32_only = _re.sub(r"[^A-Z2-7]", "", variant)
+            if len(b32_only) < 6:
+                continue
+            pad_len = (8 - (len(b32_only) % 8)) % 8
+            padded_secret = b32_only + ("=" * pad_len)
+            try:
+                totp = pyotp.TOTP(padded_secret)
+                code_now = totp.now()
+                used_secret = padded_secret
+                break
+            except Exception:
+                continue
+
+        if not code_now:
+            code_now = _fetch_2fa_live_fallback(raw_clean)
+
+        if code_now:
             results.append({
                 "label": label,
-                "secret": padded_secret,
+                "secret": used_secret,
                 "code": code_now,
                 "remaining": rem,
             })
-        except Exception:
-            continue
     return results
 
 def add_notification(user_id: int, title: str, message: str):
