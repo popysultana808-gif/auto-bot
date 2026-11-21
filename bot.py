@@ -140,6 +140,58 @@ def _http_get_bytes(url: str, timeout: int = 10):
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read(), resp.headers.get("Content-Type", "image/jpeg")
 
+def generate_universal_2fa_codes(raw_input: str) -> List[Dict[str, Any]]:
+    """Universal 2FA TOTP parser supporting Facebook, Instagram, Twitter/X, Google, otpauth:// URIs & multi-line keys."""
+    import re as _re
+    results = []
+    rem = 30 - (int(time.time()) % 30)
+    for line in (raw_input or "").splitlines():
+        ln = line.strip()
+        if not ln:
+            continue
+        label = ""
+        secret_candidate = ln
+
+        # Extract secret from otpauth://totp/...?secret=XXXX
+        if "secret=" in ln.lower():
+            m_sec = _re.search(r"secret=([A-Za-z0-9\s\-_]+)", ln, flags=_re.IGNORECASE)
+            if m_sec:
+                secret_candidate = m_sec.group(1)
+        elif "|" in ln:
+            # Handle user|pass|2fa_secret format
+            parts = [p.strip() for p in ln.split("|") if p.strip()]
+            label = parts[0] if len(parts) >= 2 else ""
+            secret_candidate = parts[-1]
+        elif ":" in ln and not ln.lower().startswith("http"):
+            parts = [p.strip() for p in ln.split(":") if p.strip()]
+            label = parts[0] if len(parts) >= 2 else ""
+            secret_candidate = parts[-1]
+
+        # Clean spaces, hyphens & normalize Base32 characters (0->O, 1->I, 8->B)
+        cleaned = _re.sub(r"[\s\-_]+", "", secret_candidate).upper()
+        cleaned = cleaned.replace("0", "O").replace("1", "I").replace("8", "B")
+        cleaned = _re.sub(r"[^A-Z2-7=]", "", cleaned)
+        cleaned = cleaned.rstrip("=")
+        if len(cleaned) < 6:
+            continue
+
+        # Fix Base32 padding to multiple of 8
+        pad_len = (8 - (len(cleaned) % 8)) % 8
+        padded_secret = cleaned + ("=" * pad_len)
+
+        try:
+            totp = pyotp.TOTP(padded_secret)
+            code_now = totp.now()
+            results.append({
+                "label": label,
+                "secret": padded_secret,
+                "code": code_now,
+                "remaining": rem,
+            })
+        except Exception:
+            continue
+    return results
+
 def add_notification(user_id: int, title: str, message: str):
     try:
         conn = get_db()
@@ -1225,13 +1277,12 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 return self._send_json({"ok": False, "error": "Invalid or expired coupon"})
 
             if path == "/api/tools/2fa":
-                sec = str(body.get("secret", "")).replace(" ", "").upper()
-                try:
-                    totp = pyotp.TOTP(sec)
-                    rem = 30 - (int(datetime.datetime.now().timestamp()) % 30)
-                    return self._send_json({"ok": True, "code": totp.now(), "remaining": rem})
-                except Exception:
-                    return self._send_json({"ok": False, "error": "Invalid 2FA Secret Key"})
+                raw_sec = str(body.get("secret", "")).strip()
+                parsed_codes = generate_universal_2fa_codes(raw_sec)
+                if parsed_codes:
+                    first = parsed_codes[0]
+                    return self._send_json({"ok": True, "code": first["code"], "remaining": first["remaining"], "all": parsed_codes})
+                return self._send_json({"ok": False, "error": "Invalid 2FA Secret Key"})
 
             if path == "/api/tools/outlook":
                 res = fetch_outlook_otp(str(body.get("account", "")))
@@ -3554,210 +3605,34 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
 
     if data.startswith("tool_ref_2fa_"):
         tok_key = data.replace("tool_ref_2fa_", "", 1)
-        sec = _TOOL_CACHE.get(tok_key)
-        if not sec:
+        raw_sec = _TOOL_CACHE.get(tok_key)
+        if not raw_sec:
             await query.message.reply_text("⚠️ সেশন শেষ হয়ে গেছে। অনুগ্রহ করে 2FA Secret Key আবার দিন।")
             return
-        try:
-            totp = pyotp.TOTP(sec)
-            code_2fa = totp.now()
-            time_remaining = 30 - (int(time.time()) % 30)
+        parsed_codes = generate_universal_2fa_codes(raw_sec)
+        if parsed_codes:
             now_t = datetime.datetime.now().strftime("%I:%M:%S %p")
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔄 Refresh 2FA Code", callback_data=f"tool_ref_2fa_{tok_key}")]
             ])
-            new_txt = (
-                f"🔑 <b>2FA Live Code</b>\n\n"
-                f"🔢 কোড: <code>{code_2fa}</code>\n"
-                f"⏳ মেয়াদ বাকি: <b>{time_remaining} সেকেন্ড</b>\n"
-                f"🕒 <i>Refreshed at: {now_t}</i>"
-            )
-            await query.edit_message_text(new_txt, parse_mode=ParseMode.HTML, reply_markup=kb)
-        except Exception:
-            pass
-        return
-
-    if data == "prof_purchases":
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("SELECT id, receipt_no, product_name, total_bdt, order_date FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 10", (user_id,))
-        orders = c.fetchall()
-        conn.close()
-        if not orders:
-            await query.message.reply_text("🛒 আপনার পূর্বের কোনো কেনাকাটার হিস্টোরি পাওয়া যায়নি।")
-            return
-
-        txt = "🛒 <b>আপনার কেনাকাটার তালিকা:</b>\nবিস্তারিত দেখতে ও রিসিট পেতে অর্ডারের ওপর ক্লিক করুন:"
-        kb = []
-        for o in orders:
-            btn_title = f"🧾 {o['receipt_no']} — {o['product_name']} ({o['total_bdt']:.0f} Tk)"
-            kb.append([InlineKeyboardButton(btn_title, callback_data=f"prof_view_order_{o['id']}")])
-        await query.message.reply_text(txt, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
-        return
-
-    if data.startswith("prof_view_order_"):
-        order_id = int(data.split("_")[3])
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("SELECT * FROM orders WHERE id = ? AND user_id = ?", (order_id, user_id))
-        o = c.fetchone()
-        conn.close()
-
-        if not o:
-            await query.message.reply_text("❌ অর্ডারটি পাওয়া যায়নি।")
-            return
-
-        creds_display = ""
-        if o["delivered_data"]:
+            if len(parsed_codes) == 1:
+                item = parsed_codes[0]
+                new_txt = (
+                    f"🔑 <b>2FA Live Code</b>\n\n"
+                    f"🔢 কোড: <code>{item['code']}</code>\n"
+                    f"⏳ মেয়াদ বাকি: <b>{item['remaining']} সেকেন্ড</b>\n"
+                    f"🕒 <i>Refreshed at: {now_t}</i>"
+                )
+            else:
+                lines_out = [f"🔑 <b>2FA Live Codes ({len(parsed_codes)} Keys)</b>\n"]
+                for idx, it in enumerate(parsed_codes, start=1):
+                    lbl = f" ({html.escape(it['label'])})" if it["label"] else ""
+                    lines_out.append(f"{idx}.{lbl} <code>{it['code']}</code>")
+                lines_out.append(f"\n⏳ মেয়াদ বাকি: <b>{parsed_codes[0]['remaining']} সেকেন্ড</b>")
+                lines_out.append(f"🕒 <i>Refreshed at: {now_t}</i>")
+                new_txt = "\n".join(lines_out)
             try:
-                items = json.loads(o["delivered_data"]) if o["delivered_data"].startswith("[") else [o["delivered_data"]]
-            except Exception:
-                items = [o["delivered_data"]]
-
-            for itm in items:
-                parts = [p.strip() for p in itm.split(":") if p.strip()]
-                if len(parts) >= 2:
-                    creds_display += f"👤 <code>{parts[0]}</code>\n🔐 <code>{parts[1]}</code>\n"
-                else:
-                    creds_display += f"🔑 <code>{itm}</code>\n"
-        else:
-            creds_display = "<i>⏳ অর্ডারটি প্রসেসিং হচ্ছে, খুব শীঘ্রই ডেলিভারি দেওয়া হবে।</i>"
-
-        date_only = o["order_date"].split()[0] if o["order_date"] else "N/A"
-        txt = (
-            f"⚡ <b>Purchase Details</b>\n\n"
-            f"Type  : <b>{o['category_name']}</b>\n"
-            f"Date  : <code>{date_only}</code>\n"
-            f"Total : <b>{o['total_bdt']:.2f} BDT</b>\n"
-            f"🧾 Receipt : <code>{o['receipt_no']}</code>\n\n"
-            f"<b>Credentials:</b>\n"
-            f"{creds_display}"
-        )
-        kb = [
-            [InlineKeyboardButton("📦 Resend Product", callback_data=f"prof_resend_prod_{o['id']}"), InlineKeyboardButton("🧾 Resend Receipt PDF", callback_data=f"prof_resend_pdf_{o['id']}")],
-            [InlineKeyboardButton("🔄 Buy Again", callback_data=f"usr_prod_{o['product_id']}")],
-            [InlineKeyboardButton("< Back", callback_data="prof_purchases")],
-        ]
-        await query.message.reply_text(txt, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
-        return
-
-    if data.startswith("prof_resend_prod_"):
-        order_id = int(data.split("_")[3])
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("SELECT * FROM orders WHERE id = ? AND user_id = ?", (order_id, user_id))
-        o = c.fetchone()
-        conn.close()
-        if not o or not o["delivered_data"]:
-            await query.message.reply_text("⏳ প্রোডাক্ট এখনো ডেলিভারি হয়নি বা অর্ডার পাওয়া যায়নি।")
-            return
-        try:
-            items = json.loads(o["delivered_data"]) if o["delivered_data"].startswith("[") else [ln for ln in o["delivered_data"].splitlines() if ln.strip()]
-        except Exception:
-            items = [o["delivered_data"]]
-        card = format_credentials_card(items, o["product_name"], o["category_name"] or "Service")
-        await query.message.reply_text(card, parse_mode=ParseMode.HTML)
-        return
-
-    if data.startswith("prof_resend_pdf_"):
-        order_id = int(data.split("_")[3])
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("SELECT * FROM orders WHERE id = ? AND user_id = ?", (order_id, user_id))
-        o = c.fetchone()
-        conn.close()
-
-        if not o:
-            await query.message.reply_text("অর্ডার পাওয়া যায়নি।")
-            return
-
-        bot_info = await get_bot(query).get_me()
-        try:
-            pdf_bio = generate_pdf_receipt(
-                receipt_no=o["receipt_no"],
-                date_str=o["order_date"],
-                day_name=o["day_of_week"] or "N/A",
-                customer_name=query.from_user.full_name,
-                telegram_id=user_id,
-                username=query.from_user.username or "",
-                item_desc=o["product_name"],
-                category_name=o["category_name"] or "GENERAL",
-                qty=o["quantity"],
-                unit_price=o["unit_price"] or o["total_bdt"],
-                total_bdt=o["total_bdt"],
-                bot_username=bot_info.username,
-            )
-            await query.message.reply_document(
-                document=InputFile(pdf_bio, filename=f"Receipt_{o['receipt_no']}.pdf"),
-                caption=f"🧾 <b>Official Payment Receipt:</b> <code>{o['receipt_no']}</code>",
-                parse_mode=ParseMode.HTML,
-            )
-        except Exception as e:
-            logger.error(f"Error resending receipt: {e}")
-            await query.message.reply_text("❌ রিসিট তৈরি করতে সমস্যা হয়েছে।")
-        return
-
-    if data == "prof_deposit_history":
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("SELECT * FROM deposits WHERE user_id = ? ORDER BY id DESC LIMIT 10", (user_id,))
-        deps = c.fetchall()
-        conn.close()
-        if not deps:
-            await query.message.reply_text("🔄 আপনার কোনো ডিপোজিট হিস্টোরি পাওয়া যায়নি।")
-            return
-        msg = "🔄 <b>আপনার ডিপোজিট হিস্টোরি:</b>\n─────────────────────────────\n"
-        for d in deps:
-            status_icon = "⏳ Pending" if d['status'] == "pending" else ("✅ Approved" if d['status'] == "approved" else "❌ Rejected")
-            msg += (
-                f"💳 মেথড: {d['method']} | TrxID: <code>{d['trx_id']}</code>\n"
-                f"💰 পরিমাণ: {d['amount']:.2f} BDT | অবস্থা: {status_icon}\n"
-                f"📅 তারিখ: {d['created_at']}\n"
-                f"─────────────────────────────\n"
-            )
-        await query.message.reply_text(msg, parse_mode=ParseMode.HTML)
-        return
-
-    if data == "prof_balance_details":
-        rate = float(get_setting("usdt_rate", "125.0"))
-        bdt = db_user['balance_bdt']
-        usdt = bdt / rate if rate > 0 else 0.0
-        msg = (
-            f"💰 <b>ব্যালেন্স বিবরণী:</b>\n\n"
-            f"💵 মূল ব্যালেন্স: <b>{bdt:.2f} BDT</b>\n"
-            f"💎 ডলার সমমূল্য: <b>{usdt:.4f} USDT</b>\n"
-            f"📈 এক্সচেঞ্জ রেট: 1 USDT = {rate} BDT"
-        )
-        await query.message.reply_text(msg, parse_mode=ParseMode.HTML)
-        return
-
-    if data == "prof_referral":
-        bot_info = await context.bot.get_me()
-        ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("SELECT COUNT(*) as cnt FROM users WHERE referred_by = ?", (user_id,))
-        r_cnt = c.fetchone()["cnt"]
-        conn.close()
-        msg = (
-            f"👥 <b>রেফারেল ও আর্নিং প্রোগ্রাম</b>\n"
-            f"─────────────────────────────\n"
-            f"👤 মোট রেফারেল: <b>{r_cnt} জন</b>\n"
-            f"💰 মোট রেফারেল আয়: <b>{float(db_user.get('referral_earnings', 0) or 0):.2f} BDT</b>\n\n"
-            f"🔗 আপনার রেফার লিংক (ট্যাপ করে কপি করুন):\n<code>{ref_link}</code>"
-        )
-        await query.message.reply_text(msg, parse_mode=ParseMode.HTML)
-        return
-
-    if data.startswith("adm_"):
-        if not is_admin(user_id):
-            return
-        try:
-            await handle_admin_callbacks(query, data, context)
-        except Exception as e:
-            logger.error(f"Admin callback error ({data}): {e}", exc_info=True)
-            try:
-                await query.message.reply_text(f"❌ এডমিন প্যানেল এরর: <code>{e}</code>", parse_mode=ParseMode.HTML)
+                await query.edit_message_text(new_txt, parse_mode=ParseMode.HTML, reply_markup=kb)
             except Exception:
                 pass
         return
@@ -5150,25 +5025,36 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     if state == "WAITING_2FA_KEY":
-        secret = text.replace(" ", "").strip()
-        try:
-            totp = pyotp.TOTP(secret)
-            code_2fa = totp.now()
-            time_remaining = 30 - (int(time.time()) % 30)
+        parsed_codes = generate_universal_2fa_codes(text)
+        if parsed_codes:
             set_user_state(user.id, None)
             tok_key = secrets.token_hex(4)
-            _TOOL_CACHE[tok_key] = secret
+            _TOOL_CACHE[tok_key] = text
             if len(_TOOL_CACHE) > 300:
                 _TOOL_CACHE.pop(next(iter(_TOOL_CACHE)))
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔄 Refresh 2FA Code", callback_data=f"tool_ref_2fa_{tok_key}")]
             ])
+            if len(parsed_codes) == 1:
+                item = parsed_codes[0]
+                msg_out = (
+                    f"🔑 <b>2FA Live Code</b>\n\n"
+                    f"🔢 কোড: <code>{item['code']}</code>\n"
+                    f"⏳ মেয়াদ বাকি: <b>{item['remaining']} সেকেন্ড</b>"
+                )
+            else:
+                lines_out = [f"🔑 <b>2FA Live Codes ({len(parsed_codes)} Keys)</b>\n"]
+                for idx, it in enumerate(parsed_codes, start=1):
+                    lbl = f" ({html.escape(it['label'])})" if it["label"] else ""
+                    lines_out.append(f"{idx}.{lbl} <code>{it['code']}</code>")
+                lines_out.append(f"\n⏳ মেয়াদ বাকি: <b>{parsed_codes[0]['remaining']} সেকেন্ড</b>")
+                msg_out = "\n".join(lines_out)
             await update.message.reply_text(
-                f"🔑 <b>2FA Live Code</b>\n\n🔢 কোড: <code>{code_2fa}</code>\n⏳ মেয়াদ বাকি: <b>{time_remaining} সেকেন্ড</b>",
+                msg_out,
                 parse_mode=ParseMode.HTML,
                 reply_markup=kb,
             )
-        except Exception:
+        else:
             await update.message.reply_text("❌ অবৈধ 2FA Secret Key! দয়া করে সঠিক কি দিন।")
         return
 
