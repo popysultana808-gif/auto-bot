@@ -1091,6 +1091,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 
             c.execute("""
                 SELECT p.id, p.name, p.price_bdt, p.price_usdt, p.image_file_id, p.description,
+                       COALESCE(p.promo_tagline, '') as promo_tagline,
                        COALESCE(p.is_active, 1) as is_active, s.id as sub_id, s.name as sub_name,
                        s.brand_image as brand_image, s.category_id, cat.name as cat_name,
                        (SELECT COUNT(*) FROM stock st WHERE st.product_id = p.id AND st.is_sold = 0) as in_stock,
@@ -1116,6 +1117,9 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 
             c.execute("SELECT id, title, subtitle, badge_text, image_url, target_sub_id, target_cat_id, bg_gradient FROM ad_banners WHERE is_active = 1 ORDER BY position ASC, id DESC")
             banners = [dict(r) for r in c.fetchall()]
+
+            c.execute("SELECT id, title, chat_id, invite_link, is_active FROM force_joins WHERE is_active = 1 ORDER BY id ASC")
+            fj_list = [dict(r) for r in c.fetchall()]
 
             c.execute("SELECT key, value FROM settings")
             sdict = {r["key"]: r["value"] for r in c.fetchall()}
@@ -1161,10 +1165,37 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 "subcategories": subs,
                 "products": prods,
                 "banners": banners,
+                "force_joins": fj_list,
                 "settings": sdict,
                 "menu_layout": get_menu_layout(),
                 "ai_custom_rules": get_setting("ai_custom_rules", ""),
                 "unread_notifs": unread_n,
+            })
+
+        if path == "/api/user/balance":
+            uid, _ = self._get_auth_user()
+            if not uid:
+                return self._send_json({"ok": False, "error": "Unauthorized"}, 401)
+            conn = get_db()
+            c = conn.cursor()
+            c.execute("SELECT balance_bdt FROM users WHERE user_id = ?", (uid,))
+            urow = c.fetchone()
+            bal = float(urow["balance_bdt"] or 0.0) if urow else 0.0
+            c.execute("SELECT COUNT(*) as cnt, COALESCE(SUM(total_bdt), 0) as spent FROM orders WHERE user_id = ? AND status != 'refunded'", (uid,))
+            ostat = dict(c.fetchone())
+            c.execute("SELECT COUNT(*) as cnt FROM orders WHERE user_id = ? AND status = 'refunded'", (uid,))
+            cancelled_cnt = c.fetchone()["cnt"]
+            c.execute("SELECT COUNT(*) as cnt FROM notifications WHERE user_id = ? AND is_read = 0", (uid,))
+            unread_n = c.fetchone()["cnt"]
+            conn.close()
+            return self._send_json({
+                "ok": True,
+                "balance_bdt": bal,
+                "total_orders": ostat["cnt"],
+                "total_spent": float(ostat["spent"] or 0.0),
+                "cancelled_orders": cancelled_cnt,
+                "unread_notifs": unread_n,
+                "vip": get_vip_badge_info(ostat["spent"]),
             })
 
         if path == "/api/orders/history":
@@ -1225,8 +1256,11 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             c.execute("SELECT user_id, name, username, balance_bdt, joined_date, referred_by FROM users ORDER BY user_id DESC LIMIT 60")
             users_list = [dict(r) for r in c.fetchall()]
 
-            c.execute("SELECT code, discount_pct, is_active FROM coupons ORDER BY code ASC")
+            c.execute("SELECT code, discount_pct, is_active, COALESCE(product_id, 0) as product_id, COALESCE(product_name, 'All Products') as product_name FROM coupons ORDER BY code ASC")
             coupons_list = [dict(r) for r in c.fetchall()]
+
+            c.execute("SELECT id, title, chat_id, invite_link, is_active FROM force_joins ORDER BY id ASC")
+            force_joins_list = [dict(r) for r in c.fetchall()]
 
             c.execute("SELECT * FROM ad_banners ORDER BY position ASC, id DESC")
             banners_list = [dict(r) for r in c.fetchall()]
@@ -1247,6 +1281,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 "pending_orders": p_ords,
                 "users": users_list,
                 "coupons": coupons_list,
+                "force_joins": force_joins_list,
                 "banners": banners_list,
                 "menu_layout": get_menu_layout(),
                 "ai_custom_rules": get_setting("ai_custom_rules", ""),
@@ -1294,13 +1329,17 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 
             if path == "/api/coupon/check":
                 code_str = str(body.get("code", "")).strip().upper()
+                req_pid = int(body.get("product_id", 0) or 0)
                 conn = get_db()
                 c = conn.cursor()
-                c.execute("SELECT discount_pct FROM coupons WHERE code = ? AND is_active = 1", (code_str,))
+                c.execute("SELECT discount_pct, COALESCE(product_id, 0) as product_id, COALESCE(product_name, 'All Products') as product_name FROM coupons WHERE code = ? AND is_active = 1", (code_str,))
                 row = c.fetchone()
                 conn.close()
                 if row:
-                    return self._send_json({"ok": True, "discount_pct": row["discount_pct"]})
+                    c_pid = int(row["product_id"] or 0)
+                    if c_pid > 0 and req_pid > 0 and c_pid != req_pid:
+                        return self._send_json({"ok": False, "error": f"This coupon is only valid for {row['product_name']}"})
+                    return self._send_json({"ok": True, "discount_pct": row["discount_pct"], "product_id": c_pid, "product_name": row["product_name"]})
                 return self._send_json({"ok": False, "error": "Invalid or expired coupon"})
 
             if path == "/api/tools/2fa":
@@ -1415,31 +1454,49 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 conn.close()
                 add_notification(uid, "💳 Deposit Submitted", f"{method} ৳{amount:.2f} BDT (TrxID: {trx_id}) is pending admin verification.")
                 if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
-                    kb = InlineKeyboardMarkup([[
-                        InlineKeyboardButton(f"✅ Approve #{dep_id}", callback_data=f"adm_dep_approve_{dep_id}"),
-                        InlineKeyboardButton("❌ Reject", callback_data=f"adm_dep_reject_{dep_id}")
-                    ]])
-                    asyncio.run_coroutine_threadsafe(
-                        _GLOBAL_BOT_APP.bot.send_message(
-                            chat_id=SUPER_ADMIN_ID,
-                            text=(
-                                f"🔔 <b>Mini App Deposit Request #{dep_id}</b>\n"
-                                f"👤 User: {tg_u.get('first_name', 'User')} (<code>{uid}</code>)\n"
-                                f"💳 Method: <b>{method}</b>\n"
-                                f"💰 Amount: <b>{amount:.2f} BDT</b>\n"
-                                f"🔑 TrxID: <code>{trx_id}</code>"
-                            ),
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=kb,
-                        ),
-                        _GLOBAL_EVENT_LOOP
-                    )
+                    async def _send_web_dep_alert():
+                        kb = InlineKeyboardMarkup([[
+                            InlineKeyboardButton("✅ Approve", callback_data=f"adm_dep_approve_{dep_id}"),
+                            InlineKeyboardButton("❌ Reject", callback_data=f"adm_dep_reject_{dep_id}")
+                        ]])
+                        try:
+                            sent = await _GLOBAL_BOT_APP.bot.send_message(
+                                chat_id=SUPER_ADMIN_ID,
+                                text=(
+                                    f"🔔 <b>Mini App Deposit Request</b>\n"
+                                    f"👤 User: {tg_u.get('first_name', 'User')} (<code>{uid}</code>)\n"
+                                    f"💳 Method: <b>{method}</b>\n"
+                                    f"💰 Amount: <b>{amount:.2f} BDT</b>\n"
+                                    f"🔑 TrxID: <code>{trx_id}</code>"
+                                ),
+                                parse_mode=ParseMode.HTML,
+                                reply_markup=kb,
+                            )
+                            _c2 = get_db()
+                            _c2.cursor().execute("UPDATE deposits SET admin_msg_id = ? WHERE id = ?", (sent.message_id, dep_id))
+                            _c2.commit()
+                            _c2.close()
+                        except Exception:
+                            pass
+                    asyncio.run_coroutine_threadsafe(_send_web_dep_alert(), _GLOBAL_EVENT_LOOP)
                 return self._send_json({"ok": True})
 
             if path == "/api/order":
                 pid = int(body.get("product_id", 0))
                 qty = max(1, int(body.get("quantity", 1)))
                 coupon = str(body.get("coupon", "")).strip().upper()
+                if not is_admin(uid) and _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
+                    try:
+                        fut = asyncio.run_coroutine_threadsafe(check_all_force_joins(_GLOBAL_BOT_APP.bot, uid), _GLOBAL_EVENT_LOOP)
+                        all_ok, missing_fj = fut.result(timeout=8)
+                        if not all_ok:
+                            return self._send_json({
+                                "ok": False,
+                                "error": "কেনার আগে সবগুলো আবশ্যিক গ্রুপ ও চ্যানেলে জয়েন করুন!",
+                                "force_join_missing": missing_fj,
+                            })
+                    except Exception:
+                        pass
                 conn = get_db()
                 c = conn.cursor()
                 c.execute("""
@@ -1455,10 +1512,15 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     return self._send_json({"ok": False, "error": "Product unavailable"})
                 disc = 0.0
                 if coupon:
-                    c.execute("SELECT discount_pct FROM coupons WHERE code = ? AND is_active = 1", (coupon,))
+                    c.execute("SELECT discount_pct, COALESCE(product_id, 0) as product_id, COALESCE(product_name, 'All Products') as product_name FROM coupons WHERE code = ? AND is_active = 1", (coupon,))
                     crow = c.fetchone()
                     if crow:
-                        disc = float(crow["discount_pct"])
+                        c_pid = int(crow["product_id"] or 0)
+                        if c_pid == 0 or c_pid == pid:
+                            disc = float(crow["discount_pct"])
+                        else:
+                            conn.close()
+                            return self._send_json({"ok": False, "error": f"Coupon {coupon} is only valid for {crow['product_name']}"})
                 total_bdt = prod["price_bdt"] * qty * (1 - disc / 100.0)
                 c.execute("SELECT balance_bdt, name, username FROM users WHERE user_id = ?", (uid,))
                 urow = c.fetchone()
@@ -1619,18 +1681,25 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                                 [InlineKeyboardButton(f"🚀 Deliver Order #{oid}", callback_data=f"adm_fulfill_{oid}")],
                                 [InlineKeyboardButton(f"❌ Cancel & Refund #{oid}", callback_data=f"adm_refund_{oid}")]
                             ])
-                            await bot_inst.send_message(
-                                chat_id=SUPER_ADMIN_ID,
-                                text=(
-                                    f"🔔 <b>Mini App ম্যানুয়াল অর্ডার #{oid}</b>\n"
-                                    f"🧾 Receipt: <code>{receipt_no}</code>\n"
-                                    f"🛡️ {full_name} (x{qty})\n"
-                                    f"💰 Paid: {total_bdt:.2f} BDT\n"
-                                    f"👤 User: {u_fullname} (<code>{uid}</code>)"
-                                ),
-                                parse_mode=ParseMode.HTML,
-                                reply_markup=adm_kb,
-                            )
+                            try:
+                                sent_ord = await bot_inst.send_message(
+                                    chat_id=SUPER_ADMIN_ID,
+                                    text=(
+                                        f"🔔 <b>Mini App ম্যানুয়াল অর্ডার #{oid}</b>\n"
+                                        f"🧾 Receipt: <code>{receipt_no}</code>\n"
+                                        f"🛡️ {full_name} (x{qty})\n"
+                                        f"💰 Paid: {total_bdt:.2f} BDT\n"
+                                        f"👤 User: {u_fullname} (<code>{uid}</code>)"
+                                    ),
+                                    parse_mode=ParseMode.HTML,
+                                    reply_markup=adm_kb,
+                                )
+                                _c3 = get_db()
+                                _c3.cursor().execute("UPDATE orders SET admin_msg_id = ? WHERE id = ?", (sent_ord.message_id, oid))
+                                _c3.commit()
+                                _c3.close()
+                            except Exception:
+                                pass
 
                         asyncio.run_coroutine_threadsafe(_notify_web_manual(), _GLOBAL_EVENT_LOOP)
                     return self._send_json({"ok": True, "message": f"🎉 অর্ডার #{oid} গ্রহণ করা হয়েছে! অফিশিয়াল PDF রিসিট আপনার ইনবক্সে পাঠানো হয়েছে এবং ১৫-৩০ মিনিটের মধ্যে ডেলিভারি পাবেন।"})
@@ -1663,8 +1732,11 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     add_notification(o["user_id"], "✅ Order Delivered!", f"Order #{oid} ({o['product_name']}) has been delivered!")
 
                     if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
+                        adm_mid = o["admin_msg_id"] if "admin_msg_id" in o.keys() else None
                         async def _send_manual_deliv():
                             bot_inst = _GLOBAL_BOT_APP.bot
+                            if adm_mid:
+                                await _delete_admin_msg_safe(bot_inst, adm_mid)
                             bot_info = await bot_inst.get_me()
                             card = format_credentials_card([ddata], o["product_name"], o["category_name"] or "Service")
                             if o["image_file_id"]:
@@ -1705,14 +1777,19 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                         conn.commit()
                         add_notification(o["user_id"], "❌ Order Refunded", f"Order #{oid} refunded: +{o['total_bdt']:.2f} BDT")
                         if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
-                            asyncio.run_coroutine_threadsafe(
-                                _GLOBAL_BOT_APP.bot.send_message(
-                                    chat_id=o["user_id"],
-                                    text=f"❌ আপনার অর্ডার #{oid} বাতিল করা হয়েছে এবং <b>{o['total_bdt']:.2f} BDT</b> আপনার ওয়ালেটে রিফান্ড করা হয়েছে।",
-                                    parse_mode=ParseMode.HTML,
-                                ),
-                                _GLOBAL_EVENT_LOOP,
-                            )
+                            adm_mid = o["admin_msg_id"] if "admin_msg_id" in o.keys() else None
+                            async def _notify_refund():
+                                if adm_mid:
+                                    await _delete_admin_msg_safe(_GLOBAL_BOT_APP.bot, adm_mid)
+                                try:
+                                    await _GLOBAL_BOT_APP.bot.send_message(
+                                        chat_id=o["user_id"],
+                                        text=f"❌ আপনার অর্ডার #{oid} বাতিল করা হয়েছে এবং <b>{o['total_bdt']:.2f} BDT</b> আপনার ওয়ালেটে রিফান্ড করা হয়েছে।",
+                                        parse_mode=ParseMode.HTML,
+                                    )
+                                except Exception:
+                                    pass
+                            asyncio.run_coroutine_threadsafe(_notify_refund(), _GLOBAL_EVENT_LOOP)
                     conn.close()
                     return self._send_json({"ok": True})
 
@@ -1722,22 +1799,40 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     c.execute("SELECT * FROM deposits WHERE id = ?", (did,))
                     d = c.fetchone()
                     if d and d["status"] == "pending":
+                        adm_mid = d["admin_msg_id"] if "admin_msg_id" in d.keys() else None
                         if act == "approve":
                             c.execute("UPDATE deposits SET status = 'approved' WHERE id = ?", (did,))
                             c.execute("UPDATE users SET balance_bdt = balance_bdt + ? WHERE user_id = ?", (d["amount"], d["user_id"]))
                             add_notification(d["user_id"], "✅ Deposit Approved", f"+{d['amount']:.2f} BDT added to your wallet!")
                             if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
-                                asyncio.run_coroutine_threadsafe(
-                                    _GLOBAL_BOT_APP.bot.send_message(
-                                        chat_id=d["user_id"],
-                                        text=f"🎉 <b>ডিপোজিট সফল!</b>\nআপনার অ্যাকাউন্টে <b>{d['amount']:.2f} BDT</b> যুক্ত হয়েছে।",
-                                        parse_mode=ParseMode.HTML,
-                                    ),
-                                    _GLOBAL_EVENT_LOOP,
-                                )
+                                async def _dep_approve_sync():
+                                    if adm_mid:
+                                        await _delete_admin_msg_safe(_GLOBAL_BOT_APP.bot, adm_mid)
+                                    try:
+                                        await _GLOBAL_BOT_APP.bot.send_message(
+                                            chat_id=d["user_id"],
+                                            text=f"🎉 <b>ডিপোজিট সফল!</b>\nআপনার অ্যাকাউন্টে <b>{d['amount']:.2f} BDT</b> যুক্ত হয়েছে।",
+                                            parse_mode=ParseMode.HTML,
+                                        )
+                                    except Exception:
+                                        pass
+                                asyncio.run_coroutine_threadsafe(_dep_approve_sync(), _GLOBAL_EVENT_LOOP)
                         else:
                             c.execute("UPDATE deposits SET status = 'rejected' WHERE id = ?", (did,))
-                            add_notification(d["user_id"], "❌ Deposit Rejected", f"Deposit #{did} ({d['amount']:.2f} BDT) was rejected.")
+                            add_notification(d["user_id"], "❌ Deposit Rejected", f"Your deposit ({d['amount']:.2f} BDT) was rejected.")
+                            if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
+                                async def _dep_reject_sync():
+                                    if adm_mid:
+                                        await _delete_admin_msg_safe(_GLOBAL_BOT_APP.bot, adm_mid)
+                                    try:
+                                        await _GLOBAL_BOT_APP.bot.send_message(
+                                            chat_id=d["user_id"],
+                                            text=f"❌ আপনার <b>{d['amount']:.2f} BDT</b> ডিপোজিট রিকোয়েস্টটি বাতিল করা হয়েছে।",
+                                            parse_mode=ParseMode.HTML,
+                                        )
+                                    except Exception:
+                                        pass
+                                asyncio.run_coroutine_threadsafe(_dep_reject_sync(), _GLOBAL_EVENT_LOOP)
                         conn.commit()
                     conn.close()
                     return self._send_json({"ok": True})
@@ -1939,6 +2034,8 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                         c.execute("UPDATE products SET name = ? WHERE id = ?", (str(body["name"]).strip(), pid))
                     if "description" in body:
                         c.execute("UPDATE products SET description = ? WHERE id = ?", (str(body["description"]).strip(), pid))
+                    if "promo_tagline" in body:
+                        c.execute("UPDATE products SET promo_tagline = ? WHERE id = ?", (str(body["promo_tagline"] or "").strip(), pid))
                     if "image_file_id" in body:
                         img_val = str(body["image_file_id"]).strip() or None
                         c.execute("UPDATE products SET image_file_id = ? WHERE id = ?", (img_val, pid))
@@ -2107,16 +2204,75 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     if act == "delete" and code_s:
                         c.execute("DELETE FROM coupons WHERE code = ?", (code_s,))
                         conn.commit()
+                        c.execute("SELECT code, discount_pct, is_active, COALESCE(product_id, 0) as product_id, COALESCE(product_name, 'All Products') as product_name FROM coupons ORDER BY code ASC")
+                        clist = [dict(r) for r in c.fetchall()]
                         conn.close()
-                        return self._send_json({"ok": True})
+                        return self._send_json({"ok": True, "coupons": clist})
                     pct = float(body.get("discount_pct", 0))
+                    prod_id = int(body.get("product_id", 0) or 0)
+                    prod_name = str(body.get("product_name", "All Products") or "All Products").strip()
+                    if prod_id > 0 and (not prod_name or prod_name == "All Products"):
+                        c.execute("SELECT p.name, s.name as sub_name FROM products p JOIN subcategories s ON p.subcategory_id = s.id WHERE p.id = ?", (prod_id,))
+                        pr_r = c.fetchone()
+                        if pr_r:
+                            prod_name = f"{pr_r['sub_name']} — {pr_r['name']}"
+                    if prod_id == 0:
+                        prod_name = "All Products"
                     if conn.is_pg:
-                        c.execute("INSERT INTO coupons (code, discount_pct, is_active) VALUES (%s, %s, 1) ON CONFLICT (code) DO UPDATE SET discount_pct = EXCLUDED.discount_pct, is_active = 1", (code_s, pct))
+                        c.execute(
+                            "INSERT INTO coupons (code, discount_pct, is_active, product_id, product_name) VALUES (%s, %s, 1, %s, %s) ON CONFLICT (code) DO UPDATE SET discount_pct = EXCLUDED.discount_pct, is_active = 1, product_id = EXCLUDED.product_id, product_name = EXCLUDED.product_name",
+                            (code_s, pct, prod_id, prod_name),
+                        )
                     else:
-                        c.execute("INSERT OR REPLACE INTO coupons (code, discount_pct, is_active) VALUES (?, ?, 1)", (code_s, pct))
+                        c.execute(
+                            "INSERT OR REPLACE INTO coupons (code, discount_pct, is_active, product_id, product_name) VALUES (?, ?, 1, ?, ?)",
+                            (code_s, pct, prod_id, prod_name),
+                        )
                     conn.commit()
+                    c.execute("SELECT code, discount_pct, is_active, COALESCE(product_id, 0) as product_id, COALESCE(product_name, 'All Products') as product_name FROM coupons ORDER BY code ASC")
+                    clist = [dict(r) for r in c.fetchall()]
                     conn.close()
-                    return self._send_json({"ok": True})
+                    return self._send_json({"ok": True, "coupons": clist})
+
+                if path == "/api/admin/force_joins":
+                    act = str(body.get("action", "list"))
+                    if act == "add":
+                        title = str(body.get("title", "")).strip() or "Required Channel"
+                        chat_id = str(body.get("chat_id", "")).strip()
+                        invite_link = str(body.get("invite_link", "")).strip()
+                        if not chat_id or not invite_link:
+                            conn.close()
+                            return self._send_json({"ok": False, "error": "Chat ID and Invite Link are required"})
+                        c.execute(
+                            "INSERT INTO force_joins (title, chat_id, invite_link, is_active) VALUES (?, ?, ?, 1)",
+                            (title, chat_id, invite_link),
+                        )
+                        conn.commit()
+                    elif act == "edit":
+                        fid = int(body.get("id", 0))
+                        title = str(body.get("title", "")).strip()
+                        chat_id = str(body.get("chat_id", "")).strip()
+                        invite_link = str(body.get("invite_link", "")).strip()
+                        if fid and title and chat_id and invite_link:
+                            c.execute(
+                                "UPDATE force_joins SET title = ?, chat_id = ?, invite_link = ? WHERE id = ?",
+                                (title, chat_id, invite_link, fid),
+                            )
+                            conn.commit()
+                    elif act == "toggle":
+                        fid = int(body.get("id", 0))
+                        if fid:
+                            c.execute("UPDATE force_joins SET is_active = CASE WHEN COALESCE(is_active,1)=1 THEN 0 ELSE 1 END WHERE id = ?", (fid,))
+                            conn.commit()
+                    elif act == "delete":
+                        fid = int(body.get("id", 0))
+                        if fid:
+                            c.execute("DELETE FROM force_joins WHERE id = ?", (fid,))
+                            conn.commit()
+                    c.execute("SELECT id, title, chat_id, invite_link, is_active FROM force_joins ORDER BY id ASC")
+                    fj_all = [dict(r) for r in c.fetchall()]
+                    conn.close()
+                    return self._send_json({"ok": True, "force_joins": fj_all})
 
                 conn.close()
 
@@ -2342,6 +2498,7 @@ def init_db():
         image_file_id TEXT DEFAULT NULL,
         is_on_demand INTEGER DEFAULT 0,
         description TEXT,
+        promo_tagline TEXT DEFAULT '',
         is_active INTEGER DEFAULT 1,
         FOREIGN KEY (subcategory_id) REFERENCES subcategories (id) ON DELETE CASCADE
     )
@@ -2376,6 +2533,7 @@ def init_db():
         delivered_data TEXT,
         order_date TEXT,
         day_of_week TEXT,
+        admin_msg_id BIGINT DEFAULT NULL,
         FOREIGN KEY (user_id) REFERENCES users (user_id)
     )
     """)
@@ -2389,6 +2547,7 @@ def init_db():
         trx_id TEXT,
         status TEXT DEFAULT 'pending',
         created_at TEXT,
+        admin_msg_id BIGINT DEFAULT NULL,
         FOREIGN KEY (user_id) REFERENCES users (user_id)
     )
     """)
@@ -2415,6 +2574,18 @@ def init_db():
     CREATE TABLE IF NOT EXISTS coupons (
         code TEXT PRIMARY KEY,
         discount_pct REAL DEFAULT 0.0,
+        is_active INTEGER DEFAULT 1,
+        product_id INTEGER DEFAULT 0,
+        product_name TEXT DEFAULT 'All Products'
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS force_joins (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        invite_link TEXT NOT NULL,
         is_active INTEGER DEFAULT 1
     )
     """)
@@ -2445,6 +2616,11 @@ def init_db():
             cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_earnings REAL DEFAULT 0.0")
             cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_referral_tk REAL DEFAULT 0.0")
             cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'EN'")
+            cursor.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS promo_tagline TEXT DEFAULT ''")
+            cursor.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS admin_msg_id BIGINT DEFAULT NULL")
+            cursor.execute("ALTER TABLE deposits ADD COLUMN IF NOT EXISTS admin_msg_id BIGINT DEFAULT NULL")
+            cursor.execute("ALTER TABLE coupons ADD COLUMN IF NOT EXISTS product_id INTEGER DEFAULT 0")
+            cursor.execute("ALTER TABLE coupons ADD COLUMN IF NOT EXISTS product_name TEXT DEFAULT 'All Products'")
         except Exception as e:
             logger.warning(f"Postgres column check notice: {e}")
     else:
@@ -2456,11 +2632,16 @@ def init_db():
         for col_sql in (
             "ALTER TABLE stock ADD COLUMN stock_type TEXT DEFAULT 'account'",
             "ALTER TABLE products ADD COLUMN is_active INTEGER DEFAULT 1",
+            "ALTER TABLE products ADD COLUMN promo_tagline TEXT DEFAULT ''",
             "ALTER TABLE subcategories ADD COLUMN brand_image TEXT DEFAULT NULL",
             "ALTER TABLE users ADD COLUMN referred_by BIGINT DEFAULT NULL",
             "ALTER TABLE users ADD COLUMN referral_earnings REAL DEFAULT 0.0",
             "ALTER TABLE users ADD COLUMN pending_referral_tk REAL DEFAULT 0.0",
             "ALTER TABLE users ADD COLUMN language TEXT DEFAULT 'EN'",
+            "ALTER TABLE orders ADD COLUMN admin_msg_id BIGINT DEFAULT NULL",
+            "ALTER TABLE deposits ADD COLUMN admin_msg_id BIGINT DEFAULT NULL",
+            "ALTER TABLE coupons ADD COLUMN product_id INTEGER DEFAULT 0",
+            "ALTER TABLE coupons ADD COLUMN product_name TEXT DEFAULT 'All Products'",
         ):
             try:
                 cursor.execute(col_sql)
@@ -2502,6 +2683,29 @@ def init_db():
         seed_clean_store(conn)
 
     sync_vpn_catalog_v3(conn, cursor)
+
+    cursor.execute("SELECT COUNT(*) as cnt FROM force_joins")
+    fj_row = cursor.fetchone()
+    fj_cnt = fj_row["cnt"] if isinstance(fj_row, dict) else fj_row[0]
+    if fj_cnt == 0 and not get_setting("fj_seeded", ""):
+        try:
+            if WELCOME_GROUP_ID and WELCOME_GROUP_LINK:
+                cursor.execute(
+                    "INSERT INTO force_joins (title, chat_id, invite_link, is_active) VALUES (?, ?, ?, 1)",
+                    ("📢 Join Update Group", str(WELCOME_GROUP_ID), str(WELCOME_GROUP_LINK)),
+                )
+            if TRANSACTION_CHANNEL_ID and TRANSACTION_CHANNEL_LINK:
+                cursor.execute(
+                    "INSERT INTO force_joins (title, chat_id, invite_link, is_active) VALUES (?, ?, ?, 1)",
+                    ("💳 Join Proof Channel", str(TRANSACTION_CHANNEL_ID), str(TRANSACTION_CHANNEL_LINK)),
+                )
+            if conn.is_pg:
+                cursor.execute("INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING", ("fj_seeded", "1"))
+            else:
+                cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", ("fj_seeded", "1"))
+            conn.commit()
+        except Exception as e:
+            logger.warning(f"force_joins seed notice: {e}")
 
     cursor.execute("SELECT COUNT(*) as cnt FROM ad_banners")
     b_row = cursor.fetchone()
@@ -3091,13 +3295,13 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_new = bool(db_user.get("_is_new_user", False))
     shop_name = get_setting("shop_name", "CyberNest Market")
 
-    in_group, in_channel = await check_user_membership(context.bot, user.id)
-    if not (in_group and in_channel):
+    all_joined, missing_fj = await check_all_force_joins(context.bot, user.id)
+    if not all_joined:
         force_txt = (
             f"👋 <b>স্বাগতম, {html.escape(user.full_name or 'বন্ধু')}!</b>\n\n"
-            f"বট ব্যবহার করতে নিচের বাটনে চাপ দিয়ে গ্রুপ ও চ্যানেলে যুক্ত হয়ে ভেরিফাই করুন:"
+            f"বট ব্যবহার করতে নিচের সবগুলো গ্রুপ ও চ্যানেলে যুক্ত হয়ে ভেরিফাই করুন:"
         )
-        kb = get_force_join_keyboard(in_group, in_channel)
+        kb = build_force_join_markup(missing_fj)
         await update.message.reply_text(force_txt, parse_mode=ParseMode.HTML, reply_markup=kb)
         return
 
@@ -3115,35 +3319,45 @@ async def ai_assistant_menu_handler(update: Update, context: ContextTypes.DEFAUL
     )
     await update.message.reply_text(txt, parse_mode=ParseMode.HTML)
 
-async def check_user_membership(bot, user_id: int) -> Tuple[bool, bool]:
+async def _delete_admin_msg_safe(bot, msg_id):
+    if not bot or not msg_id:
+        return
+    try:
+        await bot.delete_message(chat_id=SUPER_ADMIN_ID, message_id=int(msg_id))
+    except Exception:
+        pass
+
+def get_active_force_joins() -> List[Dict[str, Any]]:
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id, title, chat_id, invite_link, is_active FROM force_joins WHERE is_active = 1 ORDER BY id ASC")
+    rows = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return rows
+
+async def check_all_force_joins(bot, user_id: int) -> Tuple[bool, List[Dict[str, Any]]]:
     if user_id == SUPER_ADMIN_ID:
-        return True, True
+        return True, []
+    active_fjs = get_active_force_joins()
+    if not active_fjs:
+        return True, []
+    missing = []
+    for fj in active_fjs:
+        cid = str(fj["chat_id"]).strip()
+        try:
+            member = await bot.get_chat_member(chat_id=cid, user_id=user_id)
+            if member.status in ("left", "kicked"):
+                missing.append(fj)
+        except Exception:
+            missing.append(fj)
+    return (len(missing) == 0), missing
 
-    in_group = True
-    in_channel = True
-
-    try:
-        m_group = await bot.get_chat_member(chat_id=get_welcome_group_id(), user_id=user_id)
-        if m_group.status in ("left", "kicked"):
-            in_group = False
-    except Exception:
-        in_group = False
-
-    try:
-        m_chan = await bot.get_chat_member(chat_id=get_transaction_channel_id(), user_id=user_id)
-        if m_chan.status in ("left", "kicked"):
-            in_channel = False
-    except Exception:
-        in_channel = False
-
-    return in_group, in_channel
-
-def get_force_join_keyboard(in_group: bool, in_channel: bool) -> InlineKeyboardMarkup:
+def build_force_join_markup(missing: List[Dict[str, Any]]) -> InlineKeyboardMarkup:
     buttons = []
-    if not in_group:
-        buttons.append([InlineKeyboardButton("📢 Join Update Group", url=get_welcome_group_link())])
-    if not in_channel:
-        buttons.append([InlineKeyboardButton("💳 Join Proof Channel", url=get_transaction_channel_link())])
+    for fj in missing:
+        lbl = fj.get("title") or "📢 Join Channel"
+        url = fj.get("invite_link") or "https://t.me/"
+        buttons.append([InlineKeyboardButton(lbl, url=url)])
     buttons.append([InlineKeyboardButton("✅ ভেরিফাই করুন", callback_data="btn_check_verification")])
     return InlineKeyboardMarkup(buttons)
 
@@ -3325,8 +3539,8 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
 
     if data == "btn_check_verification":
         try:
-            in_group, in_channel = await check_user_membership(context.bot, user_id)
-            if in_group and in_channel:
+            all_joined, missing_fj = await check_all_force_joins(context.bot, user_id)
+            if all_joined:
                 try:
                     await query.answer("🎉 ভেরিফিকেশন সফল হয়েছে!", show_alert=True)
                 except Exception:
@@ -3341,10 +3555,10 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
                 await query.message.reply_text(welcome_text, parse_mode=ParseMode.HTML, reply_markup=reply_kb)
             else:
                 try:
-                    await query.answer("❌ আপনি এখনো গ্রুপ বা চ্যানেলে জয়েন করেননি! দয়া করে জয়েন করে আবার চাপুন।", show_alert=True)
+                    await query.answer("❌ আপনি এখনো সবগুলো গ্রুপ বা চ্যানেলে জয়েন করেননি! দয়া করে জয়েন করে আবার চাপুন।", show_alert=True)
                 except Exception:
                     pass
-                kb = get_force_join_keyboard(in_group, in_channel)
+                kb = build_force_join_markup(missing_fj)
                 try:
                     await query.edit_message_reply_markup(reply_markup=kb)
                 except Exception:
@@ -3515,12 +3729,15 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await query.message.reply_text("✏️ <b>Enter Quantity:</b>\nআপনি কতগুলো কিনতে চান তা সংখ্যায় লিখে পাঠান (যেমন: 5, 20, 50):", parse_mode=ParseMode.HTML)
         return
 
+    if data.startswith("calc_noop_"):
+        return
+
     if data.startswith("calc_confirm_"):
-        in_group, in_channel = await check_user_membership(context.bot, user_id)
-        if not (in_group and in_channel):
-            kb = get_force_join_keyboard(in_group, in_channel)
+        all_joined, missing_fj = await check_all_force_joins(context.bot, user_id)
+        if not all_joined:
+            kb = build_force_join_markup(missing_fj)
             await query.message.reply_text(
-                "⚠️ কিনতে হলে আগে নিচের বাটনে চাপ দিয়ে গ্রুপ ও চ্যানেলে জয়েন করে ভেরিফাই করুন:",
+                "⚠️ কিনতে হলে আগে নিচের সবগুলো গ্রুপ ও চ্যানেলে জয়েন করে ভেরিফাই করুন:",
                 parse_mode=ParseMode.HTML,
                 reply_markup=kb,
             )
@@ -3662,6 +3879,113 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
                 await query.edit_message_text(new_txt, parse_mode=ParseMode.HTML, reply_markup=kb)
             except Exception:
                 pass
+        return
+
+    if data == "prof_balance_details":
+        rate = float(get_setting("usdt_rate", "125.0") or 125.0)
+        bal_bdt = float(db_user.get("balance_bdt", 0.0) or 0.0)
+        bal_usdt = bal_bdt / rate if rate > 0 else 0.0
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT COALESCE(SUM(amount), 0) as tot_dep FROM deposits WHERE user_id = ? AND status = 'approved'", (user_id,))
+        tot_dep = float(c.fetchone()["tot_dep"] or 0.0)
+        c.execute("SELECT COALESCE(SUM(total_bdt), 0) as tot_spent FROM orders WHERE user_id = ? AND status != 'refunded'", (user_id,))
+        tot_spent = float(c.fetchone()["tot_spent"] or 0.0)
+        conn.close()
+        txt = (
+            f"💰 <b>Balance Details</b>\n"
+            f"─────────────────────────────\n"
+            f"💵 <b>Current Balance:</b> {bal_bdt:.2f} BDT ({bal_usdt:.4f} USDT)\n"
+            f"📥 <b>Total Deposited:</b> {tot_dep:.2f} BDT\n"
+            f"🛍️ <b>Total Spent:</b> {tot_spent:.2f} BDT\n"
+            f"💱 <b>Exchange Rate:</b> 1 USDT = {rate:.2f} BDT"
+        )
+        await query.message.reply_text(txt, parse_mode=ParseMode.HTML)
+        return
+
+    if data == "prof_deposit_history":
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT method, amount, trx_id, status, created_at FROM deposits WHERE user_id = ? ORDER BY id DESC LIMIT 10", (user_id,))
+        deps = c.fetchall()
+        conn.close()
+        if not deps:
+            await query.message.reply_text("🔄 আপনার এখনো কোনো ডিপোজিট হিস্টোরি নেই।")
+            return
+        lines = ["🔄 <b>সর্বশেষ ডিপোজিট হিস্টোরি:</b>", "─────────────────────────────"]
+        for d in deps:
+            st_icon = "✅" if d["status"] == "approved" else ("❌" if d["status"] == "rejected" else "⏳")
+            lines.append(f"{st_icon} <b>{d['amount']:.2f} BDT</b> ({d['method']}) — <code>{d['trx_id']}</code>\n    <i>{d['created_at']} • {d['status'].upper()}</i>")
+        await query.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+        return
+
+    if data == "prof_referral":
+        bot_info = await context.bot.get_me()
+        ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) as cnt FROM users WHERE referred_by = ?", (user_id,))
+        rcnt = c.fetchone()["cnt"]
+        conn.close()
+        earn = float(db_user.get("referral_earnings", 0.0) or 0.0)
+        txt = (
+            f"👥 <b>Referral Program</b>\n"
+            f"─────────────────────────────\n"
+            f"👤 <b>Total Referrals:</b> {rcnt} জন\n"
+            f"💰 <b>Total Earnings:</b> {earn:.2f} BDT\n\n"
+            f"🔗 <b>Your Invite Link (ট্যাপ করে কপি করুন):</b>\n"
+            f"<code>{ref_link}</code>"
+        )
+        await query.message.reply_text(txt, parse_mode=ParseMode.HTML)
+        return
+
+    if data == "prof_purchases":
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT id, receipt_no, product_name, quantity, total_bdt, status, order_date FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 10", (user_id,))
+        ords = c.fetchall()
+        conn.close()
+        if not ords:
+            await query.message.reply_text("🛒 আপনার এখনো কোনো অর্ডার হিস্টোরি নেই।")
+            return
+        kb = []
+        for o in ords:
+            st_ic = "✅" if o["status"] == "completed" else ("⏳" if o["status"] == "pending_delivery" else "❌")
+            kb.append([InlineKeyboardButton(f"{st_ic} {o['product_name']} (x{o['quantity']}) — {o['total_bdt']:.0f} Tk", callback_data=f"prof_view_order_{o['id']}")])
+        await query.message.reply_text("🛒 <b>আপনার সর্বশেষ অর্ডারসমূহ:</b>\nযেকোনো অর্ডারে ক্লিক করে বিস্তারিত ও প্রোডাক্ট দেখুন:", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+        return
+
+    if data.startswith("prof_view_order_"):
+        oid = int(data.split("_")[3])
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT * FROM orders WHERE id = ? AND user_id = ?", (oid, user_id))
+        o = c.fetchone()
+        conn.close()
+        if not o:
+            await query.message.reply_text("❌ অর্ডার পাওয়া যায়নি।")
+            return
+        if o["delivered_data"]:
+            raw_deliv = o["delivered_data"]
+            try:
+                items = json.loads(raw_deliv) if raw_deliv.startswith("[") else [ln for ln in raw_deliv.splitlines() if ln.strip()]
+            except Exception:
+                items = [ln for ln in raw_deliv.splitlines() if ln.strip()]
+            card = format_credentials_card(items, o["product_name"], o["category_name"] or "Service")
+            await query.message.reply_text(f"🧾 <b>Receipt:</b> <code>{o['receipt_no']}</code>\n\n{card}", parse_mode=ParseMode.HTML)
+        else:
+            await query.message.reply_text(
+                f"🧾 <b>Receipt:</b> <code>{o['receipt_no']}</code>\n"
+                f"📦 <b>Product:</b> {o['product_name']} (x{o['quantity']})\n"
+                f"💰 <b>Total:</b> {o['total_bdt']:.2f} BDT\n"
+                f"📌 <b>Status:</b> {o['status'].upper()}",
+                parse_mode=ParseMode.HTML,
+            )
+        return
+
+    if data.startswith("adm_"):
+        if is_admin(user_id):
+            await handle_admin_callbacks(query, data, context)
         return
 
 # ------------------------------------------------------------------------------
@@ -3992,7 +4316,7 @@ async def process_order(query, prod_id: int, quantity: int):
             [InlineKeyboardButton(f"❌ Cancel & Refund #{order_id}", callback_data=f"adm_refund_{order_id}")]
         ])
         try:
-            await get_bot(query).send_message(
+            sent_ord = await get_bot(query).send_message(
                 chat_id=SUPER_ADMIN_ID,
                 text=(
                     f"🔔 <b>নতুন ম্যানুয়াল অর্ডার প্রয়োজন!</b>\n"
@@ -4008,6 +4332,10 @@ async def process_order(query, prod_id: int, quantity: int):
                 parse_mode=ParseMode.HTML,
                 reply_markup=adm_kb,
             )
+            _c4 = get_db()
+            _c4.cursor().execute("UPDATE orders SET admin_msg_id = ? WHERE id = ?", (sent_ord.message_id, order_id))
+            _c4.commit()
+            _c4.close()
         except Exception:
             pass
     except Exception as e:
@@ -4046,6 +4374,10 @@ def build_admin_dashboard_markup(pend_dep: int, pend_ord: int) -> InlineKeyboard
         [
             InlineKeyboardButton(status_tx, callback_data="adm_toggle_autosales"),
             InlineKeyboardButton("⚡ Channel TX Manager", callback_data="adm_tx_manager"),
+        ],
+        [
+            InlineKeyboardButton("🎟️ Promo / Coupon Manager", callback_data="adm_promo_mgr"),
+            InlineKeyboardButton("📢 Force Join Manager", callback_data="adm_fj_mgr"),
         ],
         [
             InlineKeyboardButton("🎛️ Menu Layout Manager", callback_data="adm_menu_layout"),
@@ -4804,7 +5136,7 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             return
         for d in deps:
             kb = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Approve", callback_data=f"adm_dep_approve_{d['id']}"), InlineKeyboardButton("❌ Reject", callback_data=f"adm_dep_reject_{d['id']}")]])
-            await query.message.reply_text(f"💳 <b>Deposit #{d['id']}</b>\n👤 {d['uname']} (<code>{d['user_id']}</code>)\n💰 {d['amount']:.2f} BDT ({d['method']})\n🔢 TrxID: <code>{d['trx_id']}</code>", parse_mode=ParseMode.HTML, reply_markup=kb)
+            await query.message.reply_text(f"💳 <b>Pending Deposit</b>\n👤 {d['uname']} (<code>{d['user_id']}</code>)\n💰 {d['amount']:.2f} BDT ({d['method']})\n🔢 TrxID: <code>{d['trx_id']}</code>", parse_mode=ParseMode.HTML, reply_markup=kb)
         return
 
     if data.startswith("adm_dep_"):
@@ -4824,7 +5156,7 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             conn.commit()
             conn.close()
             add_notification(dep["user_id"], "✅ Deposit Approved", f"+{dep['amount']:.2f} BDT added to your wallet!")
-            await query.edit_message_text(f"✅ ডিপোজিট #{dep_id} অনুমোদিত হয়েছে।")
+            await query.edit_message_text(f"✅ ডিপোজিট ({dep['amount']:.2f} BDT) অনুমোদিত হয়েছে।")
             try:
                 await context.bot.send_message(chat_id=dep["user_id"], text=f"🎉 <b>ডিপোজিট সফল!</b>\nআপনার অ্যাকাউন্টে {dep['amount']:.2f} BDT যুক্ত হয়েছে।", parse_mode=ParseMode.HTML)
             except Exception:
@@ -4833,7 +5165,8 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             c.execute("UPDATE deposits SET status = 'rejected' WHERE id = ?", (dep_id,))
             conn.commit()
             conn.close()
-            await query.edit_message_text(f"❌ ডিপোজিট #{dep_id} বাতিল করা হয়েছে।")
+            add_notification(dep["user_id"], "❌ Deposit Rejected", f"Your deposit ({dep['amount']:.2f} BDT) was rejected.")
+            await query.edit_message_text(f"❌ ডিপোজিট ({dep['amount']:.2f} BDT) বাতিল করা হয়েছে।")
         return
 
     if data == "adm_pending_orders":
@@ -4909,6 +5242,125 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
             f"💳 ইউজার ব্যালেন্স: <b>{u_stat['total_bal']:.2f} BDT</b>"
         )
         await query.message.reply_text(stat_text, parse_mode=ParseMode.HTML)
+        return
+
+    # --- 🎟️ PROMO / COUPON MANAGER (BOT ADMIN) ---
+    if data == "adm_promo_mgr":
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT code, discount_pct, COALESCE(product_name, 'All Products') as product_name FROM coupons WHERE is_active = 1 ORDER BY code ASC")
+        coupons = c.fetchall()
+        conn.close()
+        txt = "🎟️ <b>Promo / Coupon Manager</b>\n─────────────────────────────\n"
+        kb = []
+        if coupons:
+            for cp in coupons:
+                txt += f"• <code>{cp['code']}</code> — <b>{cp['discount_pct']:.0f}% OFF</b> ({cp['product_name']})\n"
+                kb.append([InlineKeyboardButton(f"🗑️ Delete {cp['code']} ({cp['discount_pct']:.0f}%)", callback_data=f"adm_promo_del_{cp['code']}")])
+        else:
+            txt += "<i>বর্তমানে কোনো অ্যাক্টিভ কুপন নেই।</i>\n"
+        kb.append([InlineKeyboardButton("➕ Add New Coupon", callback_data="adm_promo_add_select")])
+        kb.append([InlineKeyboardButton("< Back to Dashboard", callback_data="adm_root")])
+        await query.edit_message_text(txt, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+        return
+
+    if data.startswith("adm_promo_del_"):
+        ccode = data.replace("adm_promo_del_", "", 1).strip()
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("DELETE FROM coupons WHERE code = ?", (ccode,))
+        conn.commit()
+        conn.close()
+        await handle_admin_callbacks(query, "adm_promo_mgr", context)
+        return
+
+    if data == "adm_promo_add_select":
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT p.id, p.name, s.name as sub_name FROM products p JOIN subcategories s ON p.subcategory_id = s.id ORDER BY s.name ASC, p.id ASC LIMIT 35")
+        prods = c.fetchall()
+        conn.close()
+        kb = [[InlineKeyboardButton("🌐 All Products (সকল প্রোডাক্ট)", callback_data="adm_promo_target_0")]]
+        for p in prods:
+            kb.append([InlineKeyboardButton(f"📦 {p['sub_name']} — {p['name']}", callback_data=f"adm_promo_target_{p['id']}")])
+        kb.append([InlineKeyboardButton("< Back", callback_data="adm_promo_mgr")])
+        await query.edit_message_text("🎟️ <b>নতুন কুপন তৈরি (ধাপ ১/৩):</b>\nকুপনটি কোন প্রোডাক্টে কাজ করবে সিলেক্ট করুন:", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+        return
+
+    if data.startswith("adm_promo_target_"):
+        t_pid = int(data.split("_")[3])
+        t_pname = "All Products"
+        if t_pid > 0:
+            conn = get_db()
+            c = conn.cursor()
+            c.execute("SELECT p.name, s.name as sub_name FROM products p JOIN subcategories s ON p.subcategory_id = s.id WHERE p.id = ?", (t_pid,))
+            pr = c.fetchone()
+            conn.close()
+            if pr:
+                t_pname = f"{pr['sub_name']} — {pr['name']}"
+        set_user_state(user_id, "ADMIN_WAITING_COUPON_CODE", {"product_id": t_pid, "product_name": t_pname})
+        await query.message.reply_text(
+            f"🎟️ <b>টার্গেট প্রোডাক্ট:</b> {t_pname}\n\n"
+            f"<b>(ধাপ ২/৩):</b> কুপন কোডটি লিখে পাঠান (যেমন: <code>VIP20</code>):",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    # --- 📢 UNLIMITED FORCE JOIN MANAGER (BOT ADMIN) ---
+    if data == "adm_fj_mgr":
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT id, title, chat_id, invite_link, is_active FROM force_joins ORDER BY id ASC")
+        fjs = c.fetchall()
+        conn.close()
+        txt = (
+            "📢 <b>Unlimited Force Join Manager</b>\n"
+            "─────────────────────────────\n"
+            f"মোট যুক্ত গ্রুপ/চ্যানেল: <b>{len(fjs)}</b> টি\n\n"
+        )
+        kb = []
+        for fj in fjs:
+            st_ic = "🟢" if fj["is_active"] else "🔴"
+            txt += f"{st_ic} <b>{html.escape(fj['title'])}</b> — <code>{html.escape(fj['chat_id'])}</code>\n"
+            kb.append([
+                InlineKeyboardButton(f"{st_ic} {fj['title'][:18]}", callback_data=f"adm_fj_toggle_{fj['id']}"),
+                InlineKeyboardButton("✏️", callback_data=f"adm_fj_edit_{fj['id']}"),
+                InlineKeyboardButton("🗑️", callback_data=f"adm_fj_del_{fj['id']}"),
+            ])
+        kb.append([InlineKeyboardButton("➕ Add New Group / Channel", callback_data="adm_fj_add")])
+        kb.append([InlineKeyboardButton("< Back to Dashboard", callback_data="adm_root")])
+        await query.edit_message_text(txt, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+        return
+
+    if data == "adm_fj_add":
+        set_user_state(user_id, "ADMIN_WAITING_FJ_TITLE", {})
+        await query.message.reply_text("📢 <b>নতুন Force Join যুক্ত করুন (ধাপ ১/৩):</b>\nবাটনের নাম লিখুন (যেমন: <code>📢 Join Main Channel</code>):", parse_mode=ParseMode.HTML)
+        return
+
+    if data.startswith("adm_fj_toggle_"):
+        fid = int(data.split("_")[3])
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("UPDATE force_joins SET is_active = CASE WHEN COALESCE(is_active,1)=1 THEN 0 ELSE 1 END WHERE id = ?", (fid,))
+        conn.commit()
+        conn.close()
+        await handle_admin_callbacks(query, "adm_fj_mgr", context)
+        return
+
+    if data.startswith("adm_fj_del_"):
+        fid = int(data.split("_")[3])
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("DELETE FROM force_joins WHERE id = ?", (fid,))
+        conn.commit()
+        conn.close()
+        await handle_admin_callbacks(query, "adm_fj_mgr", context)
+        return
+
+    if data.startswith("adm_fj_edit_"):
+        fid = int(data.split("_")[3])
+        set_user_state(user_id, "ADMIN_WAITING_FJ_EDIT_TITLE", {"fj_id": fid})
+        await query.message.reply_text("✏️ <b>Force Join এডিট (ধাপ ১/৩):</b>\nনতুন বাটন নাম লিখে পাঠান:", parse_mode=ParseMode.HTML)
         return
 
 # ------------------------------------------------------------------------------
@@ -5035,18 +5487,22 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         set_user_state(user.id, None)
         add_notification(user.id, "💳 Deposit Submitted", f"{method} {amount:.2f} BDT (TrxID: {trx}) is pending approval.")
         await update.message.reply_text(
-            f"✅ <b>ডিপোজিট রিকোয়েস্ট সাবমিটেড!</b>\n\nআইডি: #{dep_id} | মেথড: {method}\nপরিমাণ: {amount:.2f} BDT | TrxID: <code>{trx}</code>",
+            f"✅ <b>ডিপোজিট রিকোয়েস্ট সাবমিটেড!</b>\n\n💳 মেথড: <b>{method}</b>\n💰 পরিমাণ: <b>{amount:.2f} BDT</b>\n🔢 TrxID: <code>{trx}</code>",
             parse_mode=ParseMode.HTML,
         )
 
         adm_kb = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Approve", callback_data=f"adm_dep_approve_{dep_id}"), InlineKeyboardButton("❌ Reject", callback_data=f"adm_dep_reject_{dep_id}")]])
         try:
-            await context.bot.send_message(
+            sent_dep = await context.bot.send_message(
                 chat_id=SUPER_ADMIN_ID,
-                text=f"🔔 <b>নতুন ডিপোজিট রিকোয়েস্ট #{dep_id}</b>\n👤 {user.full_name} (<code>{user.id}</code>)\n📱 {method} | 💰 {amount:.2f} BDT\n🔢 TrxID: <code>{trx}</code>",
+                text=f"🔔 <b>নতুন ডিপোজিট রিকোয়েস্ট</b>\n👤 {user.full_name} (<code>{user.id}</code>)\n📱 {method} | 💰 {amount:.2f} BDT\n🔢 TrxID: <code>{trx}</code>",
                 parse_mode=ParseMode.HTML,
                 reply_markup=adm_kb,
             )
+            _cd = get_db()
+            _cd.cursor().execute("UPDATE deposits SET admin_msg_id = ? WHERE id = ?", (sent_dep.message_id, dep_id))
+            _cd.commit()
+            _cd.close()
         except Exception:
             pass
         return
@@ -5516,6 +5972,96 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(f"✅ <code>{t_id}</code> থেকে {amt:.2f} BDT কাটা হয়েছে!", parse_mode=ParseMode.HTML)
         return
 
+    if state == "ADMIN_WAITING_BCAST_BTN_CHOICE":
+        await update.message.reply_text("👆 অনুগ্রহ করে উপরের 'হ্যাঁ' অথবা 'না' বাটনে চাপুন।")
+        return
+
+    if state == "ADMIN_WAITING_COUPON_CODE":
+        sdata["code"] = text.strip().upper()
+        set_user_state(user_id, "ADMIN_WAITING_COUPON_PCT", sdata)
+        await update.message.reply_text(f"✅ কোড: <code>{sdata['code']}</code>\n<b>(ধাপ ৩/৩):</b> কত পার্সেন্ট (%) ডিসকাউন্ট দেবেন লিখুন (যেমন: 10, 25):", parse_mode=ParseMode.HTML)
+        return
+
+    if state == "ADMIN_WAITING_COUPON_PCT":
+        try:
+            pct = float(text.strip())
+            if pct <= 0 or pct > 100:
+                raise ValueError()
+        except ValueError:
+            await update.message.reply_text("❌ ১ থেকে ১০০-এর মধ্যে সঠিক সংখ্যা লিখুন:")
+            return
+        ccode = sdata.get("code", "")
+        pid = int(sdata.get("product_id", 0) or 0)
+        pname = sdata.get("product_name", "All Products")
+        conn = get_db()
+        c = conn.cursor()
+        if conn.is_pg:
+            c.execute(
+                "INSERT INTO coupons (code, discount_pct, is_active, product_id, product_name) VALUES (%s, %s, 1, %s, %s) ON CONFLICT (code) DO UPDATE SET discount_pct = EXCLUDED.discount_pct, is_active = 1, product_id = EXCLUDED.product_id, product_name = EXCLUDED.product_name",
+                (ccode, pct, pid, pname),
+            )
+        else:
+            c.execute(
+                "INSERT OR REPLACE INTO coupons (code, discount_pct, is_active, product_id, product_name) VALUES (?, ?, 1, ?, ?)",
+                (ccode, pct, pid, pname),
+            )
+        conn.commit()
+        conn.close()
+        set_user_state(user_id, None)
+        await update.message.reply_text(f"🎉 কুপন <code>{ccode}</code> ({pct:.0f}% OFF — {pname}) সেভ হয়েছে!", parse_mode=ParseMode.HTML)
+        return
+
+    if state == "ADMIN_WAITING_FJ_TITLE":
+        set_user_state(user_id, "ADMIN_WAITING_FJ_CHATID", {"title": text.strip()})
+        await update.message.reply_text("📢 <b>(ধাপ ২/৩):</b> গ্রুপ বা চ্যানেলের <b>Chat ID বা @username</b> লিখুন (যেমন: <code>-1001234567890</code> বা <code>@channel</code>):", parse_mode=ParseMode.HTML)
+        return
+
+    if state == "ADMIN_WAITING_FJ_CHATID":
+        sdata["chat_id"] = text.strip()
+        set_user_state(user_id, "ADMIN_WAITING_FJ_LINK", sdata)
+        await update.message.reply_text("🔗 <b>(ধাপ ৩/৩):</b> গ্রুপ বা চ্যানেলের <b>Invite Link (https://t.me/...)</b> লিখে পাঠান:", parse_mode=ParseMode.HTML)
+        return
+
+    if state == "ADMIN_WAITING_FJ_LINK":
+        link = text.strip()
+        conn = get_db()
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO force_joins (title, chat_id, invite_link, is_active) VALUES (?, ?, ?, 1)",
+            (sdata.get("title", "Join Channel"), sdata.get("chat_id", ""), link),
+        )
+        conn.commit()
+        conn.close()
+        set_user_state(user_id, None)
+        await update.message.reply_text(f"✅ নতুন Force Join <b>{html.escape(sdata.get('title', ''))}</b> সফলভাবে যুক্ত হয়েছে!", parse_mode=ParseMode.HTML)
+        return
+
+    if state == "ADMIN_WAITING_FJ_EDIT_TITLE":
+        sdata["title"] = text.strip()
+        set_user_state(user_id, "ADMIN_WAITING_FJ_EDIT_CHATID", sdata)
+        await update.message.reply_text("✏️ <b>(ধাপ ২/৩):</b> নতুন Chat ID বা @username লিখুন:", parse_mode=ParseMode.HTML)
+        return
+
+    if state == "ADMIN_WAITING_FJ_EDIT_CHATID":
+        sdata["chat_id"] = text.strip()
+        set_user_state(user_id, "ADMIN_WAITING_FJ_EDIT_LINK", sdata)
+        await update.message.reply_text("🔗 <b>(ধাপ ৩/৩):</b> নতুন Invite Link লিখুন:", parse_mode=ParseMode.HTML)
+        return
+
+    if state == "ADMIN_WAITING_FJ_EDIT_LINK":
+        fid = int(sdata.get("fj_id", 0))
+        conn = get_db()
+        c = conn.cursor()
+        c.execute(
+            "UPDATE force_joins SET title = ?, chat_id = ?, invite_link = ? WHERE id = ?",
+            (sdata.get("title", "Join"), sdata.get("chat_id", ""), text.strip(), fid),
+        )
+        conn.commit()
+        conn.close()
+        set_user_state(user_id, None)
+        await update.message.reply_text("✅ Force Join তথ্য আপডেট হয়েছে!")
+        return
+
 async def photo_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not is_admin(user.id):
@@ -5734,7 +6280,7 @@ def main():
     app.add_handler(MessageHandler(filters.Document.ALL, document_message_handler))
 
     print("Bot is polling for updates...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
