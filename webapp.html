@@ -1021,6 +1021,63 @@
     }
     .toast.show { display: block; animation: slideUp 0.2s ease; }
 
+    /* FULL-SCREEN FORCE JOIN GATE (BLOCKS STORE BEFORE ENTERING) */
+    #forceJoinGate {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at top, #1e1038 0%, #070b14 100%);
+      color: #ffffff;
+      z-index: 9500;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      overflow-y: auto;
+    }
+    #forceJoinGate.hidden { display: none !important; }
+    .fj-gate-card {
+      width: 100%;
+      max-width: 420px;
+      background: rgba(17, 24, 39, 0.92);
+      border: 1.5px solid rgba(255, 107, 0, 0.35);
+      border-radius: 22px;
+      padding: 22px 18px;
+      text-align: center;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(12px);
+    }
+    .fj-lock-badge {
+      width: 66px;
+      height: 66px;
+      border-radius: 50%;
+      margin: 0 auto 12px;
+      background: linear-gradient(135deg, #ff6b00, #7c3aed);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 30px;
+      box-shadow: 0 0 24px rgba(255, 107, 0, 0.45);
+    }
+    .fj-channel-btn {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 13px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      color: #ffffff;
+      text-decoration: none;
+      font-weight: 800;
+      font-size: 13.5px;
+      transition: all 0.2s ease;
+    }
+    .fj-channel-btn:active {
+      transform: scale(0.98);
+      background: rgba(255, 107, 0, 0.25);
+    }
+
     /* MAILCODE STYLE OUTLOOK / HOTMAIL OTP READER */
     .mail-extracted-pill {
       display: flex;
@@ -1084,6 +1141,21 @@
     <h2 style="margin:0;font-size:20px;letter-spacing:0.4px">CyberNest Digital Mart</h2>
     <small id="splashStatus" style="opacity:0.8;margin-top:6px;font-size:12px">Initializing secure session...</small>
     <div class="splash-bar-wrap"><div class="splash-bar-fill"></div></div>
+  </div>
+
+  <!-- FULL-SCREEN FORCE JOIN GATE (SHOWN BEFORE MAIN STORE IF NOT JOINED) -->
+  <div id="forceJoinGate" class="hidden">
+    <div class="fj-gate-card">
+      <div class="fj-lock-badge">🔒</div>
+      <h2 style="margin:0 0 6px;font-size:19px">Join Required Channels</h2>
+      <p style="margin:0 0 16px;font-size:12.5px;color:#cbd5e1;line-height:1.5">
+        স্টোরে প্রবেশ করতে ও কেনাকাটা করতে নিচের সবগুলো গ্রুপ ও চ্যানেলে জয়েন করুন। জয়েন করার পর <b>Verify & Enter Shop</b> বাটনে চাপুন:
+      </p>
+      <div id="fjGateBtnsWrap" style="display:flex;flex-direction:column;gap:9px;margin-bottom:16px"></div>
+      <button class="btn-primary" id="fjGateVerifyBtn" onclick="verifyForceJoinGate()" style="padding:12px 16px;font-size:14px">
+        ✅ Verify & Enter Shop
+      </button>
+    </div>
   </div>
 
   <!-- TOAST NOTIFICATION -->
@@ -1871,6 +1943,15 @@
         APP.banners = (data.banners && data.banners.length) ? data.banners : [];
         APP.settings = data.settings || APP.settings;
         if (data.unread_notifs > 0) document.getElementById("notifDot").style.display = "block";
+
+        // Full-Screen Force Join Gate check before showing main store UI
+        if (data.force_join_required && data.missing_channels && data.missing_channels.length) {
+          renderForceJoinGate(data.missing_channels);
+          setTimeout(() => document.getElementById("splash").classList.add("hide"), 350);
+          return;
+        } else {
+          document.getElementById("forceJoinGate").classList.add("hidden");
+        }
       } else {
         loadSamplePreviewData();
       }
@@ -1911,6 +1992,37 @@
       }
 
       setTimeout(() => document.getElementById("splash").classList.add("hide"), 450);
+    }
+
+    function renderForceJoinGate(missingChannels) {
+      const gate = document.getElementById("forceJoinGate");
+      const wrap = document.getElementById("fjGateBtnsWrap");
+      wrap.innerHTML = (missingChannels || []).map(ch => `
+        <a href="${escHtml(ch.invite_link)}" target="_blank" class="fj-channel-btn">
+          <span>${escHtml(ch.title)}</span>
+          <span style="background:linear-gradient(135deg,#ff7a1a,#ff4500);padding:4px 10px;border-radius:8px;font-size:11.5px">Join ↗</span>
+        </a>
+      `).join("");
+      gate.classList.remove("hidden");
+    }
+
+    async function verifyForceJoinGate() {
+      const btn = document.getElementById("fjGateVerifyBtn");
+      btn.disabled = true;
+      btn.innerText = "⏳ Checking Membership...";
+      const res = await api("/api/verify_force_join", {});
+      btn.disabled = false;
+      btn.innerText = "✅ Verify & Enter Shop";
+      if (res && res.ok && res.joined) {
+        document.getElementById("forceJoinGate").classList.add("hidden");
+        showToast("🎉 Verification successful! Welcome to CyberNest.");
+        await boot();
+      } else {
+        if (res && res.missing_channels) {
+          renderForceJoinGate(res.missing_channels);
+        }
+        showToast("❌ আপনি এখনো সবগুলো গ্রুপ/চ্যানেলে জয়েন করেননি!");
+      }
     }
 
     function renderAvatar(elId, name, photoUrl) {
