@@ -2008,6 +2008,7 @@
     function renderForceJoinGate(missingChannels) {
       const gate = document.getElementById("forceJoinGate");
       const wrap = document.getElementById("fjGateBtnsWrap");
+      if (!gate || !wrap) return;
       wrap.innerHTML = (missingChannels || []).map(ch => `
         <a href="${escHtml(ch.invite_link)}" target="_blank" class="fj-channel-btn">
           <span>${escHtml(ch.title)}</span>
@@ -2019,11 +2020,15 @@
 
     async function verifyForceJoinGate() {
       const btn = document.getElementById("fjGateVerifyBtn");
-      btn.disabled = true;
-      btn.innerText = "⏳ ভেরিফাই করা হচ্ছে...";
+      if (btn) {
+        btn.disabled = true;
+        btn.innerText = "⏳ ভেরিফাই করা হচ্ছে...";
+      }
       const res = await api("/api/verify_force_join", {});
-      btn.disabled = false;
-      btn.innerText = "✅ ভেরিফাই করুন";
+      if (btn) {
+        btn.disabled = false;
+        btn.innerText = "✅ ভেরিফাই করুন";
+      }
       if (res && res.ok && res.joined) {
         document.getElementById("forceJoinGate").classList.add("hidden");
         document.querySelector(".topbar").classList.remove("hidden");
