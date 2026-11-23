@@ -128,7 +128,7 @@ def colorize_markup(markup):
                     kw["switch_inline_query_current_chat"] = b.switch_inline_query_current_chat
                 new_row.append(make_inline_btn(b.text, style=st, **kw))
             new_rows.append(new_row)
-        return colorize_markup(InlineKeyboardMarkup(new_rows))
+        return InlineKeyboardMarkup(new_rows)
     if isinstance(markup, ReplyKeyboardMarkup):
         new_rows = []
         for row in markup.keyboard:
@@ -3384,9 +3384,9 @@ def _format_2fa_live_text(parsed_codes: List[Dict[str, Any]], live_active: bool 
 
 async def _run_live_2fa_countdown(bot, chat_id: int, message_id: int, raw_secret: str, tok_key: str):
     """Edits the 2FA message every 5 seconds for 60 seconds, auto-rotating codes when 30s expires."""
-    kb = colorize_markup(colorize_markup(InlineKeyboardMarkup([
+    kb = InlineKeyboardMarkup([
         [make_inline_btn("🔄 Refresh 2FA Code", style="success", callback_data=f"tool_ref_2fa_{tok_key}")]
-    ])))
+    ])
     for step in range(12):  # 12 * 5s = 60 seconds
         await asyncio.sleep(5)
         parsed_codes = generate_universal_2fa_codes(raw_secret)
@@ -3703,7 +3703,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     if data.startswith("ai_q_"):
         q_type = data.replace("ai_q_", "")
         if q_type == "exit":
-            set_user_state(user.id, None)
+            set_user_state(user_id, None)
             await query.message.reply_text("✅ AI Assistant মোড বন্ধ করা হয়েছে।")
             return
         if q_type == "open":
@@ -3989,9 +3989,9 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         parsed_codes = generate_universal_2fa_codes(raw_sec)
         if parsed_codes:
             now_t = datetime.datetime.now().strftime("%I:%M:%S %p")
-            kb = colorize_markup(colorize_markup(InlineKeyboardMarkup([
+            kb = InlineKeyboardMarkup([
                 [make_inline_btn("🔄 Refresh 2FA Code", style="success", callback_data=f"tool_ref_2fa_{tok_key}")]
-            ])))
+            ])
             new_txt = _format_2fa_live_text(parsed_codes, live_active=True, note=f"🕒 <i>Refreshed at: {now_t}</i>")
             try:
                 await query.edit_message_text(new_txt, parse_mode=ParseMode.HTML, reply_markup=kb)
@@ -4637,7 +4637,7 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
     if data == "adm_bcast_skip_btn":
         sdata = get_user_state(user_id)[1]
         await execute_smart_broadcast(context.bot, query.message, sdata, btn_text=None, btn_url=None)
-        set_user_state(user.id, None)
+        set_user_state(user_id, None)
         return
 
     if data == "adm_bcast_add_btn":
@@ -5654,9 +5654,9 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             _TOOL_CACHE[tok_key] = text
             if len(_TOOL_CACHE) > 300:
                 _TOOL_CACHE.pop(next(iter(_TOOL_CACHE)))
-            kb = colorize_markup(colorize_markup(InlineKeyboardMarkup([
+            kb = InlineKeyboardMarkup([
                 [make_inline_btn("🔄 Refresh 2FA Code", style="success", callback_data=f"tool_ref_2fa_{tok_key}")]
-            ])))
+            ])
             msg_out = _format_2fa_live_text(parsed_codes, live_active=True)
             sent_2fa = await update.message.reply_text(
                 msg_out,
