@@ -1140,20 +1140,20 @@
     </div>
     <h2 style="margin:0;font-size:20px;letter-spacing:0.4px">CyberNest Digital Mart</h2>
     <small id="splashStatus" style="opacity:0.8;margin-top:6px;font-size:12px">Initializing secure session...</small>
-    <div class="splash-bar-wrap"><div class="splash-bar-fill"></div></div>
-  </div>
-
-  <!-- FULL-SCREEN FORCE JOIN GATE (SHOWN BEFORE MAIN STORE IF NOT JOINED) -->
+  <!-- FULL-SCREEN FORCE JOIN GATE (BLOCKS STORE BEFORE ENTERING) -->
   <div id="forceJoinGate" class="hidden">
     <div class="fj-gate-card">
-      <div class="fj-lock-badge">🔒</div>
-      <h2 style="margin:0 0 6px;font-size:19px">Join Required Channels</h2>
-      <p style="margin:0 0 16px;font-size:12.5px;color:#cbd5e1;line-height:1.5">
-        স্টোরে প্রবেশ করতে ও কেনাকাটা করতে নিচের সবগুলো গ্রুপ ও চ্যানেলে জয়েন করুন। জয়েন করার পর <b>Verify & Enter Shop</b> বাটনে চাপুন:
+      <div class="fj-lock-badge">🔐</div>
+      <div style="display:inline-block;padding:4px 12px;border-radius:999px;background:rgba(255,107,0,0.18);color:#ff9e44;font-size:11px;font-weight:800;margin-bottom:8px">
+        CYBERNEST VERIFICATION GATE
+      </div>
+      <h2 style="margin:0 0 8px;font-size:18px;line-height:1.4">শপে প্রবেশ করার আগে নিচের চ্যানেলগুলো জয়েন করে নিন</h2>
+      <p style="margin:0 0 16px;font-size:12.5px;color:#cbd5e1;line-height:1.55">
+        আমাদের অফিসিয়াল গ্রুপ ও চ্যানেলে যুক্ত না থাকলে আপনি শপে প্রবেশ বা কোনো প্রোডাক্ট কিনতে পারবেন না। নিচের বাটনে ক্লিক করে জয়েন হওয়ার পর <b>ভেরিফাই করুন</b> বাটনে চাপুন:
       </p>
-      <div id="fjGateBtnsWrap" style="display:flex;flex-direction:column;gap:9px;margin-bottom:16px"></div>
-      <button class="btn-primary" id="fjGateVerifyBtn" onclick="verifyForceJoinGate()" style="padding:12px 16px;font-size:14px">
-        ✅ Verify & Enter Shop
+      <div id="fjGateBtnsWrap" style="display:flex;flex-direction:column;gap:10px;margin-bottom:18px"></div>
+      <button class="btn-primary" id="fjGateVerifyBtn" onclick="verifyForceJoinGate()" style="padding:13px 16px;font-size:14.5px;border-radius:14px">
+        ✅ ভেরিফাই করুন
       </button>
     </div>
   </div>
@@ -1946,11 +1946,19 @@
 
         // Full-Screen Force Join Gate check before showing main store UI
         if (data.force_join_required && data.missing_channels && data.missing_channels.length) {
+          document.querySelector(".topbar").classList.add("hidden");
+          document.getElementById("page-home").classList.add("hidden");
+          document.querySelector(".bottom-nav").classList.add("hidden");
+          document.querySelector(".ai-fab").classList.add("hidden");
           renderForceJoinGate(data.missing_channels);
           setTimeout(() => document.getElementById("splash").classList.add("hide"), 350);
           return;
         } else {
           document.getElementById("forceJoinGate").classList.add("hidden");
+          document.querySelector(".topbar").classList.remove("hidden");
+          document.getElementById("page-home").classList.remove("hidden");
+          document.querySelector(".bottom-nav").classList.remove("hidden");
+          document.querySelector(".ai-fab").classList.remove("hidden");
         }
       } else {
         loadSamplePreviewData();
@@ -2009,19 +2017,23 @@
     async function verifyForceJoinGate() {
       const btn = document.getElementById("fjGateVerifyBtn");
       btn.disabled = true;
-      btn.innerText = "⏳ Checking Membership...";
+      btn.innerText = "⏳ ভেরিফাই করা হচ্ছে...";
       const res = await api("/api/verify_force_join", {});
       btn.disabled = false;
-      btn.innerText = "✅ Verify & Enter Shop";
+      btn.innerText = "✅ ভেরিফাই করুন";
       if (res && res.ok && res.joined) {
         document.getElementById("forceJoinGate").classList.add("hidden");
-        showToast("🎉 Verification successful! Welcome to CyberNest.");
+        document.querySelector(".topbar").classList.remove("hidden");
+        document.getElementById("page-home").classList.remove("hidden");
+        document.querySelector(".bottom-nav").classList.remove("hidden");
+        document.querySelector(".ai-fab").classList.remove("hidden");
+        showToast("🎉 ভেরিফিকেশন সফল! শপে স্বাগতম।");
         await boot();
       } else {
         if (res && res.missing_channels) {
           renderForceJoinGate(res.missing_channels);
         }
-        showToast("❌ আপনি এখনো সবগুলো গ্রুপ/চ্যানেলে জয়েন করেননি!");
+        showToast("❌ আপনি এখনো নিচের চ্যানেল/গ্রুপে জয়েন করেননি!");
       }
     }
 
