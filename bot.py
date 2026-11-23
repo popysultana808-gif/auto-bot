@@ -1,4 +1,3 @@
-
 # ==============================================================================
 # CyberNest Digital Mart — Full-Featured Telegram Auto-Shop Bot + Mini App API
 # Two-File Architecture (Part 1: bot.py)
@@ -1113,9 +1112,9 @@ def generate_smart_ai_reply(question: str, user_id: Optional[int] = None) -> str
     if is_bangla_ctx:
         return (
             f"আমি আপনার প্রশ্নটি পুরোপুরি বুঝতে পারিনি। আপনি নির্দিষ্ট করে জিজ্ঞেস করতে পারেন—যেমন:\n"
-            f"• <i>"VPN কীভাবে কিনব?"</i>\n"
-            f"• <i>"Rapid Proxy-এর দাম কত?"</i>\n"
-            f"• <i>"ডিপোজিট করব কীভাবে?"</i>\n\n"
+            f"• <i>\"VPN কীভাবে কিনব?\"</i>\n"
+            f"• <i>\"Rapid Proxy-এর দাম কত?\"</i>\n"
+            f"• <i>\"ডিপোজিট করব কীভাবে?\"</i>\n\n"
             f"অথবা সরাসরি এডমিনের সাথে কথা বলুন: {ctx['support']}"
         )
     return (
