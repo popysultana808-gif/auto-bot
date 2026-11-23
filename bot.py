@@ -1225,10 +1225,24 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             sdict["transaction_channel_id"] = get_transaction_channel_id()
             sdict["transaction_channel_link"] = get_transaction_channel_link()
 
+            force_join_required = False
+            missing_channels = []
+            if not is_admin(uid) and _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
+                try:
+                    fut = asyncio.run_coroutine_threadsafe(check_all_force_joins(_GLOBAL_BOT_APP.bot, uid), _GLOBAL_EVENT_LOOP)
+                    all_ok, missing_fj = fut.result(timeout=8)
+                    if not all_ok:
+                        force_join_required = True
+                        missing_channels = missing_fj
+                except Exception as fj_err:
+                    logger.warning(f"/api/init force join check error: {fj_err}")
+
             vip_info = get_vip_badge_info(ostat["spent"])
             tg_photo_url = tg_u.get("photo_url") or f"/api/user_photo?user_id={uid}"
 
             return self._send_json({
+                "force_join_required": force_join_required,
+                "missing_channels": missing_channels,
                 "user": {
                     "user_id": uid,
                     "full_name": db_u.get("name", full_n),
@@ -1414,6 +1428,22 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 ans = generate_smart_ai_reply(question, user_id=uid)
                 return self._send_json({"ok": True, "reply": ans})
 
+            if path == "/api/verify_force_join":
+                if is_admin(uid):
+                    return self._send_json({"ok": True, "joined": True, "missing_channels": []})
+                if _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
+                    try:
+                        fut = asyncio.run_coroutine_threadsafe(check_all_force_joins(_GLOBAL_BOT_APP.bot, uid), _GLOBAL_EVENT_LOOP)
+                        all_ok, missing_fj = fut.result(timeout=8)
+                        return self._send_json({
+                            "ok": True,
+                            "joined": bool(all_ok),
+                            "missing_channels": missing_fj if not all_ok else [],
+                        })
+                    except Exception as fj_err:
+                        return self._send_json({"ok": False, "joined": False, "error": str(fj_err)})
+                return self._send_json({"ok": True, "joined": True, "missing_channels": []})
+
             if path == "/api/coupon/check":
                 code_str = str(body.get("code", "")).strip().upper()
                 req_pid = int(body.get("product_id", 0) or 0)
@@ -1580,6 +1610,8 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                             return self._send_json({
                                 "ok": False,
                                 "error": "কেনার আগে সবগুলো আবশ্যিক গ্রুপ ও চ্যানেলে জয়েন করুন!",
+                                "force_join_required": True,
+                                "missing_channels": missing_fj,
                                 "force_join_missing": missing_fj,
                             })
                     except Exception:
@@ -2323,7 +2355,10 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 
                 if path == "/api/admin/force_joins":
                     act = str(body.get("action", "list"))
-                    if act == "add":
+                    if act == "toggle_enabled":
+                        cur_fj_en = get_setting("force_join_enabled", "1")
+                        set_setting("force_join_enabled", "0" if cur_fj_en == "1" else "1")
+                    elif act == "add":
                         title = str(body.get("title", "")).strip() or "Required Channel"
                         chat_id = str(body.get("chat_id", "")).strip()
                         invite_link = str(body.get("invite_link", "")).strip()
@@ -2359,7 +2394,8 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     c.execute("SELECT id, title, chat_id, invite_link, is_active FROM force_joins ORDER BY id ASC")
                     fj_all = [dict(r) for r in c.fetchall()]
                     conn.close()
-                    return self._send_json({"ok": True, "force_joins": fj_all})
+                    fj_en = (get_setting("force_join_enabled", "1") == "1")
+                    return self._send_json({"ok": True, "enabled": fj_en, "channels": fj_all, "force_joins": fj_all})
 
                 conn.close()
 
@@ -3470,6 +3506,8 @@ def get_active_force_joins() -> List[Dict[str, Any]]:
 
 async def check_all_force_joins(bot, user_id: int) -> Tuple[bool, List[Dict[str, Any]]]:
     if user_id == SUPER_ADMIN_ID:
+        return True, []
+    if get_setting("force_join_enabled", "1") != "1":
         return True, []
     active_fjs = get_active_force_joins()
     if not active_fjs:
