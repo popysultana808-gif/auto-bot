@@ -87,6 +87,7 @@ ADMIN_PANEL_CUSTOM_BUTTONS: List[str] = [
     "🏷️ Manage Buttons & Prices",
     "🖼️ Manage Product Photos",
     "🖼️ Message Photo Manager",
+    "📝 Message Text Manager",
     "💳 Payment Settings",
     "💳 Deposits",
     "🛡️ Orders",
@@ -118,8 +119,28 @@ BOT_MESSAGE_SLOTS: List[Tuple[str, str]] = [
     ("deposit_instr", "🧾 Deposit Payment Instructions Message"),
     ("get_code", "🔐 Get Code & Auth Tools Message"),
     ("support", "💬 Customer Support Message"),
+    ("purchase_summary", "🛒 Purchase Summary Card Message"),
+    ("order_cancel", "❌ Order Cancelled Message"),
+    ("group_welcome", "🌸 Group New Member Welcome Message"),
 ]
 BOT_MESSAGE_SLOT_MAP: Dict[str, str] = dict(BOT_MESSAGE_SLOTS)
+
+BOT_MESSAGE_PLACEHOLDERS: Dict[str, str] = {
+    "welcome_new": "{name}, {shop_name}",
+    "welcome_back": "{name}, {shop_name}",
+    "force_join": "{name}, {shop_name}",
+    "buy_products": "{name}, {shop_name}",
+    "ai_assistant": "{name}, {shop_name}",
+    "my_profile": "{name}, {user_id}, {balance}, {balance_usdt}, {total_spent}, {joined_date}, {vip_badge}, {shop_name}",
+    "deposit_menu": "{name}, {balance}, {min_deposit}, {shop_name}",
+    "deposit_method": "{amount}, {name}, {shop_name}",
+    "deposit_instr": "{method}, {amount}, {number}, {name}, {shop_name}",
+    "get_code": "{name}, {shop_name}",
+    "support": "{name}, {support}, {shop_name}",
+    "purchase_summary": "{category}, {package}, {description}, {quantity}, {rate}, {total}",
+    "order_cancel": "{name}, {shop_name}",
+    "group_welcome": "{user_link}, {name}, {shop_name}",
+}
 
 def get_btn_color_config() -> Dict[str, Any]:
     global _BTN_COLOR_CACHE
@@ -261,6 +282,16 @@ def colorize_markup(markup, group: Optional[str] = None):
             input_field_placeholder=markup.input_field_placeholder,
         )
     return markup
+
+def render_custom_bot_message(slot_key: str, default_text: str, **kwargs) -> str:
+    """Returns admin-customized text for a bot message slot if configured, with safe placeholder substitution."""
+    custom = get_setting(f"msg_text_{slot_key}", "").strip()
+    if not custom:
+        return default_text
+    out = custom
+    for k, v in kwargs.items():
+        out = out.replace(f"{{{k}}}", str(v))
+    return out
 
 async def send_smart_bot_message(target, slot_key: str, text: str, reply_markup=None, parse_mode=ParseMode.HTML):
     """Sends a bot message with its admin-configured Photo if attached, else sends clean text."""
@@ -3516,7 +3547,7 @@ def format_credentials_card(items: List[str], prod_name: str, cat_name: str) -> 
 def build_welcome_message(full_name: str, shop_name: str, is_new: bool) -> str:
     safe_name = html.escape(full_name or "গ্রাহক")
     if is_new:
-        return (
+        default_txt = (
             f"🌟 <b>স্বাগতম, {safe_name}!</b> ✨\n"
             f"💎 <b>{shop_name} — ২৪/৭ অটোমেটেড ডিজিটাল শপ</b>\n"
             f"─────────────────────────────\n"
@@ -3530,13 +3561,15 @@ def build_welcome_message(full_name: str, shop_name: str, is_new: bool) -> str:
             f"─────────────────────────────\n"
             f"👇 নিচের মেনু বাটন অথবা বাম কোণার <b>Open Shop</b> বাটনে চাপ দিয়ে আপনার কেনাকাটা শুরু করুন!"
         )
+        return render_custom_bot_message("welcome_new", default_txt, name=safe_name, shop_name=shop_name)
     else:
-        return (
+        default_txt = (
             f"👋 <b>স্বাগতম, {safe_name}!</b> ✨\n"
             f"💎 <b>{shop_name}</b> — ২৪/৭ অটোমেটেড ডিজিটাল স্টোর।\n"
             f"─────────────────────────────\n"
             f"🛍️ প্রিমিয়াম VPN, প্রিমিয়াম Proxy ও প্রিমিয়াম Mail কিনতে নিচের মেনু অথবা <b>Open Shop</b> বাটন ব্যবহার করুন 👇"
         )
+        return render_custom_bot_message("welcome_back", default_txt, name=safe_name, shop_name=shop_name)
 
 def _format_2fa_live_text(parsed_codes: List[Dict[str, Any]], live_active: bool = True, note: str = "") -> str:
     rem = parsed_codes[0]["remaining"]
@@ -3671,10 +3704,11 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     all_joined, missing_fj = await check_all_force_joins(context.bot, user.id)
     if not all_joined:
-        force_txt = (
+        default_fj = (
             f"👋 <b>স্বাগতম, {html.escape(user.full_name or 'বন্ধু')}!</b>\n\n"
             f"বট ব্যবহার করতে নিচের সবগুলো গ্রুপ ও চ্যানেলে যুক্ত হয়ে ভেরিফাই করুন:"
         )
+        force_txt = render_custom_bot_message("force_join", default_fj, name=html.escape(user.full_name or "বন্ধু"), shop_name=shop_name)
         kb = build_force_join_markup(missing_fj)
         await send_smart_bot_message(update.message, "force_join", force_txt, reply_markup=kb)
         return
@@ -3687,11 +3721,12 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def ai_assistant_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     set_user_state(user.id, "WAITING_AI_QUESTION", {})
-    txt = (
+    default_ai = (
         "🤖 <b>CyberNest AI Assistant</b>\n"
         "─────────────────────────────\n"
         "আসসালামু আলাইকুম! আপনার কোনো প্রশ্ন বা অসুবিধা থাকলে নিচে লিখে জিজ্ঞেস করুন—আমি সাথে সাথে সাহায্য করব।"
     )
+    txt = render_custom_bot_message("ai_assistant", default_ai, name=html.escape(user.full_name or ""), shop_name=get_setting("shop_name", "CyberNest Market"))
     await send_smart_bot_message(update.message, "ai_assistant", txt)
 
 async def _delete_admin_msg_safe(bot, msg_id):
@@ -3821,7 +3856,7 @@ async def profile_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
     vip = get_vip_badge_info(spent)
 
-    profile_text = (
+    default_prof = (
         f"👤 <b>My Profile</b> ({vip['badge']})\n\n"
         f"👤 <b>Name</b> : {db_user['name']}\n"
         f"🆔 <b>User ID</b> : <code>{user.id}</code>\n"
@@ -3829,6 +3864,18 @@ async def profile_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🛍️ <b>Total Spent</b> : {spent:.2f} BDT\n"
         f"🎉 <b>Joined</b> : {db_user['joined_date']}\n"
         f"─────────────────────────────"
+    )
+    profile_text = render_custom_bot_message(
+        "my_profile",
+        default_prof,
+        name=html.escape(str(db_user["name"] or "")),
+        user_id=user.id,
+        balance=f"{balance_bdt:.2f}",
+        balance_usdt=f"{balance_usdt:.4f}",
+        total_spent=f"{spent:.2f}",
+        joined_date=db_user["joined_date"],
+        vip_badge=vip["badge"],
+        shop_name=get_setting("shop_name", "CyberNest Market"),
     )
     inline_kb = colorize_markup(InlineKeyboardMarkup([
         [
@@ -3849,7 +3896,12 @@ async def buy_products_menu_handler(update: Update, context: ContextTypes.DEFAUL
     cats = c.fetchall()
     conn.close()
 
-    text = "🛍️ <b>Buy Products</b>\n\nSelect a category:"
+    text = render_custom_bot_message(
+        "buy_products",
+        "🛍️ <b>Buy Products</b>\n\nSelect a category:",
+        name=html.escape(update.effective_user.full_name or ""),
+        shop_name=get_setting("shop_name", "CyberNest Market"),
+    )
     keyboard = []
     for cat in cats:
         keyboard.append([InlineKeyboardButton(cat["name"], callback_data=f"usr_cat_{cat['id']}")])
@@ -3858,9 +3910,15 @@ async def buy_products_menu_handler(update: Update, context: ContextTypes.DEFAUL
     await send_smart_bot_message(update.message, "buy_products", text, reply_markup=colorize_markup(InlineKeyboardMarkup(keyboard)))
 
 async def get_code_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (
+    default_gc = (
         "🔐 <b>Get Code & Authentication Tools</b>\n\n"
         "হটমেইল/আউটলুক ওটিপি কোড এবং লাইভ 2FA কোড পাওয়ার জন্য নিচের অপশন থেকে নির্বাচন করুন:"
+    )
+    text = render_custom_bot_message(
+        "get_code",
+        default_gc,
+        name=html.escape(update.effective_user.full_name or ""),
+        shop_name=get_setting("shop_name", "CyberNest Market"),
     )
     kb = colorize_markup(InlineKeyboardMarkup([
         [InlineKeyboardButton("🔑 2FA Authenticator (Live Code)", callback_data="tool_2fa_prompt")],
@@ -3870,9 +3928,16 @@ async def get_code_menu_handler(update: Update, context: ContextTypes.DEFAULT_TY
     await send_smart_bot_message(update.message, "get_code", text, reply_markup=kb)
 
 async def support_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (
+    default_sup = (
         "💬 <b>কাস্টমার সাপোর্ট</b>\n\n"
         "যেকোনো সমস্যায় নিচে এডমিনকে মেসেজ দিন অথবা 🤖 AI Assistant ব্যবহার করুন:"
+    )
+    text = render_custom_bot_message(
+        "support",
+        default_sup,
+        name=html.escape(update.effective_user.full_name or ""),
+        support=get_setting("support_username", "@Talha_juba098"),
+        shop_name=get_setting("shop_name", "CyberNest Market"),
     )
     kb = colorize_markup(InlineKeyboardMarkup([
         [InlineKeyboardButton("📨 Message Admin", url=f"tg://user?id={SUPER_ADMIN_ID}")],
@@ -3886,12 +3951,20 @@ async def deposit_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     min_man = float(get_setting("min_deposit_manual", "20.0"))
     set_user_state(user.id, "WAITING_DEP_AMOUNT_MANUAL", {})
 
-    text = (
+    default_depm = (
         f"💳 <b>ডিপোজিট ব্যালেন্স (Send Money / Binance)</b>\n"
         f"─────────────────────────────\n"
         f"💰 বর্তমান ব্যালেন্স: <b>{db_user['balance_bdt']:.2f} BDT</b>\n"
         f"📌 সর্বনিম্ন ডিপোজিট: <b>{min_man:.0f} BDT</b>\n\n"
         f"আপনি কত টাকা ডিপোজিট করতে চান? টাকার পরিমাণ লিখে পাঠান (যেমন: 50, 100, 500):"
+    )
+    text = render_custom_bot_message(
+        "deposit_menu",
+        default_depm,
+        name=html.escape(user.full_name or ""),
+        balance=f"{db_user['balance_bdt']:.2f}",
+        min_deposit=f"{min_man:.0f}",
+        shop_name=get_setting("shop_name", "CyberNest Market"),
     )
     await send_smart_bot_message(update.message, "deposit_menu", text)
 
@@ -3952,7 +4025,13 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
             return
         if q_type == "open":
             set_user_state(user_id, "WAITING_AI_QUESTION", {})
-            await send_smart_bot_message(query.message, "ai_assistant", "🤖 আসসালামু আলাইকুম! আপনার কোনো প্রশ্ন বা অসুবিধা থাকলে নিচে লিখে জিজ্ঞেস করুন।")
+            ai_open_txt = render_custom_bot_message(
+                "ai_assistant",
+                "🤖 আসসালামু আলাইকুম! আপনার কোনো প্রশ্ন বা অসুবিধা থাকলে নিচে লিখে জিজ্ঞেস করুন।",
+                name=html.escape(query.from_user.full_name or ""),
+                shop_name=get_setting("shop_name", "CyberNest Market"),
+            )
+            await send_smart_bot_message(query.message, "ai_assistant", ai_open_txt)
             return
         map_q = {
             "vpn": "vpn price list",
@@ -3999,7 +4078,13 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     if data == "usr_cancel_home":
-        await query.message.reply_text("❌ কেনাকাটা বাতিল করা হয়েছে। নতুন অর্ডারের জন্য মেনু ব্যবহার করুন।")
+        cancel_txt = render_custom_bot_message(
+            "order_cancel",
+            "❌ কেনাকাটা বাতিল করা হয়েছে। নতুন অর্ডারের জন্য মেনু ব্যবহার করুন।",
+            name=html.escape(query.from_user.full_name or ""),
+            shop_name=get_setting("shop_name", "CyberNest Market"),
+        )
+        await query.message.reply_text(cancel_txt, parse_mode=ParseMode.HTML)
         try:
             await query.message.delete()
         except Exception:
@@ -4012,7 +4097,12 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         c.execute("SELECT id, name FROM categories ORDER BY position ASC, id ASC")
         cats = c.fetchall()
         conn.close()
-        text = "🛍️ <b>Buy Products</b>\n\nSelect a category:"
+        text = render_custom_bot_message(
+            "buy_products",
+            "🛍️ <b>Buy Products</b>\n\nSelect a category:",
+            name=html.escape(query.from_user.full_name or ""),
+            shop_name=get_setting("shop_name", "CyberNest Market"),
+        )
         keyboard = []
         for cat in cats:
             keyboard.append([InlineKeyboardButton(cat["name"], callback_data=f"usr_cat_{cat['id']}")])
@@ -4122,10 +4212,16 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         all_joined, missing_fj = await check_all_force_joins(context.bot, user_id)
         if not all_joined:
             kb = build_force_join_markup(missing_fj)
+            fj_calc_txt = render_custom_bot_message(
+                "force_join",
+                "⚠️ কিনতে হলে আগে নিচের সবগুলো গ্রুপ ও চ্যানেলে জয়েন করে ভেরিফাই করুন:",
+                name=html.escape(query.from_user.full_name or ""),
+                shop_name=get_setting("shop_name", "CyberNest Market"),
+            )
             await send_smart_bot_message(
                 query.message,
                 "force_join",
-                "⚠️ কিনতে হলে আগে নিচের সবগুলো গ্রুপ ও চ্যানেলে জয়েন করে ভেরিফাই করুন:",
+                fj_calc_txt,
                 reply_markup=kb,
             )
             return
@@ -4157,14 +4253,23 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
             [InlineKeyboardButton("📱 bKash", callback_data="usr_dep_method_bKash"), InlineKeyboardButton("📱 Nagad", callback_data="usr_dep_method_Nagad")],
             [InlineKeyboardButton("💎 Binance", callback_data="usr_dep_method_Binance")],
         ]))
+        _, sdata_dm = get_user_state(user_id)
+        dm_amt = float(sdata_dm.get("amount", 0) or 0)
+        dm_txt = render_custom_bot_message(
+            "deposit_method",
+            "নিচের কোন মাধ্যমে সেন্ড মানি করবেন সিলেক্ট করুন:",
+            amount=f"{dm_amt:.2f}",
+            name=html.escape(query.from_user.full_name or ""),
+            shop_name=get_setting("shop_name", "CyberNest Market"),
+        )
         if getattr(query.message, "photo", None):
             try:
                 await query.message.delete()
             except Exception:
                 pass
-            await send_smart_bot_message(query.message, "deposit_method", "নিচের কোন মাধ্যমে সেন্ড মানি করবেন সিলেক্ট করুন:", reply_markup=kb)
+            await send_smart_bot_message(query.message, "deposit_method", dm_txt, reply_markup=kb)
         else:
-            await query.edit_message_text("নিচের কোন মাধ্যমে সেন্ড মানি করবেন সিলেক্ট করুন:", reply_markup=kb)
+            await query.edit_message_text(dm_txt, parse_mode=ParseMode.HTML, reply_markup=kb)
         return
 
     if data.startswith("usr_dep_method_"):
@@ -4183,13 +4288,22 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         sdata["method"] = method
         set_user_state(user_id, "WAITING_DEP_TRX", sdata)
 
-        text = (
+        default_instr = (
             f"📱 <b>{method} পেমেন্ট নির্দেশিকা:</b>\n"
             f"─────────────────────────────\n"
             f"💰 ডিপোজিট পরিমাণ: <b>{amount:.2f} BDT</b>\n"
             f"📌 পেমেন্ট নাম্বার / আইডি (ক্লিক করে কপি করুন):\n"
             f"<code>{num}</code>\n\n"
             f"⚠️ <i>উপরের নাম্বারে <b>{amount:.2f} BDT</b> Send Money করার পর নিচে আপনার Transaction ID (TrxID) টি লিখে পাঠান:</i>"
+        )
+        text = render_custom_bot_message(
+            "deposit_instr",
+            default_instr,
+            method=method,
+            amount=f"{amount:.2f}",
+            number=num,
+            name=html.escape(query.from_user.full_name or ""),
+            shop_name=get_setting("shop_name", "CyberNest Market"),
         )
         if get_setting("msg_photo_deposit_instr", "").strip() or getattr(query.message, "photo", None):
             try:
@@ -4464,7 +4578,7 @@ async def render_purchase_summary(query_or_message, prod_id: int, quantity: int 
     )
     desc_show = p["description"].strip() if p["description"] and str(p["description"]).strip() else default_desc
 
-    text = (
+    default_ps = (
         f"🧾 <b>PURCHASE SUMMARY</b>\n"
         f"─────────────────────────────\n"
         f"📁 <b>Category:</b> {p['cat_name']}\n"
@@ -4474,6 +4588,16 @@ async def render_purchase_summary(query_or_message, prod_id: int, quantity: int 
         f"✅ <b>Quantity:</b> {quantity}\n"
         f"💲 <b>Rate:</b> {format_price(rate)} BDT\n"
         f"🛒 <b>Total Price:</b> {format_price(total)} BDT"
+    )
+    text = render_custom_bot_message(
+        "purchase_summary",
+        default_ps,
+        category=p["cat_name"],
+        package=full_name,
+        description=desc_show,
+        quantity=quantity,
+        rate=format_price(rate),
+        total=format_price(total),
     )
 
     kb = [
@@ -4786,6 +4910,9 @@ def build_admin_dashboard_markup(pend_dep: int, pend_ord: int) -> InlineKeyboard
             InlineKeyboardButton("🖼️ Message Photo Manager", callback_data="adm_msg_photos"),
         ],
         [
+            InlineKeyboardButton("📝 Message Text Manager", callback_data="adm_msg_texts"),
+        ],
+        [
             InlineKeyboardButton("💳 Payment Settings", callback_data="adm_pay_settings"),
             InlineKeyboardButton(f"💳 Deposits ({pend_dep})", callback_data="adm_pending_deposits"),
         ],
@@ -5076,6 +5203,70 @@ async def handle_admin_callbacks(query, data: str, context: ContextTypes.DEFAULT
         sk = data.replace("adm_mphoto_del_", "", 1)
         set_setting(f"msg_photo_{sk}", "")
         await handle_admin_callbacks(query, f"adm_mphoto_view_{sk}", context)
+        return
+
+    # --- 📝 MESSAGE TEXT MANAGER (EDIT ANY BOT MESSAGE TEXT) ---
+    if data == "adm_msg_texts":
+        custom_cnt = sum(1 for sk, _ in BOT_MESSAGE_SLOTS if get_setting(f"msg_text_{sk}", "").strip())
+        txt = (
+            "📝 <b>Message Text Manager (মেসেজ টেক্সট এডিটর)</b>\n"
+            "─────────────────────────────\n"
+            f"✏️ কাস্টমাইজ করা মেসেজ: <b>{custom_cnt} / {len(BOT_MESSAGE_SLOTS)}</b> টি\n\n"
+            "বটের যেকোনো বাটন বা মেনুর মেসেজ টেক্সট এডিট করতে বা ডিফল্টে রিসেট করতে নিচ থেকে মেসেজটি সিলেক্ট করুন:"
+        )
+        kb = []
+        for sk, slabel in BOT_MESSAGE_SLOTS:
+            has_custom = bool(get_setting(f"msg_text_{sk}", "").strip())
+            icon = "✏️" if has_custom else "⚪"
+            kb.append([InlineKeyboardButton(f"{icon} {slabel}", callback_data=f"adm_mtext_view_{sk}")])
+        kb.append([InlineKeyboardButton("< Back to Dashboard", callback_data="adm_root")])
+        await query.edit_message_text(txt, parse_mode=ParseMode.HTML, reply_markup=colorize_markup(InlineKeyboardMarkup(kb)))
+        return
+
+    if data.startswith("adm_mtext_view_"):
+        sk = data.replace("adm_mtext_view_", "", 1)
+        slabel = BOT_MESSAGE_SLOT_MAP.get(sk, sk)
+        cur_txt = get_setting(f"msg_text_{sk}", "").strip()
+        ph_hint = BOT_MESSAGE_PLACEHOLDERS.get(sk, "{name}, {shop_name}")
+        status_txt = "✅ <b>কাস্টম টেক্সট সেট করা আছে</b>" if cur_txt else "⚪ <b>ডিফল্ট মেসেজ চালু আছে</b>"
+        preview_block = (
+            f"\n\n📄 <b>বর্তমান কাস্টম টেক্সট:</b>\n<pre>{html.escape(cur_txt[:800])}</pre>"
+            if cur_txt
+            else ""
+        )
+        kb = [[InlineKeyboardButton("✏️ Edit Message Text", callback_data=f"adm_mtext_set_{sk}")]]
+        if cur_txt:
+            kb.append([InlineKeyboardButton("🔄 Reset to Default Text", callback_data=f"adm_mtext_reset_{sk}")])
+        kb.append([InlineKeyboardButton("< Back to Message Texts", callback_data="adm_msg_texts")])
+        await query.edit_message_text(
+            f"📝 <b>মেসেজ সেকশন:</b> {html.escape(slabel)}\n"
+            f"─────────────────────────────\n"
+            f"📌 বর্তমান অবস্থা: {status_txt}\n"
+            f"🧩 <b>ব্যবহারযোগ্য ভ্যারিয়েবল (Optional):</b> <code>{html.escape(ph_hint)}</code>"
+            f"{preview_block}\n\n"
+            f"💡 <i>আপনি চাইলে &lt;b&gt;Bold&lt;/b&gt;, &lt;i&gt;Italic&lt;/i&gt;, &lt;code&gt;Code&lt;/code&gt; HTML ট্যাগও ব্যবহার করতে পারবেন।</i>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=colorize_markup(InlineKeyboardMarkup(kb)),
+        )
+        return
+
+    if data.startswith("adm_mtext_set_"):
+        sk = data.replace("adm_mtext_set_", "", 1)
+        slabel = BOT_MESSAGE_SLOT_MAP.get(sk, sk)
+        ph_hint = BOT_MESSAGE_PLACEHOLDERS.get(sk, "{name}, {shop_name}")
+        set_user_state(user_id, "ADMIN_WAITING_MSG_TEXT", {"slot_key": sk})
+        await query.message.reply_text(
+            f"✏️ <b>{html.escape(slabel)}</b>-এর জন্য নতুন মেসেজটি লিখে পাঠান:\n\n"
+            f"🧩 <b>ভ্যারিয়েবল (প্রয়োজন হলে ব্যবহার করুন):</b> <code>{html.escape(ph_hint)}</code>\n"
+            f"💡 <i>HTML ফরম্যাট (&lt;b&gt;, &lt;i&gt;, &lt;code&gt;) সাপোর্ট করে।</i>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    if data.startswith("adm_mtext_reset_"):
+        sk = data.replace("adm_mtext_reset_", "", 1)
+        set_setting(f"msg_text_{sk}", "")
+        await handle_admin_callbacks(query, f"adm_mtext_view_{sk}", context)
         return
 
     if data == "adm_stk_step1_cats":
@@ -6149,10 +6340,17 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             [InlineKeyboardButton("📱 bKash", callback_data="usr_dep_method_bKash"), InlineKeyboardButton("📱 Nagad", callback_data="usr_dep_method_Nagad")],
             [InlineKeyboardButton("💎 Binance", callback_data="usr_dep_method_Binance")],
         ]))
+        dm_wait_txt = render_custom_bot_message(
+            "deposit_method",
+            f"✅ আপনি <b>{amt:.2f} BDT</b> ডিপোজিট করতে চেয়েছেন।\n\nনিচের কোন মাধ্যমে সেন্ড মানি করবেন সিলেক্ট করুন:",
+            amount=f"{amt:.2f}",
+            name=html.escape(user.full_name or ""),
+            shop_name=get_setting("shop_name", "CyberNest Market"),
+        )
         await send_smart_bot_message(
             update.message,
             "deposit_method",
-            f"✅ আপনি <b>{amt:.2f} BDT</b> ডিপোজিট করতে চেয়েছেন।\n\nনিচের কোন মাধ্যমে সেন্ড মানি করবেন সিলেক্ট করুন:",
+            dm_wait_txt,
             reply_markup=kb,
         )
         return
@@ -6242,6 +6440,25 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         except Exception:
             import re as _re
             await update.message.reply_text(_re.sub(r"<[^>]+>", "", safe_ans)[:4000])
+        return
+
+    if state == "ADMIN_WAITING_MSG_TEXT":
+        sk = sdata.get("slot_key", "")
+        raw_val = update.message.text.strip()
+        if sk and raw_val:
+            set_setting(f"msg_text_{sk}", raw_val)
+            set_user_state(user_id, None)
+            slabel = BOT_MESSAGE_SLOT_MAP.get(sk, sk)
+            try:
+                await update.message.reply_text(
+                    f"✅ <b>{html.escape(slabel)}</b>-এর মেসেজ সফলভাবে আপডেট হয়েছে!\n\n"
+                    f"👁️ <b>লাইভ প্রিভিউ:</b>\n─────────────────────\n{raw_val}",
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception as html_err:
+                await update.message.reply_text(
+                    f"✅ {slabel}-এর মেসেজ সেভ হয়েছে!\n⚠️ তবে HTML ট্যাগে ছোট ভুল থাকতে পারে ({html_err}) — প্রয়োজনে আবার এডিট করে ঠিক করে নিন।"
+                )
         return
 
     if state == "ADMIN_WAITING_MSG_PHOTO":
@@ -6923,9 +7140,16 @@ async def send_auto_delete_welcome_group(bot, chat_id, user):
     _RECENTLY_WELCOMED.add(user_id)
 
     user_link = f'<a href="tg://user?id={user.id}">{user.full_name or "মেম্বার"}</a>'
-    welcome_text = (
+    default_gw = (
         f"🌸 <b>আসসালামু আলাইকুম</b>, {user_link}! ✨\n\n"
         f"আমাদের কমিউনিটি গ্রুপে আপনাকে স্বাগতম। 🎉"
+    )
+    welcome_text = render_custom_bot_message(
+        "group_welcome",
+        default_gw,
+        user_link=user_link,
+        name=html.escape(user.full_name or "মেম্বার"),
+        shop_name=get_setting("shop_name", "CyberNest Market"),
     )
     try:
         sent_msg = await bot.send_message(chat_id=chat_id, text=welcome_text, parse_mode=ParseMode.HTML)
