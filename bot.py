@@ -558,60 +558,81 @@ def _extract_otp_from_text(subject: str, clean_body: str) -> str:
     return ""
 
 def _fetch_via_yamin_fallback(account_str: str) -> Optional[dict]:
-    """Optional fast fallback via code.yamin.bd public endpoint if direct token permissions vary."""
-    try:
-        payload = json.dumps({"credentials": account_str}).encode("utf-8")
-        req = urllib.request.Request(
-            "https://code.yamin.bd/api/get-code",
-            data=payload,
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) CyberNestBot/3.0",
-                "Origin": "https://code.yamin.bd",
-                "Referer": "https://code.yamin.bd/",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            raw = resp.read().decode("utf-8", errors="ignore")
-            data = json.loads(raw)
-        rows = data if isinstance(data, list) else (data.get("results") or data.get("data") or [data])
-        for r in rows:
-            if not isinstance(r, dict):
-                continue
-            code_val = str(r.get("code") or r.get("otp") or "").strip()
-            msgs = r.get("messages") or r.get("emails") or []
-            if code_val or msgs:
-                norm_msgs = []
-                for m in msgs[:8]:
-                    subj = str(m.get("subject") or "Inbox Message")
-                    body_txt = str(m.get("body") or m.get("text") or m.get("preview") or "")
-                    c_found = str(m.get("code") or "") or _extract_otp_from_text(subj, body_txt)
-                    norm_msgs.append({
-                        "sender_name": str(m.get("from_name") or m.get("sender") or "Sender"),
-                        "sender_email": str(m.get("from") or m.get("sender_email") or ""),
-                        "subject": subj,
-                        "preview": body_txt[:140] + ("..." if len(body_txt) > 140 else ""),
-                        "body": body_txt[:2000],
-                        "date": str(m.get("date") or "")[:25],
-                        "code": c_found,
-                    })
-                if not code_val and norm_msgs:
-                    code_val = next((x["code"] for x in norm_msgs if x["code"]), "") or norm_msgs[0]["preview"][:40]
-                if code_val:
-                    return {
-                        "ok": True,
-                        "email": str(r.get("email") or account_str.split("|")[0].strip()),
-                        "subject": norm_msgs[0]["subject"] if norm_msgs else "Verification Code",
-                        "code": code_val,
-                        "messages": norm_msgs,
-                    }
-    except Exception:
-        pass
+    """Fast fallback via public OAuth reader endpoints if direct IMAP is blocked."""
+    endpoints = [
+        ("https://code.yamin.bd/api/get-code", {"credentials": account_str}, "https://code.yamin.bd"),
+        ("https://tools.dongvanfb.net/api/get_messages_oauth2", None, "https://tools.dongvanfb.net"),
+    ]
+    parts = [p.strip() for p in account_str.split("|") if p.strip()]
+    for url, json_payload, origin in endpoints:
+        try:
+            if json_payload is not None:
+                payload = json.dumps(json_payload).encode("utf-8")
+                headers = {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) CyberNestBot/3.0",
+                    "Origin": origin,
+                    "Referer": origin + "/",
+                }
+                req = urllib.request.Request(url, data=payload, headers=headers)
+            else:
+                if len(parts) < 4:
+                    continue
+                qs = urllib.parse.urlencode({
+                    "email": parts[0],
+                    "refresh_token": parts[2],
+                    "client_id": parts[3],
+                })
+                req = urllib.request.Request(
+                    f"{url}?{qs}",
+                    headers={
+                        "Accept": "application/json",
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) CyberNestBot/3.0",
+                    },
+                )
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                raw = resp.read().decode("utf-8", errors="ignore")
+                data = json.loads(raw)
+            rows = data if isinstance(data, list) else (data.get("results") or data.get("messages") or data.get("data") or [data])
+            if isinstance(data, dict) and isinstance(data.get("messages"), list):
+                rows = [{"email": parts[0], "messages": data["messages"], "code": data.get("code", "")}]
+            for r in rows:
+                if not isinstance(r, dict):
+                    continue
+                code_val = str(r.get("code") or r.get("otp") or "").strip()
+                msgs = r.get("messages") or r.get("emails") or []
+                if code_val or msgs:
+                    norm_msgs = []
+                    for m in msgs[:8]:
+                        subj = str(m.get("subject") or "Inbox Message")
+                        body_txt = str(m.get("body") or m.get("message") or m.get("text") or m.get("preview") or "")
+                        c_found = str(m.get("code") or "") or _extract_otp_from_text(subj, body_txt)
+                        norm_msgs.append({
+                            "sender_name": str(m.get("from_name") or m.get("sender") or m.get("from") or "Sender"),
+                            "sender_email": str(m.get("from") or m.get("sender_email") or ""),
+                            "subject": subj,
+                            "preview": body_txt[:140] + ("..." if len(body_txt) > 140 else ""),
+                            "body": body_txt[:2000],
+                            "date": str(m.get("date") or m.get("created_at") or "")[:25],
+                            "code": c_found,
+                        })
+                    if not code_val and norm_msgs:
+                        code_val = next((x["code"] for x in norm_msgs if x["code"]), "") or norm_msgs[0]["preview"][:40]
+                    if code_val or norm_msgs:
+                        return {
+                            "ok": True,
+                            "email": str(r.get("email") or parts[0]),
+                            "subject": norm_msgs[0]["subject"] if norm_msgs else "Verification Code",
+                            "code": code_val or "No numeric OTP",
+                            "messages": norm_msgs,
+                        }
+        except Exception:
+            continue
     return None
 
 def fetch_outlook_otp(account_str: str) -> dict:
-    """Super-fast 3-Layer OTP Reader (Microsoft Graph API -> All-Folder IMAP -> code.yamin.bd fallback)."""
+    """3-Layer Outlook/Hotmail OTP Reader (Graph API -> Dedicated IMAP XOAUTH2 -> Public OAuth Fallback)."""
     import re as _re
     from email.utils import parseaddr
 
@@ -621,83 +642,98 @@ def fetch_outlook_otp(account_str: str) -> dict:
         return {"ok": False, "error": "Format must be: email|password|refresh_token|client_id"}
     mail_addr, _, refresh_token, client_id = parts[0], parts[1], parts[2], parts[3]
 
-    token_url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
-    access_token = None
-    last_token_err = "Token refresh failed"
+    token_endpoints = [
+        "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
+        "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+    ]
+    last_err = "Token refresh failed"
+    any_token_valid = False
 
-    # Layer 1: Try Microsoft Graph API first (0.5s ultra-fast, reads Inbox + Junk + Other simultaneously)
-    for scope_try in (
-        "https://graph.microsoft.com/Mail.Read offline_access",
-        None,
-        "https://outlook.office.com/IMAP.AccessAsUser.All offline_access",
-    ):
+    # Layer 1: Microsoft Graph API (reads Inbox + Junk + Focused/Other simultaneously)
+    for t_url in token_endpoints:
         try:
-            post_body = {
-                "client_id": client_id,
-                "refresh_token": refresh_token,
-                "grant_type": "refresh_token",
-            }
-            if scope_try:
-                post_body["scope"] = scope_try
-            tdata = _http_post_json(token_url, post_body, timeout=12)
-            if tdata.get("access_token"):
-                access_token = tdata["access_token"]
-                granted_scope = str(tdata.get("scope", ""))
-                # If Graph token granted, fetch directly via Graph API
-                if "graph.microsoft.com" in granted_scope or scope_try == "https://graph.microsoft.com/Mail.Read offline_access":
-                    try:
-                        g_url = "https://graph.microsoft.com/v1.0/me/messages?$top=8&$orderby=receivedDateTime%20desc&$select=subject,bodyPreview,body,from,receivedDateTime"
-                        g_req = urllib.request.Request(
-                            g_url,
-                            headers={
-                                "Authorization": f"Bearer {access_token}",
-                                "Accept": "application/json",
-                                "User-Agent": "CyberNestBot/3.0",
-                            },
-                        )
-                        with urllib.request.urlopen(g_req, timeout=10) as g_resp:
-                            g_json = json.loads(g_resp.read().decode("utf-8"))
-                        g_items = g_json.get("value", [])
-                        if g_items:
-                            messages_out = []
-                            for itm in g_items:
-                                subj = str(itm.get("subject") or "Inbox Message").strip()
-                                sender_obj = (itm.get("from") or {}).get("emailAddress") or {}
-                                s_name = str(sender_obj.get("name") or "Sender").strip()
-                                s_email = str(sender_obj.get("address") or "").strip()
-                                raw_body = ((itm.get("body") or {}).get("content") or "") or str(itm.get("bodyPreview") or "")
-                                clean_txt = _re.sub(r"\s+", " ", _re.sub(r"<[^>]+>", " ", raw_body)).strip()
-                                date_str = str(itm.get("receivedDateTime") or "").replace("T", " ").replace("Z", "")[:19]
-                                code_found = _extract_otp_from_text(subj, clean_txt)
-                                messages_out.append({
-                                    "sender_name": s_name or (s_email.split("@")[0] if "@" in s_email else "Sender"),
-                                    "sender_email": s_email,
-                                    "subject": subj,
-                                    "preview": clean_txt[:140] + ("..." if len(clean_txt) > 140 else ""),
-                                    "body": clean_txt[:2000],
-                                    "date": date_str,
-                                    "code": code_found,
-                                })
-                            latest_code = next((m["code"] for m in messages_out if m["code"]), "") or messages_out[0]["preview"][:40]
-                            return {
-                                "ok": True,
-                                "email": mail_addr,
-                                "subject": messages_out[0]["subject"],
-                                "code": latest_code,
-                                "messages": messages_out,
-                            }
-                    except Exception:
-                        pass
+            tdata = _http_post_json(
+                t_url,
+                {
+                    "client_id": client_id,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                    "scope": "https://graph.microsoft.com/Mail.Read offline_access",
+                },
+                timeout=12,
+            )
+            g_token = tdata.get("access_token")
+            if g_token:
+                any_token_valid = True
+                g_url = "https://graph.microsoft.com/v1.0/me/messages?$top=10&$orderby=receivedDateTime%20desc&$select=subject,bodyPreview,body,from,receivedDateTime"
+                g_req = urllib.request.Request(
+                    g_url,
+                    headers={
+                        "Authorization": f"Bearer {g_token}",
+                        "Accept": "application/json",
+                        "User-Agent": "CyberNestBot/3.0",
+                    },
+                )
+                with urllib.request.urlopen(g_req, timeout=10) as g_resp:
+                    g_json = json.loads(g_resp.read().decode("utf-8"))
+                g_items = g_json.get("value", [])
+                if g_items:
+                    messages_out = []
+                    for itm in g_items:
+                        subj = str(itm.get("subject") or "Inbox Message").strip()
+                        sender_obj = (itm.get("from") or {}).get("emailAddress") or {}
+                        s_name = str(sender_obj.get("name") or "Sender").strip()
+                        s_email = str(sender_obj.get("address") or "").strip()
+                        raw_body = ((itm.get("body") or {}).get("content") or "") or str(itm.get("bodyPreview") or "")
+                        clean_txt = _re.sub(r"\s+", " ", _re.sub(r"<[^>]+>", " ", raw_body)).strip()
+                        date_str = str(itm.get("receivedDateTime") or "").replace("T", " ").replace("Z", "")[:19]
+                        code_found = _extract_otp_from_text(subj, clean_txt)
+                        messages_out.append({
+                            "sender_name": s_name or (s_email.split("@")[0] if "@" in s_email else "Sender"),
+                            "sender_email": s_email,
+                            "subject": subj,
+                            "preview": clean_txt[:140] + ("..." if len(clean_txt) > 140 else ""),
+                            "body": clean_txt[:2000],
+                            "date": date_str,
+                            "code": code_found,
+                        })
+                    latest_code = next((m["code"] for m in messages_out if m["code"]), "") or messages_out[0]["preview"][:40]
+                    return {
+                        "ok": True,
+                        "email": mail_addr,
+                        "subject": messages_out[0]["subject"],
+                        "code": latest_code,
+                        "messages": messages_out,
+                    }
                 break
-            else:
-                last_token_err = tdata.get("error_description", last_token_err)
         except Exception as e:
-            last_token_err = str(e)
+            last_err = str(e)
 
-    # Layer 2: IMAP XOAUTH2 checking BOTH 'INBOX' and 'Junk' (Spam) folders
-    if access_token:
+    # Layer 2: Dedicated IMAP XOAUTH2 Token + All Folders (INBOX + Junk)
+    imap_token = None
+    for t_url in token_endpoints:
+        for imap_scope in ("https://outlook.office.com/IMAP.AccessAsUser.All offline_access", None):
+            try:
+                post_body = {
+                    "client_id": client_id,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                }
+                if imap_scope:
+                    post_body["scope"] = imap_scope
+                tdata = _http_post_json(t_url, post_body, timeout=12)
+                if tdata.get("access_token"):
+                    imap_token = tdata["access_token"]
+                    any_token_valid = True
+                    break
+            except Exception as e:
+                last_err = str(e)
+        if imap_token:
+            break
+
+    if imap_token:
         try:
-            auth_string = f"user={mail_addr}\x01auth=Bearer {access_token}\x01\x01"
+            auth_string = f"user={mail_addr}\x01auth=Bearer {imap_token}\x01\x01"
             imap = imaplib.IMAP4_SSL("outlook.office365.com", 993)
             imap.authenticate("XOAUTH2", lambda x: auth_string.encode("utf-8"))
 
@@ -711,7 +747,7 @@ def fetch_outlook_otp(account_str: str) -> dict:
                     ids = data[0].split() if data and data[0] else []
                     if not ids:
                         continue
-                    for mid in reversed(ids[-5:]):
+                    for mid in reversed(ids[-6:]):
                         _, msg_data = imap.fetch(mid, "(RFC822)")
                         if not msg_data or not msg_data[0]:
                             continue
@@ -780,17 +816,16 @@ def fetch_outlook_otp(account_str: str) -> dict:
                     "messages": messages_out,
                 }
         except Exception as imap_err:
-            last_token_err = str(imap_err)
+            last_err = f"IMAP Auth: {imap_err}"
 
-    # Layer 3: Fallback via code.yamin.bd if direct IMAP/Graph returned empty
+    # Layer 3: Fallback via public OAuth reader APIs
     yamin_res = _fetch_via_yamin_fallback(first_line)
     if yamin_res and yamin_res.get("ok"):
         return yamin_res
 
-    if access_token:
-        return {"ok": False, "error": "Inbox & Junk folders are currently empty. Tap 🔄 Refresh Code in 3 seconds."}
-    return {"ok": False, "error": last_token_err}
-
+    if any_token_valid:
+        return {"ok": False, "error": f"Inbox & Junk folders are empty (or IMAP blocked: {last_err[:80]}). Tap 🔄 Refresh Code in 3 seconds."}
+    return {"ok": False, "error": f"OAuth Token Error: {last_err[:120]}"}
 # ------------------------------------------------------------------------------
 # 2. SMART LIVE DATABASE-BACKED AI SUPPORT ENGINE (Bangla / Banglish / English)
 # ------------------------------------------------------------------------------
