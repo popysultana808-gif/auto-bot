@@ -3541,6 +3541,78 @@ def format_credentials_card(items: List[str], prod_name: str, cat_name: str) -> 
     lines.append("💡 <i>Tap any value above to copy in one click</i>")
     return "\n".join(lines)
 
+def format_credentials_card(items: List[str], prod_name: str, cat_name: str) -> str:
+    """Formats credentials with one-tap copy code blocks."""
+    is_proxy = "PROXY" in cat_name.upper() or "PROXY" in prod_name.upper()
+    is_mail = "MAIL" in cat_name.upper() or "HOTMAIL" in prod_name.upper() or "OUTLOOK" in prod_name.upper()
+    lines = []
+
+    if is_proxy:
+        lines.append("✅ <b>Proxy Delivered!</b>")
+        lines.append(f"🌐 <b>{html.escape(prod_name)}</b>")
+        lines.append("────────────────────────")
+        for idx, item in enumerate(items, start=1):
+            parts = [p.strip() for p in item.replace("@", ":").split(":") if p.strip()]
+            if len(parts) >= 4:
+                host, port, u_name, pwd = parts[0], parts[1], parts[2], parts[3]
+            elif len(parts) == 2:
+                host, port = parts[0], parts[1]
+                u_name, pwd = "N/A", "N/A"
+            else:
+                host, port, u_name, pwd = item, "N/A", "N/A", "N/A"
+
+            if len(items) > 1:
+                lines.append(f"🌐 <b>Proxy #{idx}</b>")
+            lines.append(f"🖥️ <b>Host</b>     : <code>{html.escape(host)}</code>")
+            lines.append(f"🔌 <b>Port</b>     : <code>{html.escape(port)}</code>")
+            lines.append(f"👤 <b>Username</b> : <code>{html.escape(u_name)}</code>")
+            lines.append(f"🔐 <b>Password</b> : <code>{html.escape(pwd)}</code>")
+            lines.append(f"📋 <b>Full</b>     : <code>{html.escape(item)}</code>")
+            if idx < len(items):
+                lines.append("")
+    elif is_mail:
+        lines.append("✅ <b>Mail Delivered!</b>")
+        lines.append(f"📧 <b>{len(items)}× {html.escape(prod_name)}</b>")
+        lines.append("────────────────────────")
+        for idx, item in enumerate(items, start=1):
+            full_str = item.strip()
+            delim = "|" if "|" in full_str else ":"
+            email_only = full_str.split(delim)[0].strip()
+
+            lines.append(f"📧 <b>#{idx}</b>")
+            lines.append(f"✉️ <b>Mail</b> : <code>{html.escape(email_only)}</code>")
+            lines.append(f"<code>{html.escape(full_str)}</code>")
+            if idx < len(items):
+                lines.append("")
+    else:
+        lines.append("✅ <b>Service Delivered!</b>")
+        lines.append(f"🛡️ <b>{html.escape(prod_name)}</b>")
+        lines.append("────────────────────────")
+        for idx, item in enumerate(items, start=1):
+            delim = "|" if "|" in item else ":"
+            parts = [p.strip() for p in item.split(delim) if p.strip()]
+            if len(parts) >= 2:
+                email, pwd = parts[0], parts[1]
+                if len(items) > 1:
+                    lines.append(f"📦 <b>Item #{idx}</b>")
+                lines.append(f"📧 <b>Email / User</b> : <code>{html.escape(email)}</code>")
+                lines.append(f"🔐 <b>Password</b>     : <code>{html.escape(pwd)}</code>")
+                if len(parts) >= 3:
+                    tok = parts[2]
+                    lines.append(f"🎟️ <b>Token / Session</b> : <code>{html.escape(tok)}</code>")
+            else:
+                if len(items) > 1:
+                    lines.append(f"🔑 <b>Key / Code #{idx}</b>")
+                lines.append(f"🎟️ <b>Key / Code</b> : <code>{html.escape(item)}</code>")
+            if idx < len(items):
+                lines.append("")
+
+    lines.append("────────────────────────")
+    lines.append("💡 <i>Tap any value above to copy</i>")
+    return "\n".join(lines)
+
+
+
 # ------------------------------------------------------------------------------
 # 7. USER HANDLERS (New vs Returning Welcome, AI Assistant, Shop, Profile, Deposit)
 # ------------------------------------------------------------------------------
