@@ -2482,9 +2482,27 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     conn.commit()
                     c.execute("SELECT COUNT(*) as cnt FROM stock WHERE product_id = ? AND is_sold = 0", (pid,))
                     total_now = c.fetchone()["cnt"]
+                    c.execute(
+                        "SELECT p.name as prod_name, p.price_bdt as price, s.name as sub_name "
+                        "FROM products p LEFT JOIN subcategories s ON p.subcategory_id = s.id WHERE p.id = ?",
+                        (pid,),
+                    )
+                    p_info = c.fetchone()
                     conn.close()
+                    if lines and p_info and _GLOBAL_EVENT_LOOP and _GLOBAL_BOT_APP:
+                        asyncio.run_coroutine_threadsafe(
+                            broadcast_stock_restock_alert(
+                                _GLOBAL_BOT_APP.bot,
+                                pid,
+                                str(p_info["prod_name"]),
+                                len(lines),
+                                int(total_now),
+                                float(p_info["price"] or 0),
+                                str(p_info["sub_name"] or ""),
+                            ),
+                            _GLOBAL_EVENT_LOOP,
+                        )
                     return self._send_json({"ok": True, "added": len(lines), "total_stock": total_now})
-
                 if path == "/api/admin/payment_settings":
                     for k in ("bkash_number", "nagad_number", "binance_id", "min_deposit_manual", "usdt_rate", "support_username"):
                         if k in body and body[k] is not None:
