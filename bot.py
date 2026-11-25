@@ -491,7 +491,55 @@ def add_notification(user_id: int, title: str, message: str):
         conn.close()
     except Exception as e:
         logger.warning(f"add_notification error: {e}")
+async def broadcast_stock_restock_alert(bot, prod_id: int, prod_name: str, added_qty: int, total_stock: int, price: float, cat_name: str = ""):
+    """Sends an automatic restock alert to all registered bot users in the background."""
+    if not bot or added_qty <= 0:
+        return
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT user_id FROM users")
+        rows = c.fetchall()
+        user_ids = []
+        for row in rows:
+            uid = row["user_id"] if isinstance(row, dict) or hasattr(row, "keys") else row[0]
+            if uid:
+                user_ids.append(int(uid))
+        conn.close()
+    except Exception as e:
+        logger.warning(f"Restock broadcast DB fetch error: {e}")
+        return
 
+    cat_line = f"📂 <b>Category:</b> {html.escape(cat_name)}\n" if cat_name else ""
+    alert_text = (
+        "🚨 <b>NEW STOCK ADDED!</b> 🚨\n"
+        "────────────────────────\n"
+        f"📦 <b>Product:</b> {html.escape(prod_name)}\n"
+        f"{cat_line}"
+        f"➕ <b>Added Stock:</b> +{added_qty} pcs\n"
+        f"📊 <b>Available Now:</b> {total_stock} pcs\n"
+        f"💰 <b>Price:</b> ৳{price:.2f} / pc\n"
+        "────────────────────────\n"
+        "⚡ <i>স্টক শেষ হওয়ার আগেই এখনই অর্ডার করুন!</i>"
+    )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🛒 Buy Now", callback_data=f"prod_{prod_id}")]
+    ])
+
+    sent_count = 0
+    for uid in user_ids:
+        try:
+            await bot.send_message(
+                chat_id=uid,
+                text=alert_text,
+                parse_mode="HTML",
+                reply_markup=kb,
+            )
+            sent_count += 1
+            await asyncio.sleep(0.05)
+        except Exception:
+            continue
+    logger.info(f"Restock broadcast completed for '{prod_name}': sent to {sent_count}/{len(user_ids)} users.")
 def get_vip_badge_info(total_spent: float) -> Dict[str, Any]:
     """Calculates VIP Membership Badge based on user's lifetime spending."""
     spent = float(total_spent or 0.0)
